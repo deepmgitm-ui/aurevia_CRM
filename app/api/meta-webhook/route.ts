@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+// Never cache the verification endpoint — Meta's "Verify and Save" must always hit the live handler.
+export const dynamic = "force-dynamic";
 
 type JsonValue =
   | string
@@ -117,6 +119,7 @@ export async function GET(request: NextRequest) {
   const challenge = searchParams.get("hub.challenge");
   const verifyToken = process.env.META_VERIFY_TOKEN;
 
+  console.log("Meta Verify:", { mode, token, expected: verifyToken, challenge });
   console.log("[Meta Webhook][GET] Verification request received", {
     mode,
     hasToken: Boolean(token),
@@ -129,14 +132,11 @@ export async function GET(request: NextRequest) {
     typeof challenge === "string"
   ) {
     console.log("[Meta Webhook][GET] Verification successful");
-    return new Response(challenge, {
-      status: 200,
-      headers: { "Content-Type": "text/plain" },
-    });
+    return new NextResponse(challenge, { status: 200 });
   }
 
   console.warn("[Meta Webhook][GET] Verification failed");
-  return new Response("Forbidden", { status: 403 });
+  return new NextResponse("Forbidden", { status: 403 });
 }
 
 // Facebook retries webhooks on non-2xx responses, so every POST path ends in 200.
