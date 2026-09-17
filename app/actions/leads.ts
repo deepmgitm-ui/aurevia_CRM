@@ -379,17 +379,19 @@ export async function bulkInsertLeads(
 
       const candidate = lead as Record<string, unknown>;
       const getField = (...keys: string[]): unknown => {
-        const normalizedKeys = keys.map((key) => key.trim().toLowerCase());
+        // Case-insensitive + collapse internal/edge whitespace, so "Full  Name",
+        // " Patient ", and "patient" all match the same column.
+        const normalizedKeys = keys.map((key) => key.trim().toLowerCase().replace(/\s+/g, " "));
         const entry = Object.entries(candidate).find(([key]) =>
-          normalizedKeys.includes(key.trim().toLowerCase()),
+          normalizedKeys.includes(key.trim().toLowerCase().replace(/\s+/g, " ")),
         );
         return entry?.[1];
       };
       const text = (...keys: string[]) => toTextField(getField(...keys));
 
-      const name = text("Full Name", "name", "patient name", "patient_name");
-      const phoneRaw = text("Contact no", "phone", "phone number", "mobile");
-      const email = text("Email", "email");
+      const name = text("Full Name", "name", "patient name", "patient_name", "patient");
+      const phoneRaw = text("Contact no", "phone", "phone number", "phone_number", "contact", "contact number", "mobile");
+      const email = text("Email", "email", "email id", "email_id", "mail");
 
       // Skip blank filler rows (headers repeated mid-sheet, empty lines, etc.)
       // so they never become junk "-" leads in the database.
@@ -407,6 +409,8 @@ export async function bulkInsertLeads(
         "lead_date",
         "Date of Lead",
         "date_of_lead",
+        "created at",
+        "created_at",
       );
       const followUpDate = getField(
         "Follow-up Date",
@@ -416,7 +420,7 @@ export async function bulkInsertLeads(
         "Next Follow Up",
         "next_follow_up",
       );
-      const importedAssignee = text("Assigned To", "assigned_to");
+      const importedAssignee = text("Assigned To", "assigned_to", "assign to", "assign_to");
       const assignedProfileName = importedAssignee
         ? validProfileNames.get(importedAssignee.toLowerCase()) ?? "-"
         : "-";
@@ -426,11 +430,11 @@ export async function bulkInsertLeads(
         phone: sanitizePhone(phoneRaw),
         email: dashIfEmpty(email),
         gender: dashIfEmpty(text("Gender", "gender")),
-        city: dashIfEmpty(text("City", "city")),
-        // "Treatment" is a common alias for the disease column.
-        disease: dashIfEmpty(text("Disease", "disease", "Treatment", "treatment", "Health Concern")),
+        // CRITICAL: city/location/area/address all funnel into the dedicated city column.
+        city: dashIfEmpty(text("City", "city", "Location", "location", "Area", "area", "Address", "address")),
+        disease: dashIfEmpty(text("Disease", "disease", "Treatment", "treatment", "Issue", "issue", "Problem", "problem", "Health Concern")),
         insurance_status: dashIfEmpty(text("Insurance Status", "insurance_status", "insurance")),
-        remarks: dashIfEmpty(text("Remark 1", "remarks", "remark", "Remark", "note", "notes")),
+        remarks: dashIfEmpty(text("Remark 1", "remarks", "remark", "Remark", "note", "notes", "comment", "comments")),
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: batchSource,
@@ -662,6 +666,62 @@ export async function updateLeadAssignment(
     return { success: true, data: data as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to update lead assignment.") };
+  }
+}
+
+export interface UpdateLeadDetailsInput {
+  id: string;
+  city?: string;
+  disease?: string;
+  insurance_status?: string;
+  remarks?: string;
+}
+
+// Full editability: lets admins (and employees, on their own leads per RLS)
+// edit City / Treatment / Insurance / Remarks directly from the dashboard UI.
+export async function updateLeadDetails(
+  input: UpdateLeadDetailsInput,
+): Promise<ActionResult<Lead>> {
+  if (!input.id) {
+    return { success: false, error: "Lead ID is required." };
+  }
+
+  const updates: Record<string, string> = {};
+  if (input.city !== undefined) updates.city = input.city.trim() || "-";
+  if (input.disease !== undefined) updates.disease = input.disease.trim() || "-";
+  if (input.insurance_status !== undefined) updates.insurance_status = input.insurance_status.trim() || "-";
+  if (input.remarks !== undefined) updates.remarks = input.remarks.trim() || "-";
+
+  if (Object.keys(updates).length === 0) {
+    return { success: false, error: "No changes were provided." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: "You must be signed in to edit leads." };
+    }
+
+    const { data, error } = await supabase
+      .from("leads")
+      .update(updates)
+      .eq("id", input.id)
+      .select()
+      .single();
+
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard");
+    return { success: true, data: data as Lead };
+  } catch (error) {
+    return {
+      success: false,
+      error: getErrorMessage(error, "Unable to update lead details."),
+    };
   }
 }
 

@@ -112,31 +112,24 @@ function getSupabaseAdmin() {
   });
 }
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
-  const verifyToken = process.env.META_VERIFY_TOKEN;
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("hub.mode");
+    const token = url.searchParams.get("hub.verify_token");
+    const challenge = url.searchParams.get("hub.challenge");
 
-  console.log("Meta Verify:", { mode, token, expected: verifyToken, challenge });
-  console.log("[Meta Webhook][GET] Verification request received", {
-    mode,
-    hasToken: Boolean(token),
-    hasChallenge: Boolean(challenge),
-  });
-
-  if (
-    mode === "subscribe" &&
-    token === verifyToken &&
-    typeof challenge === "string"
-  ) {
-    console.log("[Meta Webhook][GET] Verification successful");
-    return new NextResponse(challenge, { status: 200 });
+    // Hardcoded token to bypass Vercel env issues
+    if (mode === "subscribe" && token === "aurevia_super_secret_token_123") {
+      return new Response(challenge, {
+        status: 200,
+        headers: { "Content-Type": "text/plain" }
+      });
+    }
+    return new Response("Forbidden", { status: 403 });
+  } catch (error) {
+    return new Response("Error", { status: 500 });
   }
-
-  console.warn("[Meta Webhook][GET] Verification failed");
-  return new NextResponse("Forbidden", { status: 403 });
 }
 
 // Facebook retries webhooks on non-2xx responses, so every POST path ends in 200.

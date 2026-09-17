@@ -13,6 +13,7 @@ import {
   createLead,
   getEmployees,
   getLeadActivities,
+  updateLeadDetails,
   updateLeadStatus,
   updateLeadAssignment,
   updateLeadTemperature,
@@ -194,6 +195,8 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [leadEdits, setLeadEdits] = useState({ city: "", disease: "", insurance_status: "", remarks: "" });
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [isLoadingActivities, setIsLoadingActivities] = useState(false);
   const [note, setNote] = useState("");
@@ -528,6 +531,12 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
 
   async function handleViewLead(lead: Lead) {
     setSelectedLead(lead);
+    setLeadEdits({
+      city: lead.city === "-" ? "" : lead.city,
+      disease: lead.disease === "-" ? "" : lead.disease,
+      insurance_status: lead.insurance_status === "-" ? "" : lead.insurance_status,
+      remarks: lead.remarks === "-" ? "" : lead.remarks,
+    });
     setActivities([]);
     setNote("");
     setIsLoadingActivities(true);
@@ -538,6 +547,21 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
       setActivities(response.data);
     }
     setIsLoadingActivities(false);
+  }
+
+  async function handleSaveLeadEdits() {
+    if (!selectedLead) return;
+    setIsSavingEdits(true);
+    const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits });
+    if (!response.success) {
+      toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
+    } else {
+      const updated = response.data;
+      setLeads((currentLeads) => currentLeads.map((currentLead) => (currentLead.id === updated.id ? updated : currentLead)));
+      setSelectedLead(updated);
+      toast.add({ title: "Lead updated", description: "The lead details were saved.", type: "success" });
+    }
+    setIsSavingEdits(false);
   }
 
   async function handleAddNote() {
@@ -718,6 +742,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[150px]">Contact</TableHead>
               <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />
+              <TableHead className="w-[140px]">City</TableHead>
               <TableHead className="w-[150px]">Treatment</TableHead>
               <SortableTableHead className="w-[180px]" label="Status" sortKey="status" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[180px]">Temp</TableHead>
@@ -726,7 +751,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
             </TableRow></TableHeader>
             <TableBody>
               {sortedLeads.length === 0 ? (
-                <TableRow><TableCell colSpan={9} className="h-32 py-3 text-center text-slate-500">No leads found. Import a CSV or add a lead to get started.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="h-32 py-3 text-center text-slate-500">No leads found. Import a CSV or add a lead to get started.</TableCell></TableRow>
               ) : sortedLeads.map((lead) => (
                 <TableRow key={lead.id}>
                   <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>
@@ -738,6 +763,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
                     </div>
                   </TableCell>
                   <TableCell className="w-[130px] max-w-[130px] py-3"><p className="flex items-center gap-1 font-semibold text-slate-900"><CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />{formatLeadDateDisplay(lead.lead_date)}</p></TableCell>
+                  <TableCell className="w-[140px] max-w-[140px] py-3"><p className="break-words whitespace-normal text-sm text-slate-700">{lead.city}</p></TableCell>
                   <TableCell className="w-[150px] max-w-[150px] py-3"><p className="break-words whitespace-normal text-sm text-muted-foreground">{lead.disease}</p></TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
                     <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`}><SelectValue /></SelectTrigger>
@@ -808,10 +834,16 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
                 <div className="flex items-center gap-2 text-slate-600"><UserRound className="size-4" aria-hidden="true" />{selectedLead.email}</div>
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Phone</p><p className="mt-1 text-slate-700">{selectedLead.phone}</p></div>
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Gender</p><p className="mt-1 text-slate-700">{selectedLead.gender}</p></div>
-                <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">City</p><p className="mt-1 text-slate-700">{selectedLead.city}</p></div>
-                <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Disease</p><p className="mt-1 text-slate-700">{selectedLead.disease}</p></div>
-                <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Insurance Status</p><p className="mt-1 text-slate-700">{selectedLead.insurance_status}</p></div>
-                <div className="sm:col-span-2"><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Remarks</p><p className="mt-1 whitespace-pre-wrap text-slate-700">{selectedLead.remarks}</p></div>
+                <div className="space-y-1"><Label htmlFor="edit-city">City</Label><Input id="edit-city" value={leadEdits.city} onChange={(event) => setLeadEdits((current) => ({ ...current, city: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1"><Label htmlFor="edit-disease">Treatment / Disease</Label><Input id="edit-disease" value={leadEdits.disease} onChange={(event) => setLeadEdits((current) => ({ ...current, disease: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1"><Label htmlFor="edit-insurance">Insurance Status</Label><Input id="edit-insurance" value={leadEdits.insurance_status} onChange={(event) => setLeadEdits((current) => ({ ...current, insurance_status: event.target.value }))} placeholder="-" /></div>
+                <div className="sm:col-span-2 space-y-1"><Label htmlFor="edit-remarks">Remarks</Label><Textarea id="edit-remarks" rows={3} value={leadEdits.remarks} onChange={(event) => setLeadEdits((current) => ({ ...current, remarks: event.target.value }))} placeholder="-" /></div>
+                <div className="flex items-center gap-2 sm:col-span-2">
+                  <Button type="button" size="sm" onClick={() => void handleSaveLeadEdits()} disabled={isSavingEdits}>
+                    {isSavingEdits ? "Saving..." : "Save Changes"}
+                  </Button>
+                  <span className="text-xs text-slate-400">City, Treatment, Insurance &amp; Remarks yahan se edit kiye ja sakte hain.</span>
+                </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
