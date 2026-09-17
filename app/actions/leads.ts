@@ -120,10 +120,58 @@ function todayDate(): string {
   return new Date().toLocaleDateString("en-GB");
 }
 
+// Converts any cell value (string, number, boolean, Date, nested junk) into safe
+// trimmed text. Unknown shapes become "" instead of throwing.
+function toTextField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+  if (typeof value === "boolean") return String(value);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleDateString("en-GB");
+  }
+  return "";
+}
+
+// The exact column list of the public.leads table. The bulk-insert payload is
+// filtered down to these keys so a stray field from a spreadsheet can never
+// reach Supabase and trigger a "schema cache" (PGRST204) error.
+const LEADS_INSERT_COLUMNS = [
+  "name",
+  "phone",
+  "email",
+  "gender",
+  "city",
+  "disease",
+  "insurance_status",
+  "remarks",
+  "lead_date",
+  "follow_up_date",
+  "source",
+  "status",
+  "temperature",
+  "assigned_to",
+] as const;
+
+function pickLeadColumns(record: Record<string, unknown>): Record<string, string> {
+  const payload: Record<string, string> = {};
+  for (const column of LEADS_INSERT_COLUMNS) {
+    const value = record[column];
+    if (typeof value === "string" && value.length > 0) {
+      payload[column] = value;
+    }
+  }
+  return payload;
+}
+
 function parseLeadDate(value: unknown): string {
   if (typeof value === "number" && Number.isFinite(value)) {
     const date = new Date(Date.UTC(1899, 11, 30) + value * 86400000);
     return date.toLocaleDateString("en-GB");
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleDateString("en-GB");
   }
 
   if (typeof value !== "string" || !value.trim()) return todayDate();
@@ -321,66 +369,124 @@ export async function bulkInsertLeads(
   );
 
   const records: BulkLeadInput[] = [];
+  let skippedRows = 0;
   for (const lead of leads) {
-    if (!lead || typeof lead !== "object") {
-      continue;
-    }
+    try {
+      if (!lead || typeof lead !== "object" || Array.isArray(lead)) {
+        skippedRows += 1;
+        continue;
+      }
 
-    const candidate = lead as Record<string, unknown>;
-    const getField = (...keys: string[]): unknown => {
-      const normalizedKeys = keys.map((key) => key.trim().toLowerCase());
-      const entry = Object.entries(candidate).find(([key]) =>
-        normalizedKeys.includes(key.trim().toLowerCase()),
+      const candidate = lead as Record<string, unknown>;
+      const getField = (...keys: string[]): unknown => {
+        const normalizedKeys = keys.map((key) => key.trim().toLowerCase());
+        const entry = Object.entries(candidate).find(([key]) =>
+          normalizedKeys.includes(key.trim().toLowerCase()),
+        );
+        return entry?.[1];
+      };
+      const text = (...keys: string[]) => toTextField(getField(...keys));
+
+      const name = text("Full Name", "name", "patient name", "patient_name");
+      const phoneRaw = text("Contact no", "phone", "phone number", "mobile");
+      const email = text("Email", "email");
+
+      // Skip blank filler rows (headers repeated mid-sheet, empty lines, etc.)
+      // so they never become junk "-" leads in the database.
+      if (!name && !phoneRaw && !email) {
+        skippedRows += 1;
+        continue;
+      }
+
+      // Optional columns: if the spreadsheet does not have them at all,
+      // toTextField returns "" and dashIfEmpty turns that into "-".
+      const importedDate = getField(
+        "Date",
+        "date",
+        "Lead Date",
+        "lead_date",
+        "Date of Lead",
+        "date_of_lead",
       );
-      return entry?.[1];
-    };
+      const followUpDate = getField(
+        "Follow-up Date",
+        "follow_up_date",
+        "Follow Up Date",
+        "followup_date",
+        "Next Follow Up",
+        "next_follow_up",
+      );
+      const importedAssignee = text("Assigned To", "assigned_to");
+      const assignedProfileName = importedAssignee
+        ? validProfileNames.get(importedAssignee.toLowerCase()) ?? "-"
+        : "-";
 
-    const importedDate = getField(
-      "Date",
-      "date",
-      "Lead Date",
-      "lead_date",
-      "Date of Lead",
-      "date_of_lead",
-    );
-    const followUpDate = getField("Follow-up Date", "follow_up_date");
-    const importedAssignee = dashIfEmpty(getField("Assigned To", "assigned_to"));
-    const assignedProfileName = validProfileNames.get(importedAssignee.toLowerCase()) ?? "-";
-
-    records.push({
-      name: dashIfEmpty(getField("Full Name", "name")),
-      phone: sanitizePhone(getField("Contact no", "phone")),
-      email: dashIfEmpty(getField("Email", "email")),
-      gender: dashIfEmpty(getField("Gender", "gender")),
-      city: dashIfEmpty(getField("City", "city")),
-      disease: dashIfEmpty(getField("Disease", "disease")),
-      insurance_status: dashIfEmpty(getField("Insurance Status", "insurance_status")),
-      remarks: dashIfEmpty(getField("Remark 1", "remarks")),
-      lead_date: parseLeadDate(importedDate),
-      follow_up_date: dashIfEmpty(followUpDate),
-      source: batchSource,
-      status: dashIfEmpty(getField("Lead Status", "status")),
-      temperature: "Warm",
-      assigned_to: assignedProfileName,
-    });
+      records.push({
+        name: dashIfEmpty(name),
+        phone: sanitizePhone(phoneRaw),
+        email: dashIfEmpty(email),
+        gender: dashIfEmpty(text("Gender", "gender")),
+        city: dashIfEmpty(text("City", "city")),
+        // "Treatment" is a common alias for the disease column.
+        disease: dashIfEmpty(text("Disease", "disease", "Treatment", "treatment", "Health Concern")),
+        insurance_status: dashIfEmpty(text("Insurance Status", "insurance_status", "insurance")),
+        remarks: dashIfEmpty(text("Remark 1", "remarks", "remark", "Remark", "note", "notes")),
+        lead_date: parseLeadDate(importedDate),
+        follow_up_date: dashIfEmpty(toTextField(followUpDate)),
+        source: batchSource,
+        status: dashIfEmpty(text("Lead Status", "status", "lead_status")),
+        temperature: "Warm",
+        assigned_to: assignedProfileName,
+      });
+    } catch (rowError) {
+      // One malformed row must never crash the whole import.
+      console.error("[bulkInsertLeads] Skipping malformed row", {
+        fileName,
+        error: rowError instanceof Error ? rowError.message : rowError,
+      });
+      skippedRows += 1;
+    }
   }
 
   if (records.length === 0) {
-    return { success: false, error: "No valid leads were found in the import." };
+    return {
+      success: false,
+      error:
+        skippedRows > 0
+          ? `No valid leads were found in the import (${skippedRows} rows were skipped as invalid or empty).`
+          : "No valid leads were found in the import.",
+    };
   }
 
+  // Insert in bounded chunks so very large files never exceed PostgREST
+  // request limits, and always send exactly the leads-table columns.
+  const chunkSize = 500;
+  const insertedLeads: Lead[] = [];
   try {
-    const { data: insertedLeads, error } = await supabase
-      .from("leads")
-      .insert(records)
-      .select();
+    for (let index = 0; index < records.length; index += chunkSize) {
+      const chunk = records
+        .slice(index, index + chunkSize)
+        .map((record) => pickLeadColumns(record as unknown as Record<string, unknown>));
+      const { data, error } = await supabase
+        .from("leads")
+        .insert(chunk)
+        .select();
 
-    if (error) {
-      return { success: false, error: error.message };
+      if (error) {
+        const from = index + 1;
+        const to = Math.min(index + chunkSize, records.length);
+        const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved before the failure. ` : "";
+        return {
+          success: false,
+          error: `${saved}Rows ${from}-${to} failed: ${error.message}`,
+        };
+      }
+
+      insertedLeads.push(...((data ?? []) as Lead[]));
     }
 
     revalidatePath("/dashboard");
-    return { success: true, data: (insertedLeads ?? []) as Lead[] };
+    return { success: true, data: insertedLeads };
   } catch (error) {
     return {
       success: false,

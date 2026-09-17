@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { CalendarDays, Dices, FileUp, Loader2, Plus, Search, Trash2, UserRound } from "lucide-react";
+import { CalendarDays, Dices, FileUp, Loader2, Plus, RotateCcw, Search, Trash2, UserRound, X } from "lucide-react";
 
 import {
   addLeadActivity,
@@ -30,6 +30,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
@@ -89,11 +94,54 @@ function sourceBadgeClass(source: string): string {
 }
 
 // DD/MM/YYYY -> YYYY-MM-DD so dates compare chronologically instead of alphabetically.
+type DateFilterField = "lead_date" | "follow_up_date";
+
+const temperatureLabels: Record<string, string> = {
+  Hot: "Hot 🔥",
+  Warm: "Warm ☀️",
+  Cold: "Cold ❄️",
+};
+
+function buildDateFilter(dateField: DateFilterField, from: string, to: string) {
+  const fromIso = from ? `${from}T00:00:00.000Z` : "";
+  const toIso = to ? `${to}T23:59:59.999Z` : "";
+  if (!fromIso && !toIso) return null;
+  return {
+    dateField,
+    fromIso,
+    toIso,
+  };
+}
+
+// Normalizes BOTH stored formats — DD/MM/YYYY (Excel imports, Meta webhook) and
+// YYYY-MM-DD (native date pickers) — into one sortable ISO string. Unknown or
+// empty values return "" so they group together instead of crashing comparisons.
 function parseLeadDateForSort(value: string): string {
-  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!match) return "";
-  const [, day, month, year] = match;
+  const isoMatch = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const dmyMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!dmyMatch) return "";
+  const [, day, month, year] = dmyMatch;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+// Value for <input type="date"> elements: always YYYY-MM-DD, "" when unset.
+function toInputDateValue(value: string): string {
+  return value && value !== "-" ? parseLeadDateForSort(value) : "";
+}
+
+// Always displays DD/MM/YYYY in the table, regardless of the stored format.
+// Unparseable values fall back to the raw string — never crashes.
+function formatLeadDateDisplay(value: string): string {
+  if (!value || value === "-") return "N/A";
+  const iso = parseLeadDateForSort(value);
+  if (!iso) return value;
+  const [year, month, day] = iso.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 function compareLeads(a: Lead, b: Lead, key: string): number {
@@ -159,17 +207,90 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedTemperature, setSelectedTemperature] = useState("all");
+  const [dateField, setDateField] = useState<DateFilterField>("lead_date");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sourceOptions = Array.from(new Set(leads.map((lead) => lead.source)));
   const normalizedSearch = searchTerm.trim().toLowerCase();
-  // Layer 1: Source filter -> Layer 2: Global search
+  const dateFilter = buildDateFilter(dateField, dateFrom, dateTo);
+  const hasActiveFilters =
+    normalizedSearch.length > 0 ||
+    selectedSource !== "all" ||
+    selectedTemperature !== "all" ||
+    dateFilter !== null;
+
+  function resetFilters() {
+    setSearchTerm("");
+    setSelectedSource("all");
+    setSelectedTemperature("all");
+    setDateField("lead_date");
+    setDateFrom("");
+    setDateTo("");
+  }
+
+  // Chained layers: Search -> Source -> Temperature -> Date range (Lead Date ya Follow-Up Date pe) -> Sorting
   const filteredLeads = leads.filter((lead) => {
-    const matchesSource = selectedSource === "all" || lead.source === selectedSource;
-    const searchableText = [lead.name, lead.phone, lead.email, lead.disease].join(" ").toLowerCase();
-    return matchesSource && (!normalizedSearch || searchableText.includes(normalizedSearch));
+    if (normalizedSearch) {
+      const searchableText = [lead.name, lead.phone, lead.disease].join(" ").toLowerCase();
+      if (!searchableText.includes(normalizedSearch)) return false;
+    }
+
+    if (selectedSource !== "all" && lead.source !== selectedSource) return false;
+
+    if (selectedTemperature !== "all" && lead.temperature !== selectedTemperature) return false;
+
+    if (dateFilter) {
+      const rawDate = dateFilter.dateField === "follow_up_date" ? lead.follow_up_date : lead.lead_date;
+      if (!rawDate || rawDate === "-") return false;
+      const timestamp = new Date(parseLeadDateForSort(rawDate).replace("T", " ") || rawDate).getTime();
+      // Fallback: YYYY-MM-DD ya DD/MM/YYYY parse karne ki koshish, warna reject.
+      let ts = timestamp;
+      if (Number.isNaN(ts)) {
+        const dmy = rawDate.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (dmy) {
+          ts = new Date(`${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}T00:00:00`).getTime();
+        } else {
+          ts = new Date(rawDate).getTime();
+        }
+      }
+      if (Number.isNaN(ts)) return false;
+      if (dateFilter.fromIso && ts < new Date(dateFilter.fromIso).getTime()) return false;
+      if (dateFilter.toIso && ts > new Date(dateFilter.toIso).getTime()) return false;
+    }
+
+    return true;
   });
+
+  const activeFilterChips: { key: string; label: string; onRemove: () => void }[] = [];
+  if (normalizedSearch) {
+    activeFilterChips.push({ key: "search", label: `Search: "${searchTerm.trim()}"`, onRemove: () => setSearchTerm("") });
+  }
+  if (selectedSource !== "all") {
+    activeFilterChips.push({ key: "source", label: `Source: ${selectedSource}`, onRemove: () => setSelectedSource("all") });
+  }
+  if (selectedTemperature !== "all") {
+    activeFilterChips.push({
+      key: "temp",
+      label: `Temp: ${temperatureLabels[selectedTemperature] ?? selectedTemperature}`,
+      onRemove: () => setSelectedTemperature("all"),
+    });
+  }
+  if (dateFilter) {
+    activeFilterChips.push({
+      key: "date",
+      label: `${dateFilter.dateField === "follow_up_date" ? "Follow-Up" : "Lead"} Date: ${dateFrom || "..."} → ${dateTo || "..."}`,
+      onRemove: () => {
+        setDateFrom("");
+        setDateTo("");
+      },
+    });
+  }
+
   // Layer 3: Clickable column sorting
   const sortedLeads = sortConfig
     ? [...filteredLeads].sort((a, b) => {
@@ -463,25 +584,120 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
             </Button>
             <Button type="button" onClick={() => setIsAddLeadOpen(true)}><Plus aria-hidden="true" />Add Lead</Button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-            <label htmlFor="source-filter" className="text-sm font-medium text-slate-600">📂 Filter by Source/File</label>
-            <Select value={selectedSource} onValueChange={(value) => setSelectedSource(typeof value === "string" ? value : "all")}>
-              <SelectTrigger id="source-filter" size="sm" className="w-52"><SelectValue placeholder="All Leads" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Leads</SelectItem>
-                {sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <div className="relative min-w-64 flex-1 sm:max-w-md">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <Input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search name, phone, treatment..."
-                aria-label="Search leads"
-                className="pl-9"
-              />
+          <div className="space-y-3 border-t border-slate-100 pt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-56 flex-1 sm:max-w-xs">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search name, phone, treatment..."
+                  aria-label="Search leads by name, phone or treatment"
+                  className="pl-9"
+                />
+              </div>
+
+              <Select value={selectedSource} onValueChange={(value) => setSelectedSource(typeof value === "string" ? value : "all")}>
+                <SelectTrigger className="w-44" aria-label="Filter by source"><SelectValue placeholder="All Sources" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sources</SelectItem>
+                  {sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}
+                </SelectContent>
+              </Select>
+
+              <Select value={selectedTemperature} onValueChange={(value) => setSelectedTemperature(typeof value === "string" ? value : "all")}>
+                <SelectTrigger className="w-32" aria-label="Filter by temperature"><SelectValue placeholder="All Temps" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Temps</SelectItem>
+                  <SelectItem value="Hot">Hot 🔥</SelectItem>
+                  <SelectItem value="Warm">Warm ☀️</SelectItem>
+                  <SelectItem value="Cold">Cold ❄️</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Popover open={isDatePopoverOpen} onOpenChange={setIsDatePopoverOpen}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant={dateFilter ? "default" : "outline"}
+                      size="sm"
+                      className="gap-2"
+                      aria-label="Filter by date"
+                    >
+                      <CalendarDays className="size-4" aria-hidden="true" />
+                      {dateFilter
+                        ? `${dateFilter.dateField === "follow_up_date" ? "Follow-Up" : "Lead"}: ${dateFrom || "start"} → ${dateTo || "end"}`
+                        : "Date Filter"}
+                    </Button>
+                  }
+                />
+                <PopoverContent className="w-72 space-y-3" align="start">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="date-filter-field">Filter on</Label>
+                    <Select value={dateField} onValueChange={(value) => setDateField(value === "follow_up_date" ? "follow_up_date" : "lead_date")}>
+                      <SelectTrigger id="date-filter-field" className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="lead_date">Lead Date (added on)</SelectItem>
+                        <SelectItem value="follow_up_date">Follow-Up Date</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="date-filter-from">From</Label>
+                      <Input id="date-filter-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="date-filter-to">To</Label>
+                      <Input id="date-filter-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">Tip: From aur To mein same date rakh ke kisi ek specific din pe filter karein.</p>
+                  <div className="flex justify-between gap-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>
+                      Clear dates
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => setIsDatePopoverOpen(false)}>
+                      Done
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={resetFilters}
+                disabled={!hasActiveFilters}
+                aria-label="Reset all filters"
+              >
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Reset Filters
+              </Button>
             </div>
+
+            {activeFilterChips.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={chip.onRemove}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                    aria-label={`Remove filter: ${chip.label}`}
+                  >
+                    {chip.label}
+                    <X className="size-3" aria-hidden="true" />
+                  </button>
+                ))}
+                <span className="text-xs text-slate-400">
+                  {filteredLeads.length} of {leads.length} leads match
+                </span>
+              </div>
+            )}
           </div>
         </CardHeader>
         {selectedLeads.length > 0 && (
@@ -521,7 +737,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
                       <a href={`https://wa.me/91${lead.phone?.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="bg-green-100 text-green-800 px-2 py-1 rounded text-[10px] font-bold inline-flex items-center border border-green-300 hover:bg-green-200 w-fit">💬 WhatsApp</a>
                     </div>
                   </TableCell>
-                  <TableCell className="w-[130px] max-w-[130px] py-3"><p className="flex items-center gap-1 font-semibold text-slate-900"><CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />{lead.lead_date || "N/A"}</p></TableCell>
+                  <TableCell className="w-[130px] max-w-[130px] py-3"><p className="flex items-center gap-1 font-semibold text-slate-900"><CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />{formatLeadDateDisplay(lead.lead_date)}</p></TableCell>
                   <TableCell className="w-[150px] max-w-[150px] py-3"><p className="break-words whitespace-normal text-sm text-muted-foreground">{lead.disease}</p></TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
                     <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`}><SelectValue /></SelectTrigger>
@@ -559,7 +775,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
             <div className="space-y-2"><Label htmlFor="lead-status">Status</Label><Select name="status" defaultValue="New"><SelectTrigger id="lead-status"><SelectValue /></SelectTrigger><SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="lead-temperature">Temperature</Label><Select name="temperature" defaultValue="Warm"><SelectTrigger id="lead-temperature"><SelectValue /></SelectTrigger><SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperature === "Hot" ? "Hot 🔥" : temperature === "Warm" ? "Warm ☀️" : "Cold ❄️"}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="lead-remarks">Remarks</Label><Textarea id="lead-remarks" name="remarks" rows={3} /></div>
-            <div className="space-y-2"><Label htmlFor="lead-follow-up-date">Next Follow-Up Date</Label><Input id="lead-follow-up-date" name="follow_up_date" type="date" /></div>
+            <div className="space-y-2"><Label htmlFor="lead-follow-up-date">Next Follow-Up Date</Label><Input id="lead-follow-up-date" name="follow_up_date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} /></div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button><Button type="submit" disabled={isCreatingLead}>{isCreatingLead ? "Adding..." : "Add Lead"}</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -597,7 +813,7 @@ export function LeadsTable({ leads: initialLeads }: { leads: Lead[] }) {
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Insurance Status</p><p className="mt-1 text-slate-700">{selectedLead.insurance_status}</p></div>
                 <div className="sm:col-span-2"><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Remarks</p><p className="mt-1 whitespace-pre-wrap text-slate-700">{selectedLead.remarks}</p></div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
-                <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" value={selectedLead.follow_up_date === "-" ? "" : selectedLead.follow_up_date} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
+                <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
               <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
               <section className="space-y-3 border-t border-slate-200 pt-5"><Label htmlFor="lead-note">Add note</Label><Textarea id="lead-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Write a note about this lead..." rows={4} /><Button type="button" onClick={handleAddNote} disabled={isAddingNote || !note.trim()}>{isAddingNote ? "Adding note..." : "Add Note"}</Button></section>
