@@ -152,11 +152,13 @@ export async function POST(request: NextRequest) {
     const value = getObject(changes.value);
 
     const leadgenId = getString(value.leadgen_id);
+    const pageId = getString(value.page_id);
     console.log("[Meta Webhook][POST] Payload parsed", {
       requestId,
       object: getString(root.object),
       entryCount: Array.isArray(root.entry) ? root.entry.length : 0,
       leadgenId,
+      pageId,
     });
 
     if (!leadgenId) {
