@@ -85,6 +85,12 @@ export default function SignupPage() {
               {isSubmitting ? "Creating account..." : "Create account"}
             </Button>
           </form>
+          <p className="mt-5 text-center text-sm text-slate-500">
+            Already have an account?{" "}
+            <a href="/login" className="font-medium text-slate-900 hover:underline">
+              Sign in
+            </a>
+          </p>
         </CardContent>
       </Card>
     </main>
