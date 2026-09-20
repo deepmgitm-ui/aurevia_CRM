@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/login/actions";
+import { RealtimeNotifications } from "./realtime-notifications";
 
 interface DashboardProfile {
   name: string;
@@ -49,6 +51,31 @@ function getInitials(name: string): string {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+// Official company logo (public/logo.png, transparent background). The
+// intrinsic dimensions (1693x929) give next/image the file's aspect ratio, so
+// the CSS height scales it cleanly without stretching.
+function BrandLogo({
+  className = "h-10 w-auto object-contain bg-transparent",
+  sizes = "160px",
+  preload = false,
+}: {
+  className?: string;
+  sizes?: string;
+  preload?: boolean;
+}) {
+  return (
+    <Image
+      src="/logo.png"
+      alt="Aurevia CRM Logo"
+      width={1693}
+      height={929}
+      sizes={sizes}
+      preload={preload}
+      className={className}
+    />
+  );
 }
 
 function Navigation({ mobile = false }: { mobile?: boolean }) {
@@ -85,8 +112,8 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
 function Sidebar({ profile }: { profile: DashboardProfile }) {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-16 items-center border-b border-slate-200 px-6">
-        <span className="text-lg font-semibold tracking-tight text-slate-950">Aurevia CRM</span>
+      <div className="flex h-16 items-center justify-center border-b border-slate-200 px-6">
+        <BrandLogo className="h-10 w-auto object-contain bg-transparent" />
       </div>
       <div className="flex-1 px-4 py-6">
         <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -121,7 +148,9 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
       />
       <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
         <SheetHeader className="border-b border-slate-200 px-6 py-5">
-          <SheetTitle>Aurevia CRM</SheetTitle>
+          <SheetTitle className="flex items-center">
+            <BrandLogo className="h-9 w-auto object-contain bg-transparent" sizes="120px" />
+          </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col px-4 py-6">
           <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -148,9 +177,14 @@ export function DashboardShell({ children, profile }: DashboardShellProps) {
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar profile={profile} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
+        <header className="relative flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
           <MobileNavigation profile={profile} />
+          {/* Logo perfectly centered regardless of the buttons on either side. */}
+          <div className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 sm:block">
+            <BrandLogo className="h-12 w-auto object-contain bg-transparent" preload />
+          </div>
           <div className="ml-auto flex items-center gap-3">
+            <RealtimeNotifications />
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium text-slate-900">{profile.name}</p>
               <p className="text-xs capitalize text-slate-500">{profile.role}</p>

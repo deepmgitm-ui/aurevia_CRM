@@ -1,13 +1,13 @@
 import { Flame, ListChecks, Target, Trophy } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Lead } from "@/app/actions/leads";
+import type { LeadCounts } from "@/app/actions/leads";
 
-export function DashboardStats({ leads }: { leads: Lead[] }) {
-  const total = leads.length;
-  const hot = leads.filter((lead) => lead.temperature === "Hot" || lead.temperature === "Hot 🔥").length;
-  const won = leads.filter((lead) => lead.status === "Won").length;
-  const lost = leads.filter((lead) => lead.status === "Lost").length;
+export function DashboardStats({ counts }: { counts: LeadCounts }) {
+  const total = counts.total;
+  const hot = counts.hot;
+  const won = counts.won;
+  const lost = counts.lost;
   const percentage = (count: number) => total === 0 ? 0 : Math.round((count / total) * 100);
 
   const stats = [

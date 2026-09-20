@@ -202,6 +202,58 @@ to authenticated
 using (
   public.current_user_role() = 'employee'
   and assigned_to = (select name from public.profiles where id = auth.uid())
+-- Realtime: stream INSERT/UPDATE events on the leads table to dashboards
+-- via Supabase Realtime. Supabase projects ship with an empty
+-- `supabase_realtime` publication; this adds leads to it (no-op if already
+-- added, or if the publication does not exist yet).
+do $$
+begin
+  alter publication supabase_realtime add table public.leads;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+-- Realtime UPDATE payloads only include the full OLD row (needed to compare
+-- assigned_to before/after and detect assignment changes) when the table uses
+-- REPLICA IDENTITY FULL. Safe to run repeatedly.
+alter table public.leads replica identity full;
+
+-- Backend security (defense in depth): employees may only change Status,
+-- Temperature and Remarks on their own leads. Core fields (patient name,
+-- contact, email, city, treatment, insurance, source, lead date, assignment)
+-- are rejected at the DATABASE level even if an API request is tampered with.
+-- errcode 42501 (insufficient_privilege) makes PostgREST return HTTP 403.
+create or replace function public.block_employee_core_lead_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if public.current_user_role() = 'employee' then
+    if new.name is distinct from old.name
+      or new.phone is distinct from old.phone
+      or new.email is distinct from old.email
+      or new.gender is distinct from old.gender
+      or new.city is distinct from old.city
+      or new.disease is distinct from old.disease
+      or new.insurance_status is distinct from old.insurance_status
+      or new.source is distinct from old.source
+      or new.lead_date is distinct from old.lead_date
+      or new.assigned_to is distinct from old.assigned_to then
+      raise exception 'Employees can only update status, temperature and remarks.'
+        using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists block_employee_core_lead_update on public.leads;
+create trigger block_employee_core_lead_update
+  before update on public.leads
+  for each row
+  execute function public.block_employee_core_lead_update();
+
 )
 with check (
   public.current_user_role() = 'employee'
