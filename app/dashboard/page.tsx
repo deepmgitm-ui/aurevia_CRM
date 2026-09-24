@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Flame, UserPlus, Users } from "lucide-react";
 
-import { getLeadCounts, getLeadsPage, getTeamStats, getViewer } from "@/app/actions/leads";
+import { getLeadCounts, getLeadsPage, getPipelineInsights, getTeamStats, getViewer } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { LeadsTable } from "./leads-table";
