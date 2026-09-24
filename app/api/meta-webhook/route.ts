@@ -5,6 +5,10 @@ export const runtime = "nodejs";
 // Never cache the verification endpoint — Meta's "Verify and Save" must always hit the live handler.
 export const dynamic = "force-dynamic";
 
+const META_GRAPH_API_VERSION = (process.env.META_GRAPH_API_VERSION?.trim() || "v26.0")
+  .replace(/^v?/i, "v");
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN?.trim() || "aurevia_super_secret_token_123";
+
 type JsonValue =
   | string
   | number
@@ -120,7 +124,7 @@ export async function GET(request: Request) {
     const challenge = url.searchParams.get("hub.challenge");
 
     // Hardcoded token to bypass Vercel env issues
-    if (mode === "subscribe" && token === "aurevia_super_secret_token_123") {
+    if (mode === "subscribe" && token === META_VERIFY_TOKEN) {
       return new Response(challenge, {
         status: 200,
         headers: { "Content-Type": "text/plain" }
@@ -172,7 +176,7 @@ export async function POST(request: NextRequest) {
     }
 
     const graphResponse = await fetch(
-      `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${accessToken}`,
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data&access_token=${encodeURIComponent(accessToken)}`,
     );
     const graphResult = (await graphResponse.json()) as JsonValue;
     const graphObject = getObject(graphResult);
