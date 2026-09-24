@@ -146,7 +146,7 @@ export async function updateUserRole(
   userId: string,
   newRole: string,
 ): Promise<UserActionResult<ManagedUser["role"]>> {
-  if (!userId || !["admin", "employee"].includes(newRole)) {
+  if (!userId || !["admin", "manager", "employee"].includes(newRole)) {
     return { success: false, error: "A valid user and role are required." };
   }
 
