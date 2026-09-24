@@ -144,13 +144,14 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
                 <TableCell className="text-slate-600">{user.email}</TableCell>
                 <TableCell>
                   <Select
-                    value={user.role === "manager" ? "employee" : user.role}
+                    value={user.role}
                     onValueChange={(value) => void handleRoleChange(user.id, value)}
                     disabled={pendingUserId === user.id}
                   >
                     <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
                       <SelectItem value="employee">Employee</SelectItem>
                     </SelectContent>
                   </Select>
