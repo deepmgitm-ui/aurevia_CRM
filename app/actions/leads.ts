@@ -1545,15 +1545,6 @@ export async function completeFollowUp(
     } = await supabase.auth.getUser();
     if (userError || !user) return { success: false, error: "You must be signed in." };
 
-    const { data: currentLead, error: leadReadError } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("id", leadId)
-      .single();
-    if (leadReadError || !currentLead) {
-      return { success: false, error: leadReadError?.message ?? "Lead not found." };
-    }
-
     const { data: updated, error: updateError } = await supabase
       .from("leads")
       .update({ follow_up_date: "-" })
