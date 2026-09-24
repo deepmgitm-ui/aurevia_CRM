@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LeadsTable } from "./leads-table";
 import { SmartAssignmentBanner } from "./smart-assignment";
 import { TeamOverview } from "./team-overview";
+import { PipelineInsights } from "./pipeline-insights";
 
 const statCards = [
   {
@@ -120,8 +121,9 @@ export default async function DashboardPage({
 
   // ---- Admin/Manager default view: Team Overview (NO leads table) ----
   if (isTeamLead) {
-    const teamResult = await getTeamStats();
+    const [teamResult, insightsResult] = await Promise.all([getTeamStats(), getPipelineInsights()]);
     const team = teamResult.success ? teamResult.data : emptyTeam;
+    const insights = insightsResult.success ? insightsResult.data : null;
 
     return (
       <div className="mx-auto w-full max-w-7xl space-y-8">
@@ -142,6 +144,7 @@ export default async function DashboardPage({
         />
 
         <TeamOverview team={team} />
+        {insights && <PipelineInsights insights={insights} />}
       </div>
     );
   }
@@ -149,12 +152,13 @@ export default async function DashboardPage({
   // ---- Employee default view: their own leads table, directly ----
   // Server-side scoping (RLS + assigned_to filter) limits the table to the
   // signed-in employee's own leads.
-  const [leadsResult, countsResult] = await Promise.all([getLeadsPage(1), getLeadCounts()]);
+  const [leadsResult, countsResult, insightsResult] = await Promise.all([getLeadsPage(1), getLeadCounts(), getPipelineInsights()]);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const counts = countsResult.success
     ? countsResult.data
     : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
   const values = [counts.total, counts.new, counts.hot];
+  const insights = insightsResult.success ? insightsResult.data : null;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
@@ -170,6 +174,7 @@ export default async function DashboardPage({
       <StatCardSection values={[values[0], values[1], values[2]]} />
 
       <LeadsTable leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} role={viewer?.role ?? "employee"} />
+      {insights && <PipelineInsights insights={insights} />}
     </div>
   );
 }
