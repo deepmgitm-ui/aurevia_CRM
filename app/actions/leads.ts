@@ -1491,3 +1491,300 @@ export async function addLeadActivity(
     };
   }
 }
+
+
+export interface PipelineInsights {
+  total: number;
+  open: number;
+  won: number;
+  lost: number;
+  conversionRate: number;
+  overdueFollowUps: number;
+  dueToday: number;
+  unassigned: number;
+  bySource: Array<{ label: string; count: number }>;
+  byStatus: Array<{ label: string; count: number }>;
+  byTemperature: Array<{ label: string; count: number }>;
+}
+
+function parseStoredDateKey(value: string | null | undefined): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || raw === "-") return "";
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  }
+  const dmy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function todayDateKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export async function completeFollowUp(
+  leadId: string,
+  note = "",
+): Promise<ActionResult<Lead>> {
+  if (!leadId) return { success: false, error: "Lead ID is required." };
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: "You must be signed in." };
+
+    const { data: currentLead, error: leadReadError } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", leadId)
+      .single();
+    if (leadReadError || !currentLead) {
+      return { success: false, error: leadReadError?.message ?? "Lead not found." };
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from("leads")
+      .update({ follow_up_date: "-" })
+      .eq("id", leadId)
+      .select()
+      .single();
+    if (updateError) return { success: false, error: updateError.message };
+
+    const description = [
+      "Follow-up completed",
+      note.trim() ? `Note: ${note.trim()}` : "",
+    ].filter(Boolean).join(" — ");
+
+    const { error: activityError } = await supabase
+      .from("lead_activities")
+      .insert({
+        lead_id: leadId,
+        user_id: user.id,
+        action_type: "Follow-up completed",
+        description,
+      });
+    if (activityError) return { success: false, error: activityError.message };
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/tasks");
+    return { success: true, data: updated as Lead };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to complete follow-up.") };
+  }
+}
+
+export async function rescheduleFollowUp(
+  leadId: string,
+  followUpDate: string,
+): Promise<ActionResult<Lead>> {
+  if (!leadId || !followUpDate) {
+    return { success: false, error: "Lead and follow-up date are required." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: "You must be signed in." };
+
+    const normalized = parseStoredDateKey(followUpDate);
+    if (!normalized) return { success: false, error: "Please provide a valid follow-up date." };
+
+    const { data, error } = await supabase
+      .from("leads")
+      .update({ follow_up_date: normalized })
+      .eq("id", leadId)
+      .select()
+      .single();
+    if (error) return { success: false, error: error.message };
+
+    const { error: activityError } = await supabase
+      .from("lead_activities")
+      .insert({
+        lead_id: leadId,
+        user_id: user.id,
+        action_type: "Follow-up rescheduled",
+        description: `Next follow-up: ${normalized}`,
+      });
+    if (activityError) return { success: false, error: activityError.message };
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/tasks");
+    return { success: true, data: data as Lead };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to reschedule follow-up.") };
+  }
+}
+
+export async function logLeadCall(
+  input: { lead_id: string; outcome: string; notes?: string | null; next_follow_up_date?: string | null },
+): Promise<ActionResult<LeadActivity>> {
+  if (!input.lead_id || !input.outcome.trim()) {
+    return { success: false, error: "Lead and call outcome are required." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: "You must be signed in." };
+
+    let nextDate = "";
+    if (input.next_follow_up_date?.trim()) {
+      nextDate = parseStoredDateKey(input.next_follow_up_date);
+      if (!nextDate) return { success: false, error: "Invalid next follow-up date." };
+    }
+
+    const parts = [`Outcome: ${input.outcome.trim()}`];
+    if (input.notes?.trim()) parts.push(`Notes: ${input.notes.trim()}`);
+    if (nextDate) parts.push(`Next follow-up: ${nextDate}`);
+
+    const { data, error } = await supabase
+      .from("lead_activities")
+      .insert({
+        lead_id: input.lead_id,
+        user_id: user.id,
+        action_type: "Call",
+        description: parts.join(" — "),
+      })
+      .select()
+      .single();
+
+    if (error) return { success: false, error: error.message };
+
+    if (nextDate) {
+      const { error: followUpError } = await supabase
+        .from("leads")
+        .update({ follow_up_date: nextDate })
+        .eq("id", input.lead_id);
+      if (followUpError) return { success: false, error: followUpError.message };
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/tasks");
+    return { success: true, data: data as LeadActivity };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to log call.") };
+  }
+}
+
+export async function getPipelineInsights(): Promise<ActionResult<PipelineInsights>> {
+  const empty: PipelineInsights = {
+    total: 0,
+    open: 0,
+    won: 0,
+    lost: 0,
+    conversionRate: 0,
+    overdueFollowUps: 0,
+    dueToday: 0,
+    unassigned: 0,
+    bySource: [],
+    byStatus: [],
+    byTemperature: [],
+  };
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) return { success: true, data: empty };
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("id", user.id)
+      .single();
+    if (profileError || !profile) return { success: true, data: empty };
+
+    const sourceMap = new Map<string, number>();
+    const statusMap = new Map<string, number>();
+    const temperatureMap = new Map<string, number>();
+    let total = 0;
+    let won = 0;
+    let lost = 0;
+    let unassigned = 0;
+    let overdueFollowUps = 0;
+    let dueToday = 0;
+    const todayKey = todayDateKey();
+    const chunkSize = 1000;
+    const limit = 20000;
+
+    for (let from = 0; from < limit; from += chunkSize) {
+      let query = supabase
+        .from("leads")
+        .select("status, source, temperature, assigned_to, follow_up_date");
+      if (profile.role === "employee") {
+        query = query.ilike("assigned_to", profile.name ?? "");
+      }
+
+      const { data, error } = await query.range(from, from + chunkSize - 1);
+      if (error) return { success: false, error: error.message };
+
+      const rows = data ?? [];
+      for (const row of rows) {
+        total += 1;
+        const status = String(row.status ?? "-");
+        const source = String(row.source ?? "-");
+        const temperature = String(row.temperature ?? "-");
+        statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
+        sourceMap.set(source, (sourceMap.get(source) ?? 0) + 1);
+        temperatureMap.set(temperature, (temperatureMap.get(temperature) ?? 0) + 1);
+
+        if (status === "Won") won += 1;
+        if (status === "Lost") lost += 1;
+        if (!row.assigned_to || row.assigned_to === "-") unassigned += 1;
+
+        const followUpKey = parseStoredDateKey(String(row.follow_up_date ?? ""));
+        if (followUpKey && followUpKey < todayKey) overdueFollowUps += 1;
+        if (followUpKey === todayKey) dueToday += 1;
+      }
+
+      if (rows.length < chunkSize) break;
+    }
+
+    const closed = won + lost;
+    const conversionRate = closed > 0 ? Math.round((won / closed) * 100) : 0;
+    const toSorted = (map: Map<string, number>, limitCount: number) =>
+      Array.from(map.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, limitCount)
+        .map(([label, count]) => ({ label, count }));
+
+    return {
+      success: true,
+      data: {
+        total,
+        open: Math.max(0, total - won - lost),
+        won,
+        lost,
+        conversionRate,
+        overdueFollowUps,
+        dueToday,
+        unassigned,
+        bySource: toSorted(sourceMap, 6),
+        byStatus: toSorted(statusMap, 10),
+        byTemperature: toSorted(temperatureMap, 3),
+      },
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load pipeline insights.") };
+  }
+}
