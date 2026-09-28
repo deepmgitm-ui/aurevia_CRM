@@ -251,7 +251,7 @@ export function PlanCalendar({
       return;
     }
     const saved = response.data;
-    setItems((current) =>
+    patchDays((current) =>
       current.map((day) => {
         if (day.iso !== saved.date) {
           return editing && day.iso === editing.date
@@ -276,7 +276,7 @@ export function PlanCalendar({
       toast.add({ title: "Delete nahi hua", description: response.error, type: "error" });
       return;
     }
-    setItems((current) =>
+    patchDays((current) =>
       current.map((day) =>
         day.iso === event.date
           ? { ...day, personal: day.personal.filter((item) => item.id !== event.id) }
@@ -286,8 +286,12 @@ export function PlanCalendar({
     toast.add({ title: "Event hata diya" });
   }
 
+  function patchDays(updater: (days: CalendarDay[]) => CalendarDay[]) {
+    setItemsFor((current) => ({ ...current, days: updater(current.days) }));
+  }
+
   function patchReminderDay(date: string, updater: (reminders: CalendarReminder[]) => CalendarReminder[]) {
-    setItems((current) =>
+    patchDays((current) =>
       current.map((day) => (day.iso === date ? { ...day, reminders: updater(day.reminders) } : day)),
     );
   }
