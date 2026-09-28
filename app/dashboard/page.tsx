@@ -1,11 +1,23 @@
 import Link from "next/link";
 import { ArrowLeft, Flame, UserPlus, Users } from "lucide-react";
 
-import { getLeadCounts, getLeadsPage, getTeamStats, getViewer } from "@/app/actions/leads";
+import {
+  getAnalyticsLeads,
+  getEmployeeDirectory,
+  getLeadCounts,
+  getLeadsPage,
+  getPipelineInsights,
+  getTeamStats,
+  getViewer,
+} from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { LeadsTable } from "./leads-table";
 import { SmartAssignmentBanner } from "./smart-assignment";
+import { DashboardGreeting } from "./overview/greeting";
+import { OverviewDashboard } from "./overview/overview-dashboard";
+import { currentQuarterRange, parseIsoDate, toAnalyticsLead, type DateRange } from "./overview/analytics";
+import { PipelineInsights } from "./pipeline-insights";
 import { TeamOverview } from "./team-overview";
 
 const statCards = [
@@ -131,28 +143,49 @@ export default async function DashboardPage({
 
   // ---- Admin/Manager default view: the analytics Overview dashboard ----
   if (isTeamLead) {
-    const teamResult = await getTeamStats();
+    const [leadsResult, directoryResult, teamResult] = await Promise.all([
+      // Light projection (no `select('*')`) — only the columns the cards read.
+      getAnalyticsLeads(),
+      getEmployeeDirectory(),
+      getTeamStats(),
+    ]);
+    const leads = leadsResult.success ? leadsResult.data : [];
+    const employees = directoryResult.success ? directoryResult.data : [];
     const team = teamResult.success ? teamResult.data : emptyTeam;
+    const rows = leads.map(toAnalyticsLead);
+    const insightsResult = await getPipelineInsights();
+    const insights = insightsResult.success ? insightsResult.data : null;
 
     return (
-      <div className="mx-auto w-full max-w-7xl space-y-8">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-            Team Dashboard
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {team.total.toLocaleString()} leads in the pipeline across{" "}
-            {team.employees.length} team member{team.employees.length === 1 ? "" : "s"}.
-            Click a team member to view their leads.
-          </p>
-        </div>
+      <div className="mx-auto w-full max-w-[1600px] space-y-6">
+        {team.unassigned > 0 && (
+          <SmartAssignmentBanner
+            unassigned={team.unassigned}
+            employees={team.employees.map(({ id, name }) => ({ id, name }))}
+          />
+        )}
 
-        <SmartAssignmentBanner
-          unassigned={team.unassigned}
-          employees={team.employees.map(({ id, name }) => ({ id, name }))}
+        <OverviewDashboard
+          rows={rows}
+          employees={employees}
+          range={range}
+          viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 
-        <TeamOverview team={team} />
+        {/* The old Team Dashboard survives as a roster grid: clicking a card
+            still opens that member's leads (?employee=<name>). */}
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Team roster</h2>
+            <p className="text-sm text-slate-500">
+              {team.total.toLocaleString()} leads in the pipeline across {team.employees.length} team member
+              {team.employees.length === 1 ? "" : "s"}. Click a team member to view their leads.
+            </p>
+          </div>
+          <TeamOverview team={team} />
+        </section>
+
+        {insights && <PipelineInsights insights={insights} />}
       </div>
     );
   }

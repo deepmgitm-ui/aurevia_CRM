@@ -11,7 +11,7 @@
 //   - A day cell shows at most 3 dots per lane (reminders / personal) + "+N".
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   BadgeCheck,
@@ -57,6 +57,7 @@ import {
   type PersonalEvent,
 } from "./actions";
 import { LeadTimelineDialog } from "./lead-timeline-dialog";
+import { toLocalIso } from "./month-grid";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const PERSONAL_KINDS = ["note", "call", "visit", "leave"] as const;
@@ -130,7 +131,7 @@ export function PlanCalendar({
   const [leadSearch, setLeadSearch] = useState<{ query: string; results: LeadSearchResult[] } | null>(null);
   const [pickedLead, setPickedLead] = useState<LeadSearchResult | null>(null);
 
-  const loadingMonth = monthCursor !== itemsFor.month;
+  const loadingMonth = monthCursor !== itemsFor.monthKey;
   const trimmedLeadQuery = leadQuery.trim();
   const leadSearching = trimmedLeadQuery.length >= 2 && leadSearch?.query !== trimmedLeadQuery;
   const leadResults = leadSearch?.query === trimmedLeadQuery ? leadSearch.results : [];
@@ -138,7 +139,7 @@ export function PlanCalendar({
   // Fetch a month the cache does not hold yet (arrow navigation) so every
   // month — not just the current one — shows its full timeline lanes.
   useEffect(() => {
-    if (monthCursor === itemsFor.month) return;
+    if (monthCursor === itemsFor.monthKey) return;
     let active = true;
     void getMonthDays(monthCursor).then((response) => {
       if (!active || !response.success || !response.data) return;
@@ -147,7 +148,7 @@ export function PlanCalendar({
     return () => {
       active = false;
     };
-  }, [monthCursor, itemsFor.month]);
+  }, [monthCursor, itemsFor.monthKey]);
 
   // Debounced composer search. All state updates happen inside the timer /
   // promise callbacks, keeping the effect body itself render-neutral.
@@ -203,7 +204,7 @@ export function PlanCalendar({
     setSelectedIso(iso);
     setPickedLead(null);
     setLeadQuery("");
-    setLeadResults([]);
+    setLeadSearch(null);
     setComposerOpen(true);
   }
 
@@ -218,19 +219,16 @@ export function PlanCalendar({
         toast.add({ title: "Follow-up set nahi hua", description: response.error, type: "error" });
         return;
       }
-      patchReminderDay(selectedIso, (reminders) => [
-        ...reminders.filter((item) => item.leadId !== pickedLead.leadId),
-        {
-          leadId: pickedLead.leadId,
-          leadName: pickedLead.leadName,
-          phone: pickedLead.phone,
-          leadStatus: pickedLead.status,
-          date: selectedIso,
-          overdue: selectedIso < todayIso,
-          kind: "followup",
-          agent: pickedLead.agent,
-        },
-      ]);
+      moveReminderTo(selectedIso, {
+        leadId: pickedLead.leadId,
+        leadName: pickedLead.leadName,
+        phone: pickedLead.phone,
+        leadStatus: pickedLead.status,
+        date: selectedIso,
+        overdue: selectedIso < todayIso,
+        kind: "followup",
+        agent: pickedLead.agent,
+      });
       setComposerOpen(false);
       setPickedLead(null);
       setLeadQuery("");
@@ -296,6 +294,26 @@ export function PlanCalendar({
     );
   }
 
+  /**
+   * A lead has exactly ONE follow-up date, so re-scheduling must pull the chip
+   * off every other day of the loaded month before dropping it on the new date.
+   */
+  function moveReminderTo(date: string, reminder: CalendarReminder) {
+    patchDays((current) =>
+      current.map((day) => {
+        const others = day.reminders.filter((item) => item.leadId !== reminder.leadId);
+        if (day.iso === date) return { ...day, reminders: [...others, reminder] };
+        return others.length === day.reminders.length ? day : { ...day, reminders: others };
+      }),
+    );
+  }
+
+  /** Tomorrow, as yyyy-mm-dd — mirrors the server's postpone behaviour. */
+  function tomorrowIso(iso: string): string {
+    const [year, month, day] = iso.split("-").map(Number);
+    return toLocalIso(new Date(year, month - 1, day + 1));
+  }
+
   async function handleFollowUp(reminder: CalendarReminder, action: "done" | "postpone" | "clear") {
     setBusyId(`reminder-${reminder.leadId}-${reminder.date}`);
     const response =
@@ -309,9 +327,15 @@ export function PlanCalendar({
       toast.add({ title: "Update nahi hua", description: response.error, type: "error" });
       return;
     }
-    patchReminderDay(reminder.date, (reminders) =>
-      reminders.filter((item) => item.leadId !== reminder.leadId),
-    );
+    if (action === "postpone") {
+      // The server pushes the follow-up to tomorrow — move the chip with it.
+      const nextIso = tomorrowIso(reminder.date);
+      moveReminderTo(nextIso, { ...reminder, date: nextIso, overdue: nextIso < todayIso });
+    } else {
+      patchReminderDay(reminder.date, (reminders) =>
+        reminders.filter((item) => item.leadId !== reminder.leadId),
+      );
+    }
     toast.add({
       title:
         action === "done"
@@ -560,7 +584,7 @@ export function PlanCalendar({
                       onClick={() => {
                         setPickedLead(null);
                         setLeadQuery("");
-                        setLeadResults([]);
+                        setLeadSearch(null);
                       }}
                     >
                       Change
@@ -589,7 +613,7 @@ export function PlanCalendar({
                               type="button"
                               onClick={() => {
                                 setPickedLead(lead);
-                                setLeadResults([]);
+                                setLeadSearch(null);
                               }}
                               className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50"
                             >
