@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { ArrowLeft, Flame, UserPlus, Users } from "lucide-react";
 
-import { getLeadCounts, getLeadsPage, getPipelineInsights, getTeamStats, getViewer } from "@/app/actions/leads";
+import { getLeadCounts, getLeadsPage, getTeamStats, getViewer } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { LeadsTable } from "./leads-table";
 import { SmartAssignmentBanner } from "./smart-assignment";
 import { TeamOverview } from "./team-overview";
-import { PipelineInsights } from "./pipeline-insights";
 
 const statCards = [
   {
@@ -58,12 +57,23 @@ function StatCardSection({ values }: { values: [number, number, number] }) {
   );
 }
 
+/** Header range (?from/?to) with the current quarter as the default window. */
+function resolveRange(params: { from?: string; to?: string }): DateRange {
+  const quarter = currentQuarterRange();
+  return {
+    from: parseIsoDate(params.from) ? String(params.from) : quarter.from,
+    to: parseIsoDate(params.to) ? String(params.to) : quarter.to,
+  };
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ employee?: string }>;
+  searchParams: Promise<{ employee?: string; from?: string; to?: string }>;
 }) {
-  const { employee: selectedEmployee } = await searchParams;
+  const query = await searchParams;
+  const { employee: selectedEmployee } = query;
+  const range = resolveRange(query);
   const viewerResult = await getViewer();
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
@@ -119,11 +129,10 @@ export default async function DashboardPage({
     // Unknown employee in the URL — fall through to the Team Overview.
   }
 
-  // ---- Admin/Manager default view: Team Overview (NO leads table) ----
+  // ---- Admin/Manager default view: the analytics Overview dashboard ----
   if (isTeamLead) {
-    const [teamResult, insightsResult] = await Promise.all([getTeamStats(), getPipelineInsights()]);
+    const teamResult = await getTeamStats();
     const team = teamResult.success ? teamResult.data : emptyTeam;
-    const insights = insightsResult.success ? insightsResult.data : null;
 
     return (
       <div className="mx-auto w-full max-w-7xl space-y-8">
@@ -144,7 +153,6 @@ export default async function DashboardPage({
         />
 
         <TeamOverview team={team} />
-        {insights && <PipelineInsights insights={insights} />}
       </div>
     );
   }
@@ -162,6 +170,8 @@ export default async function DashboardPage({
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
+      <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
           Dashboard Overview

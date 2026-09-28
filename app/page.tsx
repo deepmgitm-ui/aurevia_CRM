@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getUserSafely } from "@/lib/supabase/server";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getUserSafely() never throws: a stale/expired refresh token resolves to
+  // `user: null` and the visitor is sent to the login page instead of hitting
+  // an error page.
+  const { user } = await getUserSafely();
 
   redirect(user ? "/dashboard" : "/login");
 }
+
 

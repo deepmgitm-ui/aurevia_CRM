@@ -42,7 +42,20 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { celebrateLeadWin } from "./celebrate";
+import {
+  AGE_BUCKETS,
+  EMPTY_LEAD_FILTERS,
+  ageBucketLabel,
+  filterChipLabels,
+  hasLeadFilters,
+  leadsHref,
+  prettifyFilterKey,
+  stageFilterKeys,
+  type LeadListFilters,
+} from "./lead-filters";
 import { trackLeadMutations } from "./lead-mutation-tracker";
+import { stageForStatus } from "./overview/analytics";
 
 interface ImportRow {
   "Full Name"?: string;
@@ -153,6 +166,20 @@ function getInitials(name: string): string {
   return name.split(" ").filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
+// Common lead sources offered by the editable Source field. The lead's current
+// value is always merged in, so custom sources stay selectable.
+const SOURCE_OPTIONS = [
+  "Meta Ads",
+  "Online Enquiry",
+  "Agent Referral",
+  "Doctor Referral",
+  "Walk-in",
+  "Corporate Tie-up",
+  "Social Media",
+  "Manual",
+  "Excel/CSV",
+];
+
 function sourceBadgeClass(source: string): string {
   if (source.toLowerCase().includes("meta")) return "border-blue-200 bg-blue-50 text-blue-700";
   if (source.toLowerCase().includes("excel") || source.toLowerCase().includes("csv")) return "border-green-200 bg-green-50 text-green-700";
@@ -252,12 +279,50 @@ function SortableTableHead({
   );
 }
 
+/**
+ * One removable chip per active chart drill-down (?stage=, ?treatment=, ...).
+ * `next` is the filter state left after removing this chip, so a single click
+ * rewrites the URL without losing the other filters.
+ */
+function drillDownChips(filters: LeadListFilters): {
+  key: string;
+  label: string;
+  next: Partial<LeadListFilters>;
+}[] {
+  const labels = filterChipLabels();
+  const chips: { key: string; label: string; next: Partial<LeadListFilters> }[] = [];
+
+  const stageKeys = stageFilterKeys(filters.stage);
+  for (const key of stageKeys) {
+    chips.push({
+      key: `stage-${key}`,
+      label: labels[key] ?? prettifyFilterKey(key),
+      next: { stage: stageKeys.filter((candidate) => candidate !== key).join(",") },
+    });
+  }
+  if (filters.treatment) {
+    chips.push({
+      key: "treatment",
+      label: labels[filters.treatment] ?? prettifyFilterKey(filters.treatment),
+      next: { treatment: "", except: "" },
+    });
+  }
+  if (filters.age) chips.push({ key: "age", label: ageBucketLabel(filters.age), next: { age: "" } });
+  if (filters.city) chips.push({ key: "city", label: filters.city, next: { city: "" } });
+  if (filters.source) chips.push({ key: "source", label: filters.source, next: { source: "" } });
+  if (filters.assigned) chips.push({ key: "assigned", label: filters.assigned, next: { assigned: "" } });
+  if (filters.status) chips.push({ key: "status", label: filters.status, next: { status: "" } });
+  if (filters.q) chips.push({ key: "q", label: `Search: "${filters.q}"`, next: { q: "" } });
+  return chips;
+}
+
 export function LeadsTable({
   leads: initialLeads,
   initialTotal,
   initialTotalPages,
   assignedTo = "",
   role = "employee",
+  filters = EMPTY_LEAD_FILTERS,
 }: {
   leads: Lead[];
   initialTotal: number;
@@ -268,6 +333,9 @@ export function LeadsTable({
   // RBAC: employees cannot delete, bulk-import, see lead sources, or edit core
   // lead data (only Status/Temp/Remarks). Computed once per render.
   role?: ViewerRole;
+  // Chart drill-down filters from the URL (?stage=&treatment=&age=&city=).
+  // They travel with EVERY server call so paging/export stays filtered.
+  filters?: LeadListFilters;
 }) {
   const router = useRouter();
   // Role gates (plain booleans — zero runtime cost, standard conditional rendering).
@@ -307,6 +375,7 @@ export function LeadsTable({
     status: "",
     temperature: "",
     lead_date: "",
+    source: "",
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   // "Magic Paste" modal: paste tabular data straight from Excel/Google Sheets.
@@ -337,16 +406,18 @@ export function LeadsTable({
   const [isBulkActionPending, setIsBulkActionPending] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  // Search/status seeded from the URL drill-down so paging and debounced typing
+  // never drop the filter the admin arrived with.
+  const [searchTerm, setSearchTerm] = useState(filters.q);
   // The search term currently applied on the SERVER. Search runs in Supabase
   // (.or / .ilike across ALL leads in the database), not against the 50 rows
   // loaded on the current page.
-  const [activeSearch, setActiveSearch] = useState("");
+  const [activeSearch, setActiveSearch] = useState(filters.q);
   const [selectedTemperature, setSelectedTemperature] = useState("all");
   // Advanced status filter (server-side): "" = all; Hot/Warm/Cold target the
   // temperature column, everything else targets the status column.
-  const [selectedStatus, setSelectedStatus] = useState("all");
-  const [activeStatusFilter, setActiveStatusFilter] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState(filters.status || "all");
+  const [activeStatusFilter, setActiveStatusFilter] = useState(filters.status);
   const [isExporting, setIsExporting] = useState(false);
   const [dateField, setDateField] = useState<DateFilterField>("lead_date");
   const [dateFrom, setDateFrom] = useState("");
@@ -489,7 +560,7 @@ export function LeadsTable({
   async function fetchPage(nextPage: number, search: string = activeSearch, status: string = activeStatusFilter) {
     const requestId = ++fetchSequenceRef.current;
     setIsPaging(true);
-    const response = await getLeadsPage(nextPage, LEADS_PAGE_SIZE, search, assignedTo, status);
+    const response = await getLeadsPage(nextPage, LEADS_PAGE_SIZE, search, assignedTo, status, filters);
     // Skip stale responses if the user kept typing or paging meanwhile.
     if (requestId !== fetchSequenceRef.current) return;
     if (!response.success) {
@@ -537,7 +608,7 @@ export function LeadsTable({
   // Admin-only CSV export of all leads matching the current server filters.
   async function handleExportCsv() {
     setIsExporting(true);
-    const response = await getLeadsForExport(activeSearch, activeStatusFilter, assignedTo);
+    const response = await getLeadsForExport(activeSearch, activeStatusFilter, assignedTo, filters);
     if (!response.success) {
       toast.add({ title: "Export failed", description: response.error, type: "error" });
     } else {
@@ -735,6 +806,12 @@ export function LeadsTable({
     } else {
       setLeads((currentLeads) => currentLeads.map((currentLead) => currentLead.id === lead.id ? response.data : currentLead));
       if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+      // Gamification: the surgery stage ("Won", "IPD Done", "Surgery Completed")
+      // fires confetti + a reward toast — but only on the way IN, so toggling
+      // between two winning statuses doesn't spam the celebration.
+      if (stageForStatus(status) === "surgery" && stageForStatus(lead.status) !== "surgery") {
+        celebrateLeadWin({ name: response.data.name || lead.name, status });
+      }
     }
     setUpdatingLeadId(null);
   }
@@ -912,6 +989,7 @@ export function LeadsTable({
       temperature: lead.temperature ?? "",
       // Date input needs ISO format; unparseable stored values start empty.
       lead_date: parseLeadDateForSort(lead.lead_date) || "",
+      source: lead.source && lead.source !== "-" ? lead.source : "",
     });
   }
 
@@ -1005,6 +1083,56 @@ export function LeadsTable({
             <Button type="button" onClick={() => setIsAddLeadOpen(true)}><Plus aria-hidden="true" />Add Lead</Button>
           </div>
           <div className="space-y-3 border-t border-slate-100 pt-4">
+            {hasLeadFilters(filters) && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                <span className="text-xs font-semibold text-blue-700">Chart filter</span>
+                {drillDownChips(filters).map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => router.push(leadsHref({ ...filters, ...chip.next }))}
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-100"
+                    aria-label={`Remove filter: ${chip.label}`}
+                  >
+                    {chip.label}
+                    <X className="size-3" aria-hidden="true" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/leads")}
+                  className="ml-auto text-xs font-semibold text-blue-600 underline-offset-2 hover:underline"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Age buckets — the Phase 1 date buckets (Today → Yesterday → 2–6d →
+                weeks → month-wise older). One click rewrites ?age= and refetches. */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-semibold text-slate-500">Lead age</span>
+              {AGE_BUCKETS.map((bucket) => {
+                const isActive = filters.age === bucket.key;
+                return (
+                  <button
+                    key={bucket.key}
+                    type="button"
+                    aria-pressed={isActive}
+                    title={`Leads created ${bucket.label.toLowerCase()}`}
+                    onClick={() => router.push(leadsHref({ ...filters, age: isActive ? "" : bucket.key }))}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isActive
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {bucket.short}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-56 flex-1 sm:max-w-xs">
                 <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
@@ -1328,6 +1456,12 @@ export function LeadsTable({
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                   {employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}
                 </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1"><Label htmlFor="full-edit-source">Source</Label>
+              <Select value={editForm.source || "Manual"} onValueChange={(value) => setEditForm((current) => ({ ...current, source: String(value ?? "") }))}>
+                <SelectTrigger id="full-edit-source" disabled={!canEditCore}><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...SOURCE_OPTIONS, editForm.source].filter(Boolean))].map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1"><Label htmlFor="full-edit-status">Status</Label>

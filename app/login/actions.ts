@@ -2,11 +2,28 @@
 
 import { redirect } from "next/navigation";
 
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = {
   error?: string;
 } | null;
+
+const DEFAULT_REDIRECT = "/dashboard";
+const AUTH_ROUTES = ["/login", "/signup"];
+
+function resolveRedirectTarget(value: FormDataEntryValue | null): string {
+  const requested = sanitizeRedirectPath(value);
+
+  if (!requested) {
+    return DEFAULT_REDIRECT;
+  }
+
+  // Never bounce back to an auth screen (that is how redirect loops start).
+  const [pathname] = requested.split(/[?#]/);
+
+  return AUTH_ROUTES.includes(pathname) ? DEFAULT_REDIRECT : requested;
+}
 
 export async function login(
   _previousState: LoginState,
@@ -19,18 +36,42 @@ export async function login(
     return { error: "Email and password are required." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const redirectTo = resolveRedirectTarget(formData.get("redirectTo"));
 
-  if (error) {
-    return { error: "Invalid credentials." };
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      return { error: "Invalid credentials." };
+    }
+  } catch (error) {
+    // Missing environment variables or an unreachable auth server: report it
+    // instead of letting the action reject with an unhandled error.
+    console.error("[auth] Sign in failed:", error);
+
+    return {
+      error:
+        "Could not reach the authentication service. Check your Supabase configuration and try again.",
+    };
   }
 
-  redirect("/dashboard");
+  redirect(redirectTo);
 }
 
 export async function logout(): Promise<void> {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch (error) {
+    // An invalid/expired refresh token must not block signing out. The
+    // middleware (and the login page) expire the stale cookies on the next
+    // request, so the user always ends up signed out.
+    console.error("[auth] Sign out failed, clearing the session anyway:", error);
+  }
+
   redirect("/login");
 }

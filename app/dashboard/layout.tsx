@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { DashboardShell } from "./dashboard-shell";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUserSafely } from "@/lib/supabase/server";
 
 const roles = ["admin", "manager", "employee"] as const;
 type UserRole = (typeof roles)[number];
@@ -16,9 +16,10 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }>) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Never throws: an invalid/expired refresh token resolves to `user: null`,
+  // so this guard redirects cleanly instead of crashing the whole /dashboard
+  // subtree (which previously surfaced as a 404/error page).
+  const { user } = await getUserSafely(supabase);
 
   if (!user) {
     redirect("/login");

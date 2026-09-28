@@ -2,6 +2,25 @@
 
 import { revalidatePath } from "next/cache";
 
+import {
+  ageBucketWindow,
+  andClauses,
+  blankColumnClause,
+  escapeLikePattern,
+  inListExpression,
+  isUnrecordedTreatment,
+  stageFilterKeys,
+  treatmentOrExpression,
+  UNRECORDED_TREATMENT_VALUES,
+  type AgeWindow,
+  type LeadListFilters,
+} from "@/app/dashboard/lead-filters";
+import {
+  UNRECORDED_TREATMENT_KEY,
+  canonicalTreatment,
+  detectTreatmentName,
+  stageForStatus,
+} from "@/app/dashboard/overview/analytics";
 import { createClient } from "@/lib/supabase/server";
 
 export type LeadStatus = string;
@@ -195,17 +214,68 @@ function parseLeadDate(value: unknown): string {
   return Number.isNaN(date.getTime()) ? todayDate() : date.toLocaleDateString("en-GB");
 }
 
-export async function getLeads(): Promise<ActionResult<Lead[]>> {
+// NOTE: the old `getLeads()` (which fetched every column with `select('*')`)
+// was removed — analytics pages must use `getAnalyticsLeads()` below, and the
+// paginated table uses `getLeadsPage()`.
+
+// ---------------------------------------------------------------------------
+// Light analytics projection
+//
+// The overview/analysis pages never use `select('*')`. This action requests
+// only the columns the dashboard cards actually read, which keeps the network
+// payload tiny even with tens of thousands of leads:
+//
+//   status           → KPIs, month trend, stage/pipeline grouping
+//   treatment_type   → LASIK / Cataract / ICL grouping (probed, see below)
+//   lead_date, created_at → month-by-month trend (lead_date preferred)
+//   city             → "Top Cities" chart
+//   source           → "Lead Source Performance" chart + filter
+//   temperature      → agent hot/warm/cold chips
+//   assigned_to      → agent roster + agent filter
+//   name, disease    → patients table / legacy treatment fallback
+const ANALYTICS_BASE_COLUMNS =
+  "id, name, city, disease, source, status, temperature, assigned_to, lead_date, created_at";
+
+// Every column that could hold the treatment / procedure text. Each candidate is
+// probed once per server process and ALL that exist are selected, so a CRM
+// whose treatment lives in `disease` (or a custom `surgery_type`) still feeds the
+// pipeline chart instead of rendering one solid "Other" bar.
+const ANALYTICS_TREATMENT_COLUMNS = [
+  "treatment_type",
+  "treatment",
+  "treatment_name",
+  "surgery_type",
+  "surgery",
+  "procedure",
+] as const;
+
+let treatmentColumnsCache: string[] | null = null;
+
+async function resolveTreatmentColumns(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<string[]> {
+  if (treatmentColumnsCache) return treatmentColumnsCache;
+  // Probed in parallel (then cached for the process) so the first dashboard load
+  // pays one round-trip, not six.
+  const results = await Promise.all(
+    ANALYTICS_TREATMENT_COLUMNS.map(async (candidate): Promise<string | null> => {
+      // PostgREST rejects unknown columns, so `error === null` means it exists.
+      const { error } = await supabase.from("leads").select(candidate).limit(1);
+      return error ? null : candidate;
+    }),
+  );
+  treatmentColumnsCache = results.filter((candidate): candidate is string => candidate !== null);
+  return treatmentColumnsCache;
+}
+
+/** All leads (RLS-scoped) for the dashboard, projected to the analytics columns only. */
+export async function getAnalyticsLeads(): Promise<ActionResult<Lead[]>> {
   try {
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) {
-      console.log("Profile Name:", null);
-      console.log("Fetched Leads:", 0);
-      return { success: true, data: [] };
-    }
+    if (!user) return { success: true, data: [] };
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -213,46 +283,27 @@ export async function getLeads(): Promise<ActionResult<Lead[]>> {
       .eq("id", user.id)
       .single();
 
-    if (profileError || !profile) {
-      console.log("Profile Name:", null);
-      console.log("Fetched Leads:", 0);
-      return { success: true, data: [] };
-    }
+    if (profileError || !profile) return { success: true, data: [] };
+    if (profile.role === "employee" && !profile.name?.trim()) return { success: true, data: [] };
 
-    console.log("Profile Name:", profile.name);
+    // Select the base columns plus every treatment column the table actually has
+    // (treatment_type / treatment / treatment_name / surgery_type / ...). This is
+    // what feeds the LASIK / Cataract / ICL segments of the pipeline chart.
+    const treatmentColumns = await resolveTreatmentColumns(supabase);
+    const columns = [ANALYTICS_BASE_COLUMNS, ...treatmentColumns].join(", ");
 
-    if (profile.role === "employee" && !profile.name?.trim()) {
-      console.log("Fetched Leads:", 0);
-      return { success: true, data: [] };
-    }
+    let query = supabase.from("leads").select(columns).order("created_at", { ascending: false });
+    if (profile.role === "employee") query = query.ilike("assigned_to", profile.name);
 
-    const leadsQuery =
-      profile.role === "employee"
-        ? supabase
-            .from("leads")
-            .select("*")
-            .ilike("assigned_to", profile.name)
-            .order("created_at", { ascending: false })
-        : supabase
-            .from("leads")
-            .select("*")
-            .order("created_at", { ascending: false });
+    const { data, error } = await query;
+    if (error) return { success: false, error: error.message };
 
-    const { data, error } = await leadsQuery;
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    console.log("Fetched Leads:", data?.length ?? 0);
-    return { success: true, data: (data ?? []) as Lead[] };
+    return { success: true, data: (data ?? []) as unknown as Lead[] };
   } catch (error) {
-    return {
-      success: false,
-      error: getErrorMessage(error, "Unable to fetch leads."),
-    };
+    return { success: false, error: getErrorMessage(error, "Unable to fetch analytics leads.") };
   }
 }
+
 // Page size for server-side pagination. The table fetches 50 leads per page so
 // the dashboard stays fast with 1k+ leads instead of loading the entire table.
 const LEADS_PAGE_SIZE = 50;
@@ -322,6 +373,236 @@ function buildLeadSearchFilter(search: string): string | null {
   ].join(",");
 }
 
+// ---------------------------------------------------------------------------
+// Chart drill-down filters (?stage= &treatment= &age= &city= ... on
+// /dashboard/leads). Stage and treatment grouping reuse the SAME JS helpers the
+// charts use (stageForStatus / canonicalTreatment), fed by the distinct values
+// that currently exist in the table — so a drill-down list always agrees with
+// the bar that was clicked.
+// ---------------------------------------------------------------------------
+
+type LeadsSupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+const DISTINCT_CACHE_TTL_MS = 60_000;
+const DISTINCT_ROW_LIMIT = 20_000;
+
+interface TreatmentValue {
+  column: string;
+  value: string;
+  /** Series key the charts group this raw text into. */
+  key: string;
+}
+
+// Deciding "which rows belong to this segment" needs the whole table's distinct
+// statuses / treatment texts, so those two lists are fetched once a minute
+// instead of once per page.
+let distinctStatusCache: { values: string[]; at: number } | null = null;
+let distinctTreatmentCache: { values: TreatmentValue[]; at: number } | null = null;
+
+/** Distinct `status` values; `null` = query failed → the stage filter is skipped. */
+async function getDistinctStatuses(supabase: LeadsSupabaseClient): Promise<string[] | null> {
+  if (distinctStatusCache && Date.now() - distinctStatusCache.at < DISTINCT_CACHE_TTL_MS) {
+    return distinctStatusCache.values;
+  }
+  const { data, error } = await supabase.from("leads").select("status").limit(DISTINCT_ROW_LIMIT);
+  if (error) return distinctStatusCache?.values ?? null;
+  const values = [...new Set((data ?? []).map((row) => row.status?.trim() ?? ""))];
+  distinctStatusCache = { values, at: Date.now() };
+  return values;
+}
+
+/** Distinct treatment text per column, each mapped to its chart series key. */
+async function getDistinctTreatmentValues(supabase: LeadsSupabaseClient): Promise<TreatmentValue[] | null> {
+  if (distinctTreatmentCache && Date.now() - distinctTreatmentCache.at < DISTINCT_CACHE_TTL_MS) {
+    return distinctTreatmentCache.values;
+  }
+  const treatmentColumns = await resolveTreatmentColumns(supabase);
+  const columns = [...new Set(["disease", "remarks", ...treatmentColumns])];
+  const { data, error } = await supabase.from("leads").select(columns.join(", ")).limit(DISTINCT_ROW_LIMIT);
+  if (error) return distinctTreatmentCache?.values ?? null;
+  const seen = new Set<string>();
+  const values: TreatmentValue[] = [];
+  for (const row of data ?? []) {
+    // The select string is built at runtime, so Supabase types each cell as a
+    // parse-error sentinel — read them as plain records instead.
+    const record = row as unknown as Record<string, unknown>;
+    for (const column of columns) {
+      const cell = record[column];
+      const raw = typeof cell === "string" ? cell.trim() : "";
+      const id = column + "|" + raw;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (column === "remarks") {
+        // Free-text notes only ever contribute a RECOGNISED treatment name —
+        // the chart never lets a random remark become its own series.
+        const detected = detectTreatmentName(raw);
+        if (detected) values.push({ column, value: raw, key: canonicalTreatment(detected).key });
+        continue;
+      }
+      values.push({ column, value: raw, key: canonicalTreatment(raw).key });
+    }
+  }
+  distinctTreatmentCache = { values, at: Date.now() };
+  return values;
+}
+
+/** The resolved drill-down filters, ready to chain onto any leads query. */
+interface ResolvedLeadFilters {
+  /** No row can match — the caller short-circuits with an empty page. */
+  empty: boolean;
+  inFilters: { column: string; values: string[] }[];
+  orExpressions: string[];
+  ageWindow: AgeWindow | null;
+  city: string | null;
+  source: string | null;
+  assigned: string | null;
+}
+
+function emptyResolvedFilters(): ResolvedLeadFilters {
+  return {
+    empty: false,
+    inFilters: [],
+    orExpressions: [],
+    ageWindow: null,
+    city: null,
+    source: null,
+    assigned: null,
+  };
+}
+
+/**
+ * Minimal structural view of the PostgREST builder so ONE helper can filter
+ * both the paginated page query and the CSV export query.
+ */
+interface LeadFilterQuery<Q> {
+  in(column: string, values: readonly string[]): Q;
+  or(filters: string): Q;
+  ilike(column: string, pattern: string): Q;
+  gte(column: string, value: string): Q;
+  lt(column: string, value: string): Q;
+  eq(column: string, value: string): Q;
+}
+
+function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
+  let filtered = query;
+  for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
+  // Every entry is its own `or=(...)` param, so separate entries AND together
+  // (stage AND treatment AND age ...).
+  for (const expression of resolved.orExpressions) filtered = filtered.or(expression);
+  if (resolved.ageWindow) {
+    if (resolved.ageWindow.fromIso) filtered = filtered.gte("created_at", resolved.ageWindow.fromIso);
+    if (resolved.ageWindow.toIso) filtered = filtered.lt("created_at", resolved.ageWindow.toIso);
+  }
+  if (resolved.city) filtered = filtered.ilike("city", resolved.city);
+  if (resolved.source) filtered = filtered.ilike("source", resolved.source);
+  if (resolved.assigned) filtered = filtered.eq("assigned_to", resolved.assigned);
+  return filtered;
+}
+
+/**
+ * Turns URL drill-down filters into PostgREST conditions. Runs two extra
+ * (cached, light) queries so `stage` and `treatment` resolve with EXACTLY the
+ * grouping the dashboard charts perform in the browser.
+ */
+async function resolveLeadFilters(
+  supabase: LeadsSupabaseClient,
+  filters?: Partial<LeadListFilters>,
+): Promise<ResolvedLeadFilters> {
+  const resolved = emptyResolvedFilters();
+  if (!filters) return resolved;
+
+  const stageKeys = stageFilterKeys(filters.stage ?? "");
+  const treatment = (filters.treatment ?? "").trim();
+  const age = (filters.age ?? "").trim();
+  const city = (filters.city ?? "").trim();
+  const source = (filters.source ?? "").trim();
+  const assigned = (filters.assigned ?? "").trim();
+  if (stageKeys.length === 0 && !treatment && !age && !city && !source && !assigned) return resolved;
+
+  // --- Stage: run every distinct status through stageForStatus() (the exact
+  // function the pipeline chart uses), then ask Postgres for those statuses.
+  if (stageKeys.length > 0) {
+    const statuses = await getDistinctStatuses(supabase);
+    if (statuses) {
+      const wanted = new Set<string>(stageKeys);
+      const matching = statuses.filter((value) => wanted.has(stageForStatus(value)));
+      if (matching.length === 0) {
+        resolved.empty = true;
+      } else if (matching.includes("")) {
+        // Blank AND NULL statuses both read as stage "new".
+        resolved.orExpressions.push(`status.is.null,status.in.(${inListExpression(matching)})`);
+      } else {
+        resolved.inFilters.push({ column: "status", values: matching });
+      }
+    }
+  }
+
+  // --- Age bucket → created_at window (server-local calendar; see ageBucketWindow).
+  if (age) resolved.ageWindow = ageBucketWindow(age);
+
+  // --- Treatment: map raw treatment text onto the chart's series key.
+  if (treatment && !resolved.empty) {
+    const treatmentColumns = await resolveTreatmentColumns(supabase);
+    // Same priority order resolveTreatmentText() walks: candidates first, `disease` last.
+    const priorityColumns = [...new Set([...treatmentColumns, "disease"])];
+    const values = await getDistinctTreatmentValues(supabase);
+
+    if (isUnrecordedTreatment(treatment)) {
+      // "Not Recorded" = every treatment column still a placeholder AND the
+      // remarks name no treatment.
+      const clauses = priorityColumns.map(
+        (column) => `or(${column}.is.null,${column}.in.(${inListExpression(UNRECORDED_TREATMENT_VALUES)}))`,
+      );
+      const remarksWithTreatment = (values ?? [])
+        .filter((entry) => entry.column === "remarks")
+        .map((entry) => entry.value);
+      if (remarksWithTreatment.length > 0) {
+        clauses.push(`or(remarks.is.null,not.or(remarks.in.(${inListExpression(remarksWithTreatment)}))))`);
+      }
+      resolved.orExpressions.push(clauses.length === 1 ? clauses[0] : `and(${clauses.join(",")})`);
+    } else if (values) {
+      const except = new Set((filters.except ?? "").split(",").map((key) => key.trim()).filter(Boolean));
+      const wanted = (key: string) =>
+        treatment === "other" ? key !== UNRECORDED_TREATMENT_KEY && !except.has(key) : key === treatment;
+      const byColumn = new Map<string, string[]>();
+      const remarks: string[] = [];
+      for (const entry of values) {
+        if (!wanted(entry.key)) continue;
+        if (entry.column === "remarks") remarks.push(entry.value);
+        else byColumn.set(entry.column, [...(byColumn.get(entry.column) ?? []), entry.value]);
+      }
+      const clauses: string[] = [];
+      priorityColumns.forEach((column, index) => {
+        const matches = byColumn.get(column);
+        if (!matches?.length) return;
+        // A row only reads this column when every HIGHER-priority column is blank.
+        const guards = priorityColumns.slice(0, index).map(blankColumnClause);
+        clauses.push(andClauses([`${column}.in.(${inListExpression(matches)})`, ...guards]));
+      });
+      if (remarks.length > 0) {
+        // A remark only counts when no treatment column has a real value.
+        clauses.push(
+          andClauses([`remarks.in.(${inListExpression(remarks)})`, ...priorityColumns.map(blankColumnClause)]),
+        );
+      }
+      if (clauses.length === 0) resolved.empty = true;
+      else resolved.orExpressions.push(clauses.length === 1 ? clauses[0] : `or(${clauses.join(",")})`);
+    } else {
+      // Distinct values unavailable → keyword fallback (best-effort SQL mirror).
+      const patterns = treatmentOrExpression(treatment, [...priorityColumns, "remarks"]);
+      if (patterns) resolved.orExpressions.push(patterns);
+      else resolved.empty = true;
+    }
+  }
+
+  // --- Exact-match filters: ilike without wildcards = case-insensitive equality.
+  if (city) resolved.city = escapeLikePattern(city);
+  if (source) resolved.source = escapeLikePattern(source);
+  if (assigned) resolved.assigned = assigned;
+
+  return resolved;
+}
+
 // Status-filter values that actually live in the temperature column
 // (Hot/Warm/Cold); every other filter value targets the status column.
 const TEMPERATURE_FILTERS = new Set(["hot", "warm", "cold"]);
@@ -332,6 +613,7 @@ export async function getLeadsPage(
   search = "",
   assignedTo = "",
   statusFilter = "",
+  filters?: Partial<LeadListFilters>,
 ): Promise<ActionResult<LeadsPageData>> {
   const safePageSize = Math.min(Math.max(pageSize, 1), 200);
   try {
@@ -361,6 +643,13 @@ export async function getLeadsPage(
     const from = (safePage - 1) * safePageSize;
     const to = from + safePageSize - 1;
 
+    // Drill-down filters from the dashboard charts (stage/treatment/age/city).
+    // `empty` means no row can possibly match — skip the round-trip entirely.
+    const resolved = await resolveLeadFilters(supabase, filters);
+    if (resolved.empty) {
+      return { success: true, data: { leads: [], total: 0, page: 1, pageSize: safePageSize, totalPages: 1 } };
+    }
+
     // count: "exact" returns the total row count alongside the current page,
     // and .range() fetches only this page's rows from Supabase.
     const searchFilter = buildLeadSearchFilter(search);
@@ -376,14 +665,17 @@ export async function getLeadsPage(
       // ALL leads in the database, not just the 50 rows on the current page.
       leadsQuery = leadsQuery.or(searchFilter);
     }
-    const statusFilterNormalized = statusFilter.trim().toLowerCase();
+    // ?status= from the URL folds into the existing advanced status filter.
+    const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
+    const statusFilterNormalized = effectiveStatus.toLowerCase();
     if (statusFilterNormalized) {
       // Advanced status filter: Hot/Warm/Cold target the temperature column,
       // every other value (New, OPD Done, Won, Lost, ...) targets status.
       leadsQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
-        ? leadsQuery.eq("temperature", statusFilter.trim())
-        : leadsQuery.eq("status", statusFilter.trim());
+        ? leadsQuery.eq("temperature", effectiveStatus)
+        : leadsQuery.eq("status", effectiveStatus);
     }
+    leadsQuery = applyLeadFilters(leadsQuery, resolved);
     const { data, error, count } = await leadsQuery
       .order("created_at", { ascending: false })
       .range(from, to);
@@ -415,11 +707,12 @@ export async function getLeadsPage(
 
 // Admin-only CSV export: bypasses pagination with a bounded, chunked fetch of
 // ALL leads matching the current server-side filters (search + status +
-// employee drill-down), capped at EXPORT_LIMIT rows for safety.
+// employee drill-down + chart drill-down filters), capped at EXPORT_LIMIT rows.
 export async function getLeadsForExport(
   search = "",
   statusFilter = "",
   assignedTo = "",
+  filters?: Partial<LeadListFilters>,
 ): Promise<ActionResult<Lead[]>> {
   const EXPORT_LIMIT = 5000;
   const chunkSize = 1000;
@@ -432,16 +725,21 @@ export async function getLeadsForExport(
       return { success: false, error: "Only admins can export leads (403 Forbidden)." };
     }
 
+    const resolved = await resolveLeadFilters(supabase, filters);
+    if (resolved.empty) return { success: true, data: [] };
+
     let exportQuery = supabase.from("leads").select("*");
     if (assignedTo.trim()) exportQuery = exportQuery.eq("assigned_to", assignedTo.trim());
     const searchFilter = buildLeadSearchFilter(search);
     if (searchFilter) exportQuery = exportQuery.or(searchFilter);
-    const statusFilterNormalized = statusFilter.trim().toLowerCase();
+    const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
+    const statusFilterNormalized = effectiveStatus.toLowerCase();
     if (statusFilterNormalized) {
       exportQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
-        ? exportQuery.eq("temperature", statusFilter.trim())
-        : exportQuery.eq("status", statusFilter.trim());
+        ? exportQuery.eq("temperature", effectiveStatus)
+        : exportQuery.eq("status", effectiveStatus);
     }
+    exportQuery = applyLeadFilters(exportQuery, resolved);
     exportQuery = exportQuery.order("created_at", { ascending: false });
 
     const rows: Lead[] = [];
@@ -565,6 +863,81 @@ export async function getEmployees(): Promise<ActionResult<Employee[]>> {
     return { success: false, error: getErrorMessage(error, "Unable to fetch employees.") };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Employee directory (with optional HR details)
+// ---------------------------------------------------------------------------
+
+export interface EmployeeDirectoryEntry {
+  id: string;
+  name: string;
+  role: "admin" | "manager" | "employee";
+  phone: string | null;
+  email: string | null;
+  gender: string | null;
+  blood_group: string | null;
+  emergency_contact: string | null;
+  manager_name: string | null;
+  photo_url: string | null;
+}
+
+// The HR columns are optional. The query below selects them when the optional
+// HR migration (supabase-hr-migration.sql) has been applied and silently falls
+// back to the three base columns when it has not (PostgREST answers 42703 /
+// PGRST204 for unknown columns), so the CRM keeps working either way.
+const HR_PROFILE_COLUMNS =
+  "id, name, role, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url";
+const BASE_PROFILE_COLUMNS = "id, name, role";
+
+function textOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed && trimmed !== "-" ? trimmed : null;
+}
+
+export async function getEmployeeDirectory(): Promise<ActionResult<EmployeeDirectoryEntry[]>> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { success: true, data: [] };
+
+    // RBAC: the HR-aware directory (contact numbers, blood group, manager) is an
+    // admin/manager capability. Employees get an empty roster instead of the
+    // company-wide contact sheet.
+    const viewerRole = await getViewerRole(supabase);
+    if (!viewerRole || viewerRole === "employee") return { success: true, data: [] };
+
+    const withHr = await supabase.from("profiles").select(HR_PROFILE_COLUMNS).order("name", { ascending: true });
+    let rows = (withHr.data ?? null) as Record<string, unknown>[] | null;
+
+    if (withHr.error) {
+      const base = await supabase.from("profiles").select(BASE_PROFILE_COLUMNS).order("name", { ascending: true });
+      if (base.error) return { success: false, error: base.error.message };
+      rows = (base.data ?? null) as Record<string, unknown>[] | null;
+    }
+
+    return {
+      success: true,
+      data: (rows ?? []).map((row) => ({
+        id: String(row.id ?? ""),
+        name: String(row.name ?? "").trim(),
+        role: row.role === "admin" || row.role === "manager" ? row.role : "employee",
+        phone: textOrNull(row.phone),
+        email: textOrNull(row.email),
+        gender: textOrNull(row.gender),
+        blood_group: textOrNull(row.blood_group),
+        emergency_contact: textOrNull(row.emergency_contact),
+        manager_name: textOrNull(row.manager_name),
+        photo_url: textOrNull(row.photo_url),
+      })),
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to fetch the employee directory.") };
+  }
+}
+
 
 export type ViewerRole = "admin" | "manager" | "employee";
 
@@ -991,6 +1364,28 @@ export async function bulkInsertLeads(
   }
 }
 
+// Best-effort timeline entry. Never throws: a failed activity log must not
+// block the actual lead write. RLS decides who may insert (admins/managers for
+// all leads, employees only for leads assigned to them as themselves).
+async function recordLeadActivity(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  leadId: string,
+  userId: string,
+  actionType: string,
+  description: string,
+): Promise<void> {
+  try {
+    await supabase.from("lead_activities").insert({
+      lead_id: leadId,
+      user_id: userId,
+      action_type: actionType,
+      description,
+    });
+  } catch {
+    // Swallow — the timeline is a nice-to-have, the lead update is the truth.
+  }
+}
+
 export async function updateLeadStatus(
   input: UpdateLeadStatusInput,
 ): Promise<ActionResult<Lead>> {
@@ -1000,6 +1395,17 @@ export async function updateLeadStatus(
 
   try {
     const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    // Capture the previous status so the timeline can show the real transition.
+    const { data: before } = await supabase
+      .from("leads")
+      .select("status")
+      .eq("id", input.id)
+      .single();
+
     const { data, error } = await supabase
       .from("leads")
       .update({
@@ -1012,6 +1418,11 @@ export async function updateLeadStatus(
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    const previousStatus = (before?.status ?? "").trim();
+    if (user && previousStatus && previousStatus !== input.status) {
+      await recordLeadActivity(supabase, input.id, user.id, "status", `${previousStatus} → ${input.status}`);
     }
 
     revalidatePath("/dashboard");
@@ -1057,14 +1468,27 @@ export async function updateLeadFollowUpDate(
 
   try {
     const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const nextFollowUp = followUpDate.trim();
     const { data, error } = await supabase
       .from("leads")
-      .update({ follow_up_date: followUpDate.trim() || "-" })
+      .update({ follow_up_date: nextFollowUp || "-" })
       .eq("id", leadId)
       .select()
       .single();
 
     if (error) return { success: false, error: error.message };
+    if (user) {
+      await recordLeadActivity(
+        supabase,
+        leadId,
+        user.id,
+        "follow_up",
+        nextFollowUp ? `Follow-up set: ${nextFollowUp}` : "Follow-up clear kiya",
+      );
+    }
     revalidatePath("/dashboard");
     return { success: true, data: data as Lead };
   } catch (error) {
@@ -1335,6 +1759,7 @@ export interface UpdateLeadDetailsInput {
   assigned_to?: string;
   lead_date?: string;
   follow_up_date?: string;
+  source?: string;
 }
 
 // Full editability: lets admins edit every field of a lead directly from the
@@ -1361,6 +1786,9 @@ export async function updateLeadDetails(
   if (input.assigned_to !== undefined) updates.assigned_to = input.assigned_to.trim() || "-";
   if (input.lead_date !== undefined) updates.lead_date = input.lead_date.trim() || "-";
   if (input.follow_up_date !== undefined) updates.follow_up_date = input.follow_up_date.trim() || "-";
+  // Source tracking: admins/managers can correct where a lead actually came
+  // from (the DB trigger blocks employees from touching this core field).
+  if (input.source !== undefined) updates.source = input.source.trim() || "Manual";
 
   if (Object.keys(updates).length === 0) {
     return { success: false, error: "No changes were provided." };

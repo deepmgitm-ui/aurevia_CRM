@@ -28,25 +28,40 @@ export default function SignupPage() {
     const password = String(formData.get("password") ?? "");
 
     setIsSubmitting(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signUp({ email, password });
 
-    if (error) {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signUp({ email, password });
+
+      if (error) {
+        toast.add({
+          title: "Unable to create account",
+          description: error.message,
+          type: "error",
+        });
+        return;
+      }
+
+      toast.add({
+        title: "Account created successfully!",
+        description: "Please log in.",
+        type: "success",
+      });
+      router.push("/login");
+    } catch (error) {
+      // e.g. missing Supabase env vars in .env.local — surface it instead of
+      // leaving the button stuck on "Creating account...".
       toast.add({
         title: "Unable to create account",
-        description: error.message,
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unexpected error. Please try again.",
         type: "error",
       });
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-
-    toast.add({
-      title: "Account created successfully!",
-      description: "Please log in.",
-      type: "success",
-    });
-    router.push("/login");
   }
 
   return (
