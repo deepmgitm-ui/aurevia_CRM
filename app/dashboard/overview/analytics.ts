@@ -385,6 +385,23 @@ export function percentDelta(current: number, previous: number): string {
   return `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`;
 }
 
+/**
+ * The status written when a card is dropped into a board column.
+ *
+ * `stageForStatus` maps each of these back to the SAME stage, and
+ * `scripts/verify-lead-filters.mts` asserts that round-trip — that is what makes
+ * a drag-and-drop safe: the card can never land in one column and be re-read into
+ * another on the next load.
+ */
+export const STAGE_TARGET_STATUS: Record<StageKey, string> = {
+  new: "New",
+  contacted: "Contacted",
+  booked: "Consultation Booked",
+  attended: "Consultation Attended",
+  surgery: "Surgery Completed",
+  lost: "Lost",
+};
+
 // ---------------------------------------------------------------------------
 // Lead → stage / treatment mapping
 // ---------------------------------------------------------------------------

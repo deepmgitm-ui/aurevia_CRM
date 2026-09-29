@@ -27,7 +27,8 @@ import {
   treatmentOrExpression,
   type LeadListFilters,
 } from "../app/dashboard/lead-filters.ts";
-import type { AnalyticsLead } from "../app/dashboard/overview/analytics.ts";
+import type { AnalyticsLead, StageKey } from "../app/dashboard/overview/analytics.ts";
+import { STAGE_TARGET_STATUS, stageForStatus } from "../app/dashboard/overview/analytics.ts";
 
 // ---------------------------------------------------------------------------
 // 1. Round trip: a chart click link parses back to the exact same filter set.
@@ -229,3 +230,18 @@ console.log("✓ all lead filter assertions passed");
 console.log(`  href round trip: ${href}`);
 console.log(`  chips: ${describeActiveFilters(parsed).join(" · ")}`);
 console.log(`  age buckets: ${AGE_BUCKETS.map((bucket) => bucket.key).join(" → ")}`);
+
+// ---------------------------------------------------------------------------
+// 5. Board invariant: dropping a card into a column writes a status that
+//    `stageForStatus` re-reads into the SAME stage — the card can never look
+//    moved and then jump back on the next board load.
+// ---------------------------------------------------------------------------
+const boardStages: StageKey[] = ["new", "contacted", "booked", "attended", "surgery", "lost"];
+for (const key of boardStages) {
+  assert.equal(
+    stageForStatus(STAGE_TARGET_STATUS[key]),
+    key,
+    `STAGE_TARGET_STATUS.${key} ("${STAGE_TARGET_STATUS[key]}") must re-read as stage "${key}"`,
+  );
+}
+console.log(`  board round trip: ${boardStages.map((key) => `${key}→"${STAGE_TARGET_STATUS[key]}"→${key}`).join("  ")}`);

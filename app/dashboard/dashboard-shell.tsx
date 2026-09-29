@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CheckSquare,
   ChevronDown,
+  Kanban,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -52,6 +53,7 @@ interface DashboardShellProps {
 const navigation = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
   { label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+  { label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
   { label: "Consultations", href: "/dashboard/consultations", icon: CalendarDays, exact: false },
   { label: "Surgeries", href: "/dashboard/surgeries", icon: Stethoscope, exact: false },
   { label: "Patients", href: "/dashboard/patients", icon: UserRound, exact: false },
@@ -64,6 +66,7 @@ const navigation = [
 // Secondary (in-dashboard) tab navigation shown in the top white bar.
 const topTabs = [
   { label: "Overview", href: "/dashboard", exact: true },
+  { label: "Pipeline Board", href: "/dashboard/board", exact: false },
   { label: "Lead Analysis", href: "/dashboard/lead-analysis", exact: false },
   { label: "Consultations", href: "/dashboard/consultations", exact: false },
   { label: "Surgeries", href: "/dashboard/surgeries", exact: false },

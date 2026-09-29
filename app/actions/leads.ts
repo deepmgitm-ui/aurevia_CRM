@@ -19,12 +19,15 @@ import {
   type TreatmentTally,
 } from "@/app/dashboard/lead-filters";
 import {
+  PIPELINE_STAGES,
   SEGMENT_LEAD_LIMIT,
+  STAGE_TARGET_STATUS,
   UNRECORDED_TREATMENT_KEY,
   canonicalTreatment,
   detectTreatmentName,
   stageForStatus,
   toAnalyticsLead,
+  type StageKey,
 } from "@/app/dashboard/overview/analytics";
 import {
   DELETE_ALL_CONFIRMATION,
@@ -326,13 +329,51 @@ export interface LeadCounts {
   won: number;
   lost: number;
 }
-
 export interface LeadsPageData {
   leads: Lead[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+// ---------------------------------------------------------------------------
+// Kanban board ("pipeline at a glance")
+// ---------------------------------------------------------------------------
+
+/**
+ * The fields a board card renders. Deliberately a SHORT projection: a board can
+ * show hundreds of cards, and pulling `select("*")` for all of them is exactly
+ * the kind of egress the free tier hates.
+ */
+export interface BoardLead {
+  id: string;
+  name: string;
+  phone: string | null;
+  city: string;
+  disease: string;
+  status: LeadStatus;
+  temperature: LeadTemperature;
+  assigned_to: string | null;
+  follow_up_date: string;
+  created_at: string;
+}
+
+export interface BoardColumn {
+  key: StageKey;
+  label: string;
+  /** Status written when a card is dropped here (see STAGE_TARGET_STATUS). */
+  status: string;
+  /** Exact number of leads in this stage for the viewer (not the card count). */
+  total: number;
+  leads: BoardLead[];
+}
+
+export interface PipelineBoardData {
+  columns: BoardColumn[];
+  total: number;
+  /** Cards returned per column; `total` may be larger ("N more" hint in the UI). */
+  cardLimit: number;
 }
 
 // Builds the role-scoped base query (employees only see leads assigned to them).
@@ -854,6 +895,107 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
       success: false,
       error: getErrorMessage(error, "Unable to fetch lead counts."),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Kanban board
+// ---------------------------------------------------------------------------
+
+// Cards per column. The header always shows the EXACT stage count, so a long
+// column stays honest instead of pretending 40 cards is the whole stage.
+const BOARD_CARD_LIMIT = 40;
+const BOARD_CARD_COLUMNS =
+  "id, name, phone, city, disease, status, temperature, assigned_to, follow_up_date, created_at";
+
+const BOARD_COLUMNS: { key: StageKey; label: string }[] = [
+  ...PIPELINE_STAGES,
+  { key: "lost", label: "Lost / Dropped" },
+];
+
+function emptyBoardData(): PipelineBoardData {
+  return {
+    columns: BOARD_COLUMNS.map(({ key, label }) => ({
+      key,
+      label,
+      status: STAGE_TARGET_STATUS[key],
+      total: 0,
+      leads: [],
+    })),
+    total: 0,
+    cardLimit: BOARD_CARD_LIMIT,
+  };
+}
+
+/**
+ * Feeds the Kanban board: one light query per column (cards + an exact count),
+ * scoped exactly like every other list — employees only ever see leads assigned
+ * to them, and RLS enforces the same rule underneath.
+ */
+export async function getPipelineBoard(): Promise<ActionResult<PipelineBoardData>> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { success: true, data: emptyBoardData() };
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError || !profile) return { success: true, data: emptyBoardData() };
+    if (profile.role === "employee" && !profile.name?.trim()) {
+      return { success: true, data: emptyBoardData() };
+    }
+
+    const isEmployee = profile.role === "employee";
+    const employeeName = profile.name ?? "";
+
+    const columns = await Promise.all(
+      BOARD_COLUMNS.map(async ({ key, label }) => {
+        const status = STAGE_TARGET_STATUS[key];
+        const resolved = await resolveLeadFilters(supabase, { stage: key });
+        if (resolved.empty) return { key, label, status, total: 0, leads: [] as BoardLead[] };
+
+        const cardsQuery = supabase.from("leads").select(BOARD_CARD_COLUMNS);
+        const countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
+
+        const scopedCards = isEmployee ? cardsQuery.ilike("assigned_to", employeeName) : cardsQuery;
+        const scopedCount = isEmployee ? countQuery.ilike("assigned_to", employeeName) : countQuery;
+
+        const [cardsResult, countResult] = await Promise.all([
+          applyLeadFilters(scopedCards, resolved)
+            .order("created_at", { ascending: false })
+            .limit(BOARD_CARD_LIMIT),
+          applyLeadFilters(scopedCount, resolved),
+        ]);
+
+        const failure = cardsResult.error ?? countResult.error;
+        if (failure) throw new Error(failure.message);
+
+        return {
+          key,
+          label,
+          status,
+          total: countResult.count ?? 0,
+          leads: (cardsResult.data ?? []) as unknown as BoardLead[],
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      data: {
+        columns,
+        total: columns.reduce((sum, column) => sum + column.total, 0),
+        cardLimit: BOARD_CARD_LIMIT,
+      },
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load the pipeline board.") };
   }
 }
 
