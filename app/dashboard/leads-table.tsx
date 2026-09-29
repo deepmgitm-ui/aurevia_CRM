@@ -691,20 +691,48 @@ export function LeadsTable({
         return;
       }
 
-      const { leads: importedLeads, skippedDuplicates, skippedRows } = response.data;
+      const { leads: importedLeads, skippedDuplicates, skippedRows, unassigned } = response.data;
       // Mark imported rows as self-mutations so realtime notifications don't
       // toast the admin about their own bulk import.
       trackLeadMutations(importedLeads.map((lead) => lead.id));
       setLeads((previousLeads) => [...importedLeads, ...previousLeads]);
       setServerTotal((current) => current + importedLeads.length);
+
+      // The toast used to be the only proof the upload worked. When a filter (or
+      // an unassigned sheet) hid the rows, it looked like the import had
+      // vanished — so now the server itself is asked what it holds, and any
+      // reason the rows might not be visible is spelled out.
+      const proof = await getLeadsPage(1, 1, "", "", "", {});
+      const serverTotal = proof.success ? proof.data.total : null;
+      const filtersAreActive = Boolean(hasLeadFilters(filters) || activeSearch.trim() || activeStatusFilter.trim());
+
       toast.add({
         title: "Import complete",
         description:
           importedLeads.length === 0
             ? `No new leads were added — all ${skippedDuplicates} phone numbers already exist in the database.${skippedRows > 0 ? ` ${skippedRows} invalid rows were also skipped.` : ""}`
-            : `${importedLeads.length} leads imported successfully.${skippedDuplicates > 0 ? ` ${skippedDuplicates} duplicate${skippedDuplicates === 1 ? "" : "s"} skipped (phone number already exists).` : ""}${skippedRows > 0 ? ` ${skippedRows} invalid rows skipped.` : ""}`,
+            : `${importedLeads.length} leads imported successfully.${serverTotal !== null ? ` The database now holds ${serverTotal.toLocaleString()} lead${serverTotal === 1 ? "" : "s"}.` : ""}${skippedDuplicates > 0 ? ` ${skippedDuplicates} duplicate${skippedDuplicates === 1 ? "" : "s"} skipped (phone number already exists).` : ""}${skippedRows > 0 ? ` ${skippedRows} invalid rows skipped.` : ""}`,
         type: "success",
       });
+
+      if (importedLeads.length > 0 && filtersAreActive) {
+        toast.add({
+          title: "Some imported leads are hidden by your filters",
+          description:
+            "This list is filtered, so leads that do not match the active search / status / chart filters are not shown. Clear the filters to see every lead you just added.",
+          type: "error",
+        });
+      }
+
+      if (unassigned > 0) {
+        toast.add({
+          title: `${unassigned} imported lead${unassigned === 1 ? " has" : "s have"} no agent`,
+          description:
+            "Their spreadsheet had no matching \"Assigned To\" name, so they were saved as unassigned (\"-\"). Employees only see leads assigned to them — assign these from the table (tick the rows → Assign) so they reach the team.",
+          type: "error",
+        });
+      }
+
       router.refresh();
     } catch {
       toast.add({ title: "Import failed", description: "Something went wrong while importing the file.", type: "error" });

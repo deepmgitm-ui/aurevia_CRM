@@ -1177,6 +1177,10 @@ export interface ImportResult {
   skippedDuplicates: number;
   // Rows skipped as malformed/blank during parsing.
   skippedRows: number;
+  // Imported rows that got no agent (the sheet had no/mismatched "Assigned To").
+  // They are stored with assigned_to = "-", so they are invisible to every
+  // employee until an admin/manager assigns them — the UI must say so.
+  unassigned: number;
 }
 
 export async function bulkInsertLeads(
@@ -1359,9 +1363,13 @@ export async function bulkInsertLeads(
   if (freshRecords.length === 0) {
     return {
       success: true,
-      data: { leads: [], skippedDuplicates, skippedRows },
+      data: { leads: [], skippedDuplicates, skippedRows, unassigned: 0 },
     };
   }
+
+  // Imported rows without an agent: invisible to employees (their list is
+  // scoped to assigned_to = their own name), so the caller warns about them.
+  const unassigned = freshRecords.filter((record) => !record.assigned_to || record.assigned_to === "-").length;
 
   // Insert in bounded chunks so very large files never exceed PostgREST
   // request limits, and always send exactly the leads-table columns.
@@ -1391,7 +1399,7 @@ export async function bulkInsertLeads(
     }
 
     revalidatePath("/dashboard");
-    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows } };
+    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows, unassigned } };
   } catch (error) {
     return {
       success: false,

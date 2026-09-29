@@ -142,6 +142,12 @@ export default async function LeadsPage({
     : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
   const tally = tallyResult.success ? tallyResult.data : [];
 
+  // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
+  // filtered result — the difference is what the filters are hiding. When that is
+  // the whole pipeline (e.g. 892 leads, 0 shown) the page says so instead of
+  // looking like an empty database.
+  const hiddenByFilters = Math.max(counts.total - leadsPage.total, 0);
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       <div>
@@ -155,14 +161,28 @@ export default async function LeadsPage({
         </p>
       </div>
       <DashboardStats counts={counts} />
+      {/* "Leads 0" scare: a filtered list (from a chart click or a shared link)
+          used to look like an empty database. The banner always states how many
+          leads exist and how many the filters are hiding. */}
       {isFiltered && (
-        <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">
+              {hiddenByFilters > 0
+                ? `${hiddenByFilters.toLocaleString()} of your ${counts.total.toLocaleString()} leads are hidden by these filters.`
+                : "Filters are active on this list."}
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Showing {leadsPage.total.toLocaleString()} matching lead{leadsPage.total === 1 ? "" : "s"} ·{" "}
+              {activeChips.join(" · ")}
+            </p>
+          </div>
           <Link
             href="/dashboard/leads"
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-100 hover:text-slate-900"
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
           >
             <X className="size-4" aria-hidden="true" />
-            Clear all filters
+            Show all {counts.total.toLocaleString()} leads
           </Link>
         </div>
       )}
