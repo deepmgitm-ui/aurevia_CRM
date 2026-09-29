@@ -188,6 +188,22 @@ export function canonicalTreatment(raw: string): { key: string; label: string } 
   return { key: slugifyTreatment(lower), label: trimmed };
 }
 
+/**
+ * Colour for ANY treatment key — the reference colours for the known families
+ * (LASIK / Cataract / ICL / Other / Not Recorded), then a stable rotation through
+ * the fallback palette. Hashing the key (instead of array position) keeps the
+ * colour identical between the table rows, the summary chips and the charts.
+ */
+export function treatmentColor(key: string): string {
+  const known = TREATMENT_COLORS[key as TreatmentKey];
+  if (known) return known;
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) % 1_000_003;
+  }
+  return TREATMENT_PALETTE[hash % TREATMENT_PALETTE.length];
+}
+
 export interface TrendPoint {
   /** Month key "yyyy-mm" (used for month-over-month math). */
   key: string;

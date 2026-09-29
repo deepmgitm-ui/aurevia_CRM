@@ -1,5 +1,9 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+
+import { extractMetaLead } from "@/lib/meta-lead";
 
 export const runtime = "nodejs";
 // Never cache the verification endpoint — Meta's "Verify and Save" must always hit the live handler.
@@ -7,7 +11,18 @@ export const dynamic = "force-dynamic";
 
 const META_GRAPH_API_VERSION = (process.env.META_GRAPH_API_VERSION?.trim() || "v26.0")
   .replace(/^v?/i, "v");
-const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN?.trim() || "aurevia_super_secret_token_123";
+// Meta's "Verify and Save" token. In production it MUST come from the
+// environment — the previous hardcoded fallback let anyone who could read this
+// repo verify the webhook. Local development keeps the friendly value so
+// `next dev` works before a full Meta app is configured.
+const META_VERIFY_TOKEN =
+  process.env.META_VERIFY_TOKEN?.trim() ||
+  (process.env.NODE_ENV === "production" ? "" : "aurevia_super_secret_token_123");
+
+// Optional: enable the X-Hub-Signature-256 check (Meta app → Settings → Basic).
+// While it is unset the route logs a warning and keeps accepting leads, so
+// turning it on later is a config change, not a deploy.
+const META_APP_SECRET = process.env.META_APP_SECRET?.trim();
 
 type JsonValue =
   | string
@@ -48,55 +63,39 @@ function getString(value: JsonValue | undefined): string | null {
   return null;
 }
 
-function dashIfEmpty(value: unknown): string {
-  return typeof value === "string" && value.trim() ? value.trim() : "-";
-}
-
-function sanitizePhone(value: unknown): string {
-  const digits = dashIfEmpty(value).replace(/\D/g, "");
-  return digits.length >= 10 ? digits.slice(-10) : digits || "-";
-}
-
 function getObject(value: JsonValue | undefined): { [key: string]: JsonValue } {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function getFieldValue(fields: MetaField[], names: string[]): string | null {
-  const field = fields.find((candidate) => {
-    const label =
-      typeof candidate.field_name === "string"
-        ? candidate.field_name
-        : typeof candidate.name === "string"
-          ? candidate.name
-          : "";
-    return names.includes(label.toLowerCase());
-  });
-
-  return getString(field?.values?.[0]);
+/** Meta's X-Hub-Signature-256, compared in constant time. */
+function isValidMetaSignature(rawBody: string, header: string | null): boolean {
+  if (!META_APP_SECRET) return true;
+  const provided = (header ?? "").trim();
+  if (!provided.startsWith("sha256=")) return false;
+  const expected = createHmac("sha256", META_APP_SECRET).update(rawBody, "utf8").digest("hex");
+  const left = Buffer.from(expected, "utf8");
+  const right = Buffer.from(provided.slice("sha256=".length), "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
+/**
+ * Thin adapter over lib/meta-lead.ts — all alias / keyword matching lives there
+ * so `scripts/verify-meta.mts` can test it without a server. Meta forms name
+ * their questions however they like ("which_treatment_are_you_interested_in"),
+ * which is exactly why the old exact-name lookup left treatment + city blank.
+ */
 function extractLeadData(fields: MetaField[]): LeadData {
-  const name =
-    getFieldValue(fields, ["full_name", "name", "first_name"]) ?? "";
-  const phone = getFieldValue(fields, ["phone_number", "phone", "mobile"]);
-  const email = getFieldValue(fields, ["email_address", "email"]);
-  const gender = getFieldValue(fields, ["gender"]);
-  const city = getFieldValue(fields, ["city"]);
-  const disease = getFieldValue(fields, ["disease"]);
-  const insuranceStatus =
-    getFieldValue(fields, ["insurance_status", "insurance status"]);
-  const remarks = getFieldValue(fields, ["remarks", "remark", "remark 1"]);
-
+  const parsed = extractMetaLead(fields);
   return {
-    name: dashIfEmpty(name),
-    phone: sanitizePhone(phone),
-    email: dashIfEmpty(email),
-    lead_date: new Date().toLocaleDateString("en-GB"),
-    gender: dashIfEmpty(gender),
-    city: dashIfEmpty(city),
-    disease: dashIfEmpty(disease),
-    insurance_status: dashIfEmpty(insuranceStatus),
-    remarks: dashIfEmpty(remarks),
+    name: parsed.name,
+    phone: parsed.phone,
+    email: parsed.email,
+    lead_date: parsed.leadDate,
+    gender: parsed.gender,
+    city: parsed.city,
+    disease: parsed.disease,
+    insurance_status: parsed.insuranceStatus,
+    remarks: parsed.remarks,
   };
 }
 
@@ -123,7 +122,11 @@ export async function GET(request: Request) {
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    // Hardcoded token to bypass Vercel env issues
+    // Meta's "Verify and Save": the token must match the env value exactly.
+    if (!META_VERIFY_TOKEN) {
+      console.error("[Meta Webhook][GET] META_VERIFY_TOKEN is not configured — refusing to verify");
+      return new Response("Verify token not configured", { status: 403 });
+    }
     if (mode === "subscribe" && token === META_VERIFY_TOKEN) {
       return new Response(challenge, {
         status: 200,
@@ -131,7 +134,7 @@ export async function GET(request: Request) {
       });
     }
     return new Response("Forbidden", { status: 403 });
-  } catch (error) {
+  } catch {
     return new Response("Error", { status: 500 });
   }
 }
@@ -142,7 +145,17 @@ export async function POST(request: NextRequest) {
   console.log("[Meta Webhook][POST] Request received", { requestId });
 
   try {
-    const payload = (await request.json()) as JsonValue;
+    // The signature covers the RAW body, so read the text first and parse it by
+    // hand (request.json() would consume the stream and leave nothing to hash).
+    const rawBody = await request.text();
+    if (!META_APP_SECRET) {
+      console.warn("[Meta Webhook][POST] META_APP_SECRET not set — signature check skipped", { requestId });
+    } else if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+      console.warn("[Meta Webhook][POST] Invalid X-Hub-Signature-256 — payload rejected", { requestId });
+      return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 200 });
+    }
+
+    const payload = JSON.parse(rawBody || "{}") as JsonValue;
     const root = getObject(payload);
     const entry = Array.isArray(root.entry) ? getObject(root.entry[0]) : {};
     const changes = Array.isArray(entry.changes) ? getObject(entry.changes[0]) : {};
@@ -175,8 +188,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // `campaign_name` / `form_id` give every lead a traceable origin without a
+    // second API call.
     const graphResponse = await fetch(
-      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data&access_token=${encodeURIComponent(accessToken)}`,
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
     );
     const graphResult = (await graphResponse.json()) as JsonValue;
     const graphObject = getObject(graphResult);
@@ -198,6 +213,14 @@ export async function POST(request: NextRequest) {
       ? (graphObject.field_data as MetaField[])
       : [];
     const leadData = extractLeadData(fields);
+    const campaignName = getString(graphObject.campaign_name) ?? "-";
+    const formId = getString(graphObject.form_id) ?? "-";
+    if (campaignName !== "-") {
+      // The campaign name is the most useful "where did this come from" signal
+      // the team can act on, so it is kept on the lead itself.
+      leadData.remarks =
+        leadData.remarks === "-" ? `[${campaignName}]` : `[${campaignName}] ${leadData.remarks}`;
+    }
     console.log("[Meta Webhook][POST] Lead data extracted from Graph API", {
       requestId,
       leadgenId,
@@ -207,6 +230,31 @@ export async function POST(request: NextRequest) {
     });
 
     const supabase = getSupabaseAdmin();
+
+    // Meta retries webhooks, and people submit the same form twice. A lead that
+    // landed in the last 24h with the same number is the same person — link it
+    // instead of creating a duplicate row (which also burns a free-tier write).
+    if (leadData.phone && leadData.phone !== "-") {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: existing } = await supabase
+        .from("leads")
+        .select("id")
+        .ilike("phone", `%${leadData.phone}`)
+        .gte("created_at", since)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        console.log("[Meta Webhook][POST] Duplicate lead skipped", {
+          requestId,
+          leadgenId,
+          formId,
+          existingLeadId: existing[0].id,
+        });
+        return NextResponse.json(
+          { success: true, leadId: existing[0].id, duplicate: true },
+          { status: 200 },
+        );
+      }
+    }
 
     const { data: lead, error: leadError } = await supabase
       .from("leads")

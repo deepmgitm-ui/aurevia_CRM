@@ -1,6 +1,14 @@
 // Explicit .ts extension: Node's ESM loader (used by scripts/verify-lead-filters.mts)
 // cannot resolve extensionless specifiers, and Next's bundler accepts either.
-import { PIPELINE_STAGES, TREATMENT_LABELS, type StageKey } from "./overview/analytics.ts";
+import {
+  PIPELINE_STAGES,
+  TREATMENT_LABELS,
+  UNRECORDED_TREATMENT_KEY,
+  canonicalTreatment,
+  stageForStatus,
+  type AnalyticsLead,
+  type StageKey,
+} from "./overview/analytics.ts";
 
 // ---------------------------------------------------------------------------
 // Aurevia CRM — Lead list filters + age buckets.
@@ -85,6 +93,88 @@ export function ageBucketFor(date: Date | null, today = new Date()): AgeBucketKe
 /** "Sep 2026" — the month-wise grouping label for the "older" bucket. */
 export function ageMonthLabel(date: Date): string {
   return date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// "Added 2 days ago" — the human age of one lead
+// ---------------------------------------------------------------------------
+
+/** Leads this fresh wear the green NEW pill (today, yesterday, 2 days ago). */
+export const NEW_LEAD_WINDOW_DAYS = 2;
+
+const EMPTY_DATE_VALUES = new Set(["-", "--", ".", "n/a", "na", "nil", "null", "none", "unknown"]);
+
+/**
+ * Parses every date format this CRM actually stores: `DD/MM/YYYY` (Excel imports
+ * and the Meta webhook), `YYYY-MM-DD` (native date pickers) and full ISO
+ * timestamps (`created_at`). Placeholders ("-", "", "N/A") return `null`, so
+ * callers can simply skip the label instead of rendering "Added NaN days ago".
+ */
+export function parseLeadDateValue(value: Date | string | null | undefined): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value ?? "").trim();
+  if (!text || EMPTY_DATE_VALUES.has(text.toLowerCase())) return null;
+
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+
+  const dmy = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Whole days a lead has been in the CRM (0 = today, negative = future-dated). */
+export function leadAgeInDays(value: Date | string | null | undefined, today = new Date()): number | null {
+  const date = parseLeadDateValue(value);
+  return date ? daysBetween(date, today) : null;
+}
+
+/** TRUE for a lead inside the NEW window — the leads table highlights these rows. */
+export function isNewLead(value: Date | string | null | undefined, today = new Date()): boolean {
+  const days = leadAgeInDays(value, today);
+  return days !== null && days >= 0 && days <= NEW_LEAD_WINDOW_DAYS;
+}
+
+/**
+ * "Added today" → "Added yesterday" → "Added 2…6 days ago" → "Added 1/2/3 weeks
+ * ago" → "Added N months ago" → "Added N years ago". Exactly the ladder the team
+ * asked for, so an old lead can never look like a fresh one again.
+ */
+export function relativeLeadAge(value: Date | string | null | undefined, today = new Date()): string | null {
+  const days = leadAgeInDays(value, today);
+  if (days === null) return null;
+  if (days < 0) {
+    const ahead = Math.abs(days);
+    return `In ${ahead} ${ahead === 1 ? "day" : "days"}`;
+  }
+  if (days === 0) return "Added today";
+  if (days === 1) return "Added yesterday";
+  if (days <= 6) return `Added ${days} days ago`;
+  if (days <= 13) return "Added 1 week ago";
+  if (days <= 20) return "Added 2 weeks ago";
+  if (days <= 27) return "Added 3 weeks ago";
+
+  const months = Math.round(days / 30.44);
+  if (months <= 11) return `Added ${months} ${months === 1 ? "month" : "months"} ago`;
+
+  const years = Math.max(1, Math.round(days / 365.25));
+  return `Added ${years} ${years === 1 ? "year" : "years"} ago`;
+}
+
+/** Compact twin for narrow cells and chips: "today", "yest.", "3d ago", "1w ago". */
+export function shortLeadAge(value: Date | string | null | undefined, today = new Date()): string | null {
+  const days = leadAgeInDays(value, today);
+  if (days === null) return null;
+  if (days < 0) return `in ${Math.abs(days)}d`;
+  if (days === 0) return "today";
+  if (days === 1) return "yest.";
+  if (days <= 6) return `${days}d ago`;
+  if (days <= 27) return `${Math.round(days / 7)}w ago`;
+  const months = Math.round(days / 30.44);
+  if (months <= 11) return `${months}mo ago`;
+  return `${Math.max(1, Math.round(days / 365.25))}y ago`;
 }
 
 // ---------------------------------------------------------------------------
@@ -355,5 +445,77 @@ export function blankColumnClause(column: string): string {
 export function andClauses(clauses: string[]): string {
   if (clauses.length === 0) return "";
   return clauses.length === 1 ? clauses[0] : `and(${clauses.join(",")})`;
+}
+
+// ---------------------------------------------------------------------------
+// Treatment-wise tally — "konsa lead kis treatment / disease ka hai"
+// ---------------------------------------------------------------------------
+
+export interface TreatmentTally {
+  /** Exactly the key the charts (and the drill-down URL) use. */
+  key: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * Mirrors the SQL drill-down filters for everything EXCEPT `treatment` itself, so
+ * the chips can show "LASIK 41 · Cataract 22" for the current stage / city / age
+ * selection and still be one click away from each other.
+ */
+function matchesTallyFilters(row: AnalyticsLead, filters: LeadListFilters, today: Date): boolean {
+  const stages = stageFilterKeys(filters.stage);
+  if (stages.length > 0 && !stages.includes(stageForStatus(row.status))) return false;
+
+  const equals = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
+  if (filters.city && !equals(row.city, filters.city)) return false;
+  if (filters.source && !equals(row.source, filters.source)) return false;
+  if (filters.status && !equals(row.status, filters.status)) return false;
+  if (filters.assigned && !equals(row.assigned_to, filters.assigned)) return false;
+
+  if (filters.age) {
+    // Same bucket ladder the SQL window enforces; `lead_date` already falls back
+    // to `created_at` inside toAnalyticsLead().
+    if (ageBucketFor(parseLeadDateValue(row.lead_date), today) !== filters.age) return false;
+  }
+
+  if (filters.q) {
+    const needle = filters.q.trim().toLowerCase();
+    const haystack = `${row.name} ${row.disease} ${row.treatment} ${row.city}`.toLowerCase();
+    if (!haystack.includes(needle)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Counts leads per treatment for the current filter set. Free-text treatments
+ * keep their own row (the same `canonicalTreatment` grouping the pipeline chart
+ * uses), placeholders collapse into "Not Recorded", and the biggest treatment
+ * always leads so the eye lands on it first.
+ */
+export function tallyTreatments(
+  rows: AnalyticsLead[],
+  filters: LeadListFilters = EMPTY_LEAD_FILTERS,
+  today = new Date(),
+): TreatmentTally[] {
+  const counts = new Map<string, TreatmentTally>();
+  for (const row of rows) {
+    if (!matchesTallyFilters(row, filters, today)) continue;
+    // `treatment` is the fully resolved text (all plausible columns + a remarks
+    // fallback); `disease` is the second safety net.
+    const { key, label } = canonicalTreatment(row.treatment || row.disease);
+    const existing = counts.get(key);
+    if (existing) existing.count += 1;
+    else counts.set(key, { key, label, count: 1 });
+  }
+
+  return [...counts.values()].sort((left, right) => {
+    // "Not Recorded" always sinks to the bottom — it is a data-quality hint, not
+    // a treatment anyone would click first.
+    if (left.key === UNRECORDED_TREATMENT_KEY) return 1;
+    if (right.key === UNRECORDED_TREATMENT_KEY) return -1;
+    return right.count - left.count || left.label.localeCompare(right.label);
+  });
 }
 

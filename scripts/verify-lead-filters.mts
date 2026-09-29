@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   AGE_BUCKETS,
   EMPTY_LEAD_FILTERS,
+  NEW_LEAD_WINDOW_DAYS,
   ageBucketFor,
   ageBucketLabel,
   ageBucketWindow,
@@ -14,13 +15,19 @@ import {
   filterChipLabels,
   hasLeadFilters,
   inListExpression,
+  isNewLead,
+  leadAgeInDays,
   leadsHref,
   parseLeadFilters,
   prettifyFilterKey,
+  relativeLeadAge,
+  shortLeadAge,
   stageFilterKeys,
+  tallyTreatments,
   treatmentOrExpression,
   type LeadListFilters,
 } from "../app/dashboard/lead-filters.ts";
+import type { AnalyticsLead } from "../app/dashboard/overview/analytics.ts";
 
 // ---------------------------------------------------------------------------
 // 1. Round trip: a chart click link parses back to the exact same filter set.
@@ -126,6 +133,97 @@ assert.ok(lasikExpression?.includes("disease.ilike.%lasik%"), "lasik must build 
 assert.ok(treatmentOrExpression("lasik", ["remarks"])?.includes("remarks.ilike.%lasik%"));
 assert.equal(treatmentOrExpression("other"), null); // folded segments resolve via distinct values
 assert.equal(treatmentOrExpression("unrecorded"), null);
+
+// ---------------------------------------------------------------------------
+// 6. "Added yesterday / 2 weeks ago" labels + the NEW-lead window.
+// ---------------------------------------------------------------------------
+assert.equal(NEW_LEAD_WINDOW_DAYS, 2);
+assert.equal(leadAgeInDays("28/09/2026", reference), 0); // Meta / Excel format
+assert.equal(leadAgeInDays("2026-09-25", reference), 3); // native picker format
+assert.equal(leadAgeInDays("2026-09-26T10:30:00.000Z", reference), 2); // created_at
+assert.equal(leadAgeInDays("-", reference), null);
+assert.equal(leadAgeInDays("not a date", reference), null);
+
+assert.equal(relativeLeadAge("28/09/2026", reference), "Added today");
+assert.equal(relativeLeadAge("27/09/2026", reference), "Added yesterday");
+assert.equal(relativeLeadAge("23/09/2026", reference), "Added 5 days ago");
+assert.equal(relativeLeadAge("21/09/2026", reference), "Added 1 week ago");
+assert.equal(relativeLeadAge("14/09/2026", reference), "Added 2 weeks ago");
+assert.equal(relativeLeadAge("07/09/2026", reference), "Added 3 weeks ago");
+assert.equal(relativeLeadAge("25/08/2026", reference), "Added 1 month ago");
+assert.equal(relativeLeadAge("28/06/2026", reference), "Added 3 months ago");
+assert.equal(relativeLeadAge("28/09/2025", reference), "Added 1 year ago");
+assert.equal(relativeLeadAge("2026-09-25", reference), "Added 3 days ago");
+assert.equal(relativeLeadAge("2026-09-30", reference), "In 2 days");
+assert.equal(relativeLeadAge("-", reference), null);
+
+assert.equal(shortLeadAge("28/09/2026", reference), "today");
+assert.equal(shortLeadAge("27/09/2026", reference), "yest.");
+assert.equal(shortLeadAge("25/09/2026", reference), "3d ago");
+assert.equal(shortLeadAge("21/09/2026", reference), "1w ago");
+assert.equal(shortLeadAge("-", reference), null);
+
+assert.equal(isNewLead("28/09/2026", reference), true);
+assert.equal(isNewLead("26/09/2026", reference), true);
+assert.equal(isNewLead("25/09/2026", reference), false);
+assert.equal(isNewLead("-", reference), false);
+
+// ---------------------------------------------------------------------------
+// 7. Treatment tally — one count per treatment for the current selection.
+// ---------------------------------------------------------------------------
+function tallyRow(partial: Partial<AnalyticsLead> & { id: string }): AnalyticsLead {
+  return {
+    name: "",
+    city: "",
+    disease: "",
+    treatment: "",
+    source: "",
+    status: "New",
+    temperature: "",
+    assigned_to: "",
+    lead_date: "28/09/2026",
+    ...partial,
+  };
+}
+
+const tallyRows = [
+  tallyRow({ id: "1", name: "A", city: "Mumbai", disease: "LASIK", treatment: "LASIK" }),
+  tallyRow({
+    id: "2",
+    name: "B",
+    city: "Mumbai",
+    disease: "Catract",
+    treatment: "Cataract",
+    status: "Consultation Booked",
+    lead_date: "20/09/2026",
+  }),
+  tallyRow({ id: "3", name: "C", city: "Pune", disease: "lasik", treatment: "LASIK", status: "New" }),
+  tallyRow({ id: "4", name: "D", city: "Pune", disease: "-", treatment: "-", status: "New" }),
+];
+
+assert.deepEqual(
+  tallyTreatments(tallyRows, EMPTY_LEAD_FILTERS, reference).map((tally) => [tally.key, tally.count]),
+  [
+    ["lasik", 2],
+    ["cataract", 1],
+    ["unrecorded", 1], // always last — a data-quality hint, not a first click
+  ],
+);
+assert.deepEqual(
+  tallyTreatments(tallyRows, { ...EMPTY_LEAD_FILTERS, city: "Mumbai" }, reference).map(
+    (tally) => [tally.key, tally.count],
+  ),
+  [
+    ["cataract", 1],
+    ["lasik", 1],
+  ],
+);
+assert.deepEqual(
+  tallyTreatments(tallyRows, { ...EMPTY_LEAD_FILTERS, stage: "booked" }, reference).map(
+    (tally) => [tally.key, tally.count],
+  ),
+  [["cataract", 1]],
+);
 
 console.log("✓ all lead filter assertions passed");
 console.log(`  href round trip: ${href}`);

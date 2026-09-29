@@ -49,13 +49,15 @@ import {
   ageBucketLabel,
   filterChipLabels,
   hasLeadFilters,
+  isNewLead,
   leadsHref,
   prettifyFilterKey,
+  relativeLeadAge,
   stageFilterKeys,
   type LeadListFilters,
 } from "./lead-filters";
 import { trackLeadMutations } from "./lead-mutation-tracker";
-import { stageForStatus } from "./overview/analytics";
+import { canonicalTreatment, resolveTreatmentText, stageForStatus, treatmentColor } from "./overview/analytics";
 
 interface ImportRow {
   "Full Name"?: string;
@@ -235,6 +237,20 @@ function formatLeadDateDisplay(value: string): string {
   if (!iso) return value;
   const [year, month, day] = iso.split("-");
   return `${day}/${month}/${year}`;
+}
+
+/**
+ * The treatment the charts would file this lead under: every plausible column is
+ * probed (treatment_type → treatment → disease → …) with a `remarks` fallback,
+ * then collapsed to the canonical key + label. `detail` carries the raw disease
+ * text so the row still shows exactly what was typed.
+ */
+function treatmentCellData(lead: Lead): { key: string; label: string; detail: string } {
+  const resolved = resolveTreatmentText(lead as unknown as Record<string, unknown>) || lead.disease || "";
+  const { key, label } = canonicalTreatment(resolved);
+  const raw = (lead.disease ?? "").trim();
+  const detail = raw && raw !== "-" && raw.toLowerCase() !== label.toLowerCase() ? raw : "";
+  return { key, label, detail };
 }
 
 function compareLeads(a: Lead, b: Lead, key: string): number {
@@ -1290,10 +1306,16 @@ export function LeadsTable({
             <TableBody>
               {sortedLeads.length === 0 ? (
                 <TableRow><TableCell colSpan={10} className="h-32 py-3 text-center text-slate-500">No leads found. Import a CSV or add a lead to get started.</TableCell></TableRow>
-              ) : sortedLeads.map((lead) => (
-                <TableRow key={lead.id}>
+              ) : sortedLeads.map((lead) => {
+                // Fresh leads get a green row + NEW pill; every row carries the
+                // "Added yesterday / 2 days ago / 1 week ago" label.
+                const isNew = isNewLead(lead.lead_date);
+                const ageLabel = relativeLeadAge(lead.lead_date);
+                const treatment = treatmentCellData(lead);
+                return (
+                <TableRow key={lead.id} className={isNew ? "bg-emerald-50/50" : undefined}>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button>{isNew && (<Badge className="shrink-0 border-emerald-200 bg-emerald-100 text-emerald-800">NEW</Badge>)}<button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <div className="flex flex-col items-start gap-1.5">
                       <span className="font-medium">{lead.phone}</span>
@@ -1319,9 +1341,35 @@ export function LeadsTable({
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="w-[130px] max-w-[130px] py-3"><p className="flex items-center gap-1 font-semibold text-slate-900"><CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />{formatLeadDateDisplay(lead.lead_date)}</p></TableCell>
+                  <TableCell className="w-[130px] max-w-[130px] py-3">
+                    <div className="space-y-0.5">
+                      <p className="flex items-center gap-1 font-semibold text-slate-900">
+                        <CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+                        {formatLeadDateDisplay(lead.lead_date)}
+                      </p>
+                      <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
+                        {ageLabel ?? "No date"}
+                      </p>
+                    </div>
+                  </TableCell>
                   <TableCell className="w-[140px] max-w-[140px] py-3"><p className="break-words whitespace-normal text-sm text-slate-700">{lead.city}</p></TableCell>
-                  <TableCell className="w-[150px] max-w-[150px] py-3"><p className="break-words whitespace-normal text-sm text-muted-foreground">{lead.disease}</p></TableCell>
+                  <TableCell className="w-[150px] max-w-[150px] py-3">
+                    <div className="flex items-start gap-1.5" title={treatment.detail || treatment.label}>
+                      <span
+                        className="mt-1 size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: treatmentColor(treatment.key) }}
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800">{treatment.label}</p>
+                        {treatment.detail && (
+                          <p className="break-words whitespace-normal text-[11px] text-slate-500">
+                            {treatment.detail}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
                     <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`}><SelectValue /></SelectTrigger>
                     <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, lead.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
@@ -1336,7 +1384,8 @@ export function LeadsTable({
                   </Select></TableCell>
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks}>{lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div></TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
           <div className="mt-4 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-4 sm:flex-row">

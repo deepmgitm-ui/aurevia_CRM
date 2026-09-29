@@ -23,6 +23,12 @@ create index if not exists leads_follow_up_date_idx on public.leads (follow_up_d
 -- Dashboard drill-downs: "LASIK + Surgery Completed + this week".
 create index if not exists leads_status_assigned_idx on public.leads (status, assigned_to);
 
+-- Newest-first lists and the "NEW lead" highlight all walk created_at; the
+-- phone index powers the Meta webhook's 24-hour duplicate check + the search bar.
+create index if not exists leads_status_created_idx on public.leads (status, created_at desc);
+create index if not exists leads_assigned_created_idx on public.leads (assigned_to, created_at desc);
+create index if not exists leads_phone_idx on public.leads (phone);
+
 -- ---------------------------------------------------------------------------
 -- Fuzzy search ("Search ALL leads: name, phone, treatment...")
 -- pg_trgm turns the leading-wildcard ILIKE pattern into an index scan instead

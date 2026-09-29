@@ -6,20 +6,24 @@ import {
   ageBucketWindow,
   andClauses,
   blankColumnClause,
+  EMPTY_LEAD_FILTERS,
   escapeLikePattern,
   inListExpression,
   isUnrecordedTreatment,
   stageFilterKeys,
+  tallyTreatments,
   treatmentOrExpression,
   UNRECORDED_TREATMENT_VALUES,
   type AgeWindow,
   type LeadListFilters,
+  type TreatmentTally,
 } from "@/app/dashboard/lead-filters";
 import {
   UNRECORDED_TREATMENT_KEY,
   canonicalTreatment,
   detectTreatmentName,
   stageForStatus,
+  toAnalyticsLead,
 } from "@/app/dashboard/overview/analytics";
 import { createClient } from "@/lib/supabase/server";
 
@@ -759,6 +763,25 @@ export async function getLeadsForExport(
 
 // Lightweight stat counters for the dashboard cards. Uses head-only exact
 // counts instead of loading every lead row, so it stays fast at 1k+ leads.
+/**
+ * Treatment-wise tally for the leads page — "konsa lead kis treatment / disease
+ * ka hai" at a glance.
+ *
+ * Reuses the LIGHT analytics projection (no `select('*')`) and groups in JS with
+ * the exact helpers the pipeline chart uses, so the chip counts and the chart
+ * bars can never disagree. At a few hundred / few thousand rows this is one cheap
+ * query; past that, move it into a Postgres aggregate (see
+ * docs/GROWTH-AND-COSTS.md → "lead_rollup").
+ */
+export async function getTreatmentTally(
+  filters?: Partial<LeadListFilters>,
+): Promise<ActionResult<TreatmentTally[]>> {
+  const result = await getAnalyticsLeads();
+  if (!result.success) return result;
+  const resolved: LeadListFilters = { ...EMPTY_LEAD_FILTERS, ...filters };
+  return { success: true, data: tallyTreatments(result.data.map(toAnalyticsLead), resolved) };
+}
+
 export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadCounts>> {
   const emptyCounts: LeadCounts = { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
   try {
