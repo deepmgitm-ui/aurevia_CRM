@@ -26,6 +26,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 
+import { relativeLeadAge } from "./lead-filters";
+
 export type LeadDetailTab = "info" | "activity" | "call";
 
 const STATUS_OPTIONS = [
@@ -376,6 +378,10 @@ export function LeadDetailDrawer({
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Source: {lead.source}</p>
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Agent: {lead.assigned_to}</p>
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Temp: {lead.temperature}</p>
+                  {/* Same helper as the leads table, so both always agree. */}
+                  <p className="col-span-2 rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">
+                    {relativeLeadAge(lead.created_at) ?? "Added: -"}
+                  </p>
                 </div>
 
                 <Button type="button" className="w-full" onClick={() => void handleInfoSave()} disabled={saving}>

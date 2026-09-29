@@ -87,8 +87,8 @@ Graph API 190 error logs me dikhega.
 
 ## 4. Aage kya add kar sakte ho (priority order, sab free-tier-safe)
 
-1. **Lead detail drawer me "Added 3 days ago"** — table me hai, drawer me nahi
-   (1-line change, `relativeLeadAge` already exported).
+1. **Lead detail drawer me "Added 3 days ago"** — ✅ ho gaya (drawer ke Info tab me
+   `relativeLeadAge` chip).
 2. **"New today" bell/count** — dashboard stats me `counts.new` already hai;
    employee ko apne naye leads ka morning summary chahiye to calendar page pe
    ek banner.
@@ -99,10 +99,42 @@ Graph API 190 error logs me dikhega.
    ek server action. Free: 1000 conversations/month.
 5. **Kanban pipeline view** — wahi `LeadsPage` data, sirf layout (koi nayi query
    nahi).
-6. **Duplicate hunter (manual import wala)** — Excel import ke time same phone wale
-   rows ko flag karo, webhook wala 24h rule wahan bhi lagao.
+6. **Duplicate hunter (preview me hi)** — import ab duplicate phone wali rows skip
+   karta hai (file ke andar bhi aur DB me pehle se maujood bhi), par ye COUNT import
+   ke baad batata hai. Aage: "Paste from Excel" preview me hi bata do ki kitni rows
+   duplicate hain, taaki Add dabane se pehle pata chal jaye.
 7. **Monthly rollup job** — table 10k cross kare tab `lead_rollup` se ek summary
    table + `getTreatmentTally` ko usi pe shift karo.
 8. **meta_lead_id column** — `leads` me ek `meta_lead_id text unique` jodo; webhook
    exact-ID dedupe karega (abhi phone+24h rule hai, kaafi hai jab tak form volume
    chhota hai).
+
+## 5. Leads table khaali ho gayi? — recovery checklist
+
+Ye section us situation ke liye hai jab "Select All" + Delete se poori `leads`
+table saaf ho jaati hai (activities bhi cascade me chali jaati hain).
+
+1. **Pehle safety net on karo**: Supabase SQL editor me
+   `supabase-deletion-backup-migration.sql` chalao. Uske baad har bulk delete se
+   **pehle** rows `lead_deletion_backups` me snapshot hoti hain aur Leads page →
+   **Recent Deletions** se ek click me wapas aa jaati hain. Snapshot table na ho
+   to bhi delete chalta rahega — bas undo off hoga aur app khud bata dega
+   (`npm run verify:db` section 4 me confirm kar sakte ho).
+2. **Purana delete wapas nahi aayega**: free-tier Supabase me automatic backup /
+   PITR nahi hota, isliye jo pehle delete ho chuka hai wo DB me nahi bachta —
+   data source se dobara import karna padega.
+3. **Confirm karo table khaali hai**: `npm run verify:db` → section 5 me
+   `leads rows: 0` (aur `lead_activities rows`) dikh jayega.
+4. **Wapas bharne ke do raaste (dono Leads page pe, sirf admin/manager ko dikhte hain)**:
+   - **Import CSV / Excel** — column names English/Hinglish dono chalte hain
+     (Name/Patient, Phone/Contact, City, Disease/Treatment, Status, Assigned/Agent…).
+   - **Paste from Excel** — Excel me rows select karke copy, dialog me paste, preview
+     dekh ke Add dabao. Preview se pehle hi pata chal jaata hai kitni rows lagegi.
+5. **Meta Ads ke leads the?** Meta Ads Manager → Forms → Leads → CSV download →
+   wahi Import. Ya form dobara fill hone pe webhook (`/api/meta-webhook`) naye leads
+   bhejta rahega.
+6. **Duplicate ka darr nahi**: import same phone wale rows skip karta hai, webhook
+   me 24 ghante ka dedupe rule hai.
+7. **Aage ke liye aadat**: "Select All" + Delete tab hi karo jab sach me poora
+   pipeline reset karna ho — tabhi typed confirmation phrase maangta hai, aur
+   snapshot bhi ban jaata hai.
