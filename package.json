@@ -10,7 +10,8 @@
     "verify:analytics": "node scripts/verify-analytics.mts",
     "verify:lead-filters": "node scripts/verify-lead-filters.mts",
     "verify:calendar": "node scripts/verify-calendar.mts",
-    "verify:meta": "node scripts/verify-meta.mts"
+    "verify:meta": "node scripts/verify-meta.mts",
+    "verify:db": "node scripts/verify-db.mts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

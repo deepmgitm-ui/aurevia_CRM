@@ -128,6 +128,11 @@ const TREATMENT_PALETTE = [
 
 // Known families always sort first so LASIK / Cataract / ICL stay readable.
 const PREFERRED_TREATMENT_KEYS = ["lasik", "cataract", "icl"];
+/**
+ * Upper bound for the `leadIds` prefetch used by the detail drawer (one id) and
+ * any future segment preview, so an `in(...)` never grows unbounded.
+ */
+export const SEGMENT_LEAD_LIMIT = 25;
 // Every disease/treatment WRITTEN in the leads table gets its own named, coloured
 // segment — "Other" may only appear once a CRM names more distinct treatments
 // than the legend can comfortably show (the smallest tail folds, biggest stay).
@@ -224,6 +229,12 @@ export interface TreatmentSeries {
 /** One treatment's count inside a pipeline stage (series cells carry values). */
 export interface PipelineCell extends TreatmentSeries {
   value: number;
+  /**
+   * Optional row ids inside this exact (stage, treatment) cell. Present only
+   * where a caller opts into carrying identity; the segment dialog normally
+   * re-queries the server with the same stage+treatment filter instead.
+   */
+  sampleIds?: string[];
 }
 
 export interface PipelineRow {

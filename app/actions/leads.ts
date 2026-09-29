@@ -19,12 +19,19 @@ import {
   type TreatmentTally,
 } from "@/app/dashboard/lead-filters";
 import {
+  SEGMENT_LEAD_LIMIT,
   UNRECORDED_TREATMENT_KEY,
   canonicalTreatment,
   detectTreatmentName,
   stageForStatus,
   toAnalyticsLead,
 } from "@/app/dashboard/overview/analytics";
+import {
+  DELETE_ALL_CONFIRMATION,
+  isMissingBackupTableError,
+  LEAD_DELETION_BACKUP_SETUP_HINT,
+  type LeadDeletionBackup,
+} from "@/lib/lead-deletion";
 import { createClient } from "@/lib/supabase/server";
 
 export type LeadStatus = string;
@@ -618,6 +625,7 @@ export async function getLeadsPage(
   assignedTo = "",
   statusFilter = "",
   filters?: Partial<LeadListFilters>,
+  leadIds?: string[],
 ): Promise<ActionResult<LeadsPageData>> {
   const safePageSize = Math.min(Math.max(pageSize, 1), 200);
   try {
@@ -668,6 +676,11 @@ export async function getLeadsPage(
       // Server-side search: a single .or() across name/phone/disease matches
       // ALL leads in the database, not just the 50 rows on the current page.
       leadsQuery = leadsQuery.or(searchFilter);
+    }
+    // Exact-id prefetch: the segment detail dialog asks for "these 25 ids".
+    // Ids are UUIDs returned by our own tally, so `in` is safe here.
+    if (leadIds && leadIds.length > 0) {
+      leadsQuery = leadsQuery.in("id", leadIds.slice(0, SEGMENT_LEAD_LIMIT));
     }
     // ?status= from the URL folds into the existing advanced status filter.
     const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
@@ -1519,12 +1532,116 @@ export async function updateLeadFollowUpDate(
   }
 }
 
+// Deleting every lead is the one action that can empty the product, so it
+// (a) requires the literal confirmation phrase from `lib/lead-deletion`, and
+// (b) snapshots the doomed rows into `lead_deletion_backups` FIRST — free-tier
+// Supabase has no automatic backups, so without this a mis-click was permanent.
+const BACKUP_LEAD_LIMIT = 5000;
+const BACKUP_ACTIVITY_LIMIT = 20000;
+
+
+/**
+ * The chainable subset of a Postgrest builder used by the backup + delete.
+ * The builder methods mutate the instance and return `this`, so the helpers
+ * below keep the caller's concrete builder type (an unconstrained generic) and
+ * cast internally — constraining the generic against the Supabase builder types
+ * triggers TS2589 (excessively deep instantiation).
+ */
+interface MutableScopedBuilder {
+  eq(column: string, value: string): unknown;
+  or(expression: string): unknown;
+  in(column: string, values: readonly string[]): unknown;
+  not(column: string, operator: string, value: null): unknown;
+}
+
+interface DeleteScope {
+  /** One employee's leads (admin drill-down). */
+  assignedTo: string;
+  /** Pre-built `and/or` search expression, if the search box was active. */
+  searchFilter: string | null;
+  /** Exact ticked ids — the only scope used by the "selected rows" delete. */
+  ids?: readonly string[];
+  /** Whole-table wipe: add an always-true filter so the delete is explicit. */
+  unscoped: boolean;
+}
+
+function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
+  const scoped = query as unknown as MutableScopedBuilder;
+  if (scope.assignedTo) scoped.eq("assigned_to", scope.assignedTo);
+  if (scope.searchFilter) scoped.or(scope.searchFilter);
+  if (scope.ids?.length) scoped.in("id", scope.ids);
+  else if (scope.unscoped) scoped.not("id", "is", null);
+  return query;
+}
+
+/** Outcome of the pre-delete snapshot. `skipped` = undo is unavailable. */
+type SnapshotOutcome = { ok: true; skipped: boolean } | { ok: false; error: string };
+
+/**
+ * Copies every lead (plus its cascading activities) that the upcoming delete
+ * would remove into `lead_deletion_backups`.
+ *
+ * If the migration has not been applied yet the table simply does not exist:
+ * that only costs the undo, so the delete still goes ahead and the caller warns
+ * the user. Any OTHER failure (network, permissions, quota) blocks the delete,
+ * because that is a real problem we must not hide.
+ */
+async function snapshotLeadsForDeletion(
+  supabase: LeadsSupabaseClient,
+  scope: DeleteScope,
+  meta: { scopeLabel: string; search: string; deletedByName: string },
+  userId: string,
+): Promise<SnapshotOutcome> {
+  const leadRows: Record<string, unknown>[] = [];
+  for (let from = 0; from < BACKUP_LEAD_LIMIT; from += 500) {
+    const { data, error } = await applyDeleteScope(supabase.from("leads").select("*"), scope)
+      .order("created_at", { ascending: false })
+      .range(from, from + 499);
+    if (error) return { ok: false, error: `Backup failed before deleting: ${error.message}` };
+    const chunk = (data ?? []) as Record<string, unknown>[];
+    leadRows.push(...chunk);
+    if (chunk.length < 500) break;
+  }
+
+  // Nothing matched → no snapshot needed (the delete is a no-op anyway).
+  if (leadRows.length === 0) return { ok: true, skipped: false };
+
+  const leadIds = leadRows.map((row) => String(row.id ?? "")).filter(Boolean);
+  const activityRows: Record<string, unknown>[] = [];
+  for (let index = 0; index < leadIds.length && activityRows.length < BACKUP_ACTIVITY_LIMIT; index += 200) {
+    const { data, error } = await supabase
+      .from("lead_activities")
+      .select("*")
+      .in("lead_id", leadIds.slice(index, index + 200));
+    if (error) return { ok: false, error: `Backup failed before deleting: ${error.message}` };
+    activityRows.push(...((data ?? []) as Record<string, unknown>[]));
+  }
+
+  const { error: backupError } = await supabase.from("lead_deletion_backups").insert({
+    deleted_by: userId,
+    deleted_by_name: meta.deletedByName,
+    scope: meta.scopeLabel,
+    search: meta.search,
+    row_count: leadRows.length,
+    activity_count: activityRows.length,
+    lead_rows: leadRows,
+    activity_rows: activityRows,
+  });
+  if (!backupError) return { ok: true, skipped: false };
+
+  // Migration not applied yet → undo is off, but deleting must keep working.
+  if (isMissingBackupTableError(backupError)) return { ok: true, skipped: true };
+
+  return { ok: false, error: `Delete blocked — nothing was deleted. ${backupError.message}` };
+}
+
 export async function bulkDeleteLeads(
   leadIds: string[],
   deleteAll = false,
   search = "",
   assignedTo = "",
-): Promise<ActionResult<{ deleted: number }>> {
+  confirmText = "",
+): Promise<ActionResult<{ deleted: number; snapshotSkipped: boolean }>> {
   if (!deleteAll && leadIds.length === 0) return { success: false, error: "No leads selected." };
 
   try {
@@ -1532,10 +1649,11 @@ export async function bulkDeleteLeads(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "You must be signed in." };
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-    if (profile?.role !== "admin") {
-      return { success: false, error: "Deleting leads is restricted to admins (403 Forbidden)." };
+    const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
+    if (profile?.role !== "admin" && profile?.role !== "manager") {
+      return { success: false, error: "Deleting leads is restricted to admins and managers (403 Forbidden)." };
     }
+    const deletedByName = profile?.name?.trim() || "-";
 
     if (deleteAll) {
       // "Select All" delete: wipe leads with ONE query instead of shipping a
@@ -1546,26 +1664,48 @@ export async function bulkDeleteLeads(
       // When a server-side search is active, only leads matching that search
       // are wiped, so "Select All" never deletes more than what is visible.
       const searchFilter = buildLeadSearchFilter(search);
-      const isScoped = Boolean(assignedTo.trim());
+      const scopedToEmployee = assignedTo.trim();
+      const unscoped = !scopedToEmployee && !searchFilter;
+      if (unscoped && confirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
+        return {
+          success: false,
+          error: `This deletes EVERY lead in the database. Type "${DELETE_ALL_CONFIRMATION}" to confirm.`,
+        };
+      }
 
-      // Scope: a specific employee (admin drill-down) + optional search, or
-      // the whole table when neither is provided.
+      const scope: DeleteScope = { assignedTo: scopedToEmployee, searchFilter, unscoped };
+      const snapshot = await snapshotLeadsForDeletion(
+        supabase,
+        scope,
+        {
+          scopeLabel: unscoped ? "all" : scopedToEmployee ? "employee" : "search",
+          search,
+          deletedByName,
+        },
+        user.id,
+      );
+      if (!snapshot.ok) return { success: false, error: snapshot.error };
+
       const countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
-      if (isScoped) countQuery.eq("assigned_to", assignedTo.trim());
-      if (searchFilter) countQuery.or(searchFilter);
-      const { count: total, error: countError } = await countQuery;
+      const { count: total, error: countError } = await applyDeleteScope(countQuery, scope);
       if (countError) return { success: false, error: countError.message };
 
-      const deleteQuery = supabase.from("leads").delete();
-      if (isScoped) deleteQuery.eq("assigned_to", assignedTo.trim());
-      else if (!searchFilter) deleteQuery.not("id", "is", null);
-      if (searchFilter) deleteQuery.or(searchFilter);
-      const { error } = await deleteQuery;
+      const { error } = await applyDeleteScope(supabase.from("leads").delete(), scope);
       if (error) return { success: false, error: error.message };
 
       revalidatePath("/dashboard");
-      return { success: true, data: { deleted: total ?? 0 } };
+      return { success: true, data: { deleted: total ?? 0, snapshotSkipped: snapshot.skipped } };
     }
+
+    // Selected-rows delete still gets a snapshot (ids are chunked by the
+    // helper), so even a small mistaken tick is restorable.
+    const selectionSnapshot = await snapshotLeadsForDeletion(
+      supabase,
+      { assignedTo: "", searchFilter: "", unscoped: false, ids: leadIds },
+      { scopeLabel: "selection", search: "", deletedByName },
+      user.id,
+    );
+    if (!selectionSnapshot.ok) return { success: false, error: selectionSnapshot.error };
 
     const { data, error } = await supabase
       .from("leads")
@@ -1575,11 +1715,104 @@ export async function bulkDeleteLeads(
     if (error) return { success: false, error: error.message };
 
     revalidatePath("/dashboard");
-    return { success: true, data: { deleted: data?.length ?? 0 } };
+    return { success: true, data: { deleted: data?.length ?? 0, snapshotSkipped: selectionSnapshot.skipped } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to delete leads.") };
   }
 }
+
+/** Admin/manager list of past bulk deletions, newest first (payloads excluded). */
+export async function getLeadDeletionBackups(): Promise<ActionResult<LeadDeletionBackup[]>> {
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can view deletion history (403 Forbidden)." };
+    }
+
+    const { data, error } = await supabase
+      .from("lead_deletion_backups")
+      .select("id, scope, search, deleted_by_name, row_count, activity_count, restored_at, created_at")
+      .order("created_at", { ascending: false })
+      .limit(25);
+    if (error) {
+      return {
+        success: false,
+        error: isMissingBackupTableError(error)
+          ? `Deletion history is not set up yet. ${LEAD_DELETION_BACKUP_SETUP_HINT}`
+          : error.message,
+      };
+    }
+    return { success: true, data: (data ?? []) as LeadDeletionBackup[] };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load deletion history.") };
+  }
+}
+
+/**
+ * Re-inserts a snapshot. Ids are preserved and conflicts ignored, so restoring
+ * twice — or restoring after some leads were re-imported — can never duplicate
+ * a row.
+ */
+export async function restoreLeadDeletionBackup(
+  backupId: string,
+): Promise<ActionResult<{ restored: number }>> {
+  if (!backupId) return { success: false, error: "No deletion selected." };
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can restore leads (403 Forbidden)." };
+    }
+
+    const { data: backup, error: backupError } = await supabase
+      .from("lead_deletion_backups")
+      .select("id, lead_rows, activity_rows")
+      .eq("id", backupId)
+      .single();
+    if (backupError || !backup) {
+      return {
+        success: false,
+        error: isMissingBackupTableError(backupError)
+          ? `Deletion history is not set up yet. ${LEAD_DELETION_BACKUP_SETUP_HINT}`
+          : backupError?.message ?? "That deletion no longer exists.",
+      };
+    }
+
+    const leadRows = Array.isArray(backup.lead_rows) ? (backup.lead_rows as Record<string, unknown>[]) : [];
+    if (leadRows.length === 0) return { success: false, error: "That deletion has no stored rows." };
+
+    let restored = 0;
+    for (let index = 0; index < leadRows.length; index += 200) {
+      const chunk = leadRows.slice(index, index + 200);
+      const { data: inserted, error: insertError } = await supabase
+        .from("leads")
+        .upsert(chunk, { onConflict: "id", ignoreDuplicates: true })
+        .select("id");
+      if (insertError) return { success: false, error: insertError.message };
+      restored += inserted?.length ?? 0;
+    }
+
+    const activityRows = Array.isArray(backup.activity_rows) ? (backup.activity_rows as Record<string, unknown>[]) : [];
+    for (let index = 0; index < activityRows.length; index += 200) {
+      await supabase
+        .from("lead_activities")
+        .upsert(activityRows.slice(index, index + 200), { onConflict: "id", ignoreDuplicates: true });
+    }
+
+    await supabase
+      .from("lead_deletion_backups")
+      .update({ restored_at: new Date().toISOString() })
+      .eq("id", backupId);
+
+    revalidatePath("/dashboard");
+    return { success: true, data: { restored } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to restore leads.") };
+  }
+}
+
 
 export async function randomAssignLeads(
   leadIds: string[],

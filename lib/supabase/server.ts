@@ -19,8 +19,8 @@ export async function createClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Server Components cannot write cookies. Middleware refreshes the
-          // session cookie instead (see lib/supabase/middleware.ts).
+          // Server Components cannot write cookies. The proxy refreshes the
+          // session cookie instead (see proxy.ts + lib/supabase/middleware.ts).
         }
       },
     },
@@ -33,6 +33,21 @@ export type SafeUser = {
   user: User | null;
   error: Error | null;
 };
+
+/**
+ * Next signals "this page used request data (cookies/headers), so it cannot be
+ * prerendered" by throwing a special error carrying this digest. It is a
+ * control-flow signal, not a failure: swallowing it would let Next bake a
+ * static page (the root route would ship a hard-coded redirect to /login).
+ */
+function isNextDynamicServerError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    String((error as { digest?: unknown }).digest ?? "").startsWith("DYNAMIC_SERVER")
+  );
+}
 
 /**
  * Reads the signed-in user without ever throwing.
@@ -56,6 +71,9 @@ export async function getUserSafely(
 
     return { user: data.user ?? null, error: null };
   } catch (error) {
+    // Let Next's dynamic-rendering bailout pass through untouched.
+    if (isNextDynamicServerError(error)) throw error;
+
     console.error("[supabase] Could not read the current user:", error);
 
     return {

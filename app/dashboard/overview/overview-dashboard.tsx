@@ -30,7 +30,6 @@ import {
 import {
   CitiesChart,
   LegendDots,
-  PipelineChart,
   SourcesChart,
   TREND_COLORS,
   TreatmentCoverageNote,
@@ -39,6 +38,7 @@ import {
 import { FilterBar } from "./filter-bar";
 import { DashboardGreeting } from "./greeting";
 import { KpiCards } from "./kpi-cards";
+import { PipelineDetail } from "./pipeline-detail";
 
 type Granularity = "monthly" | "quarterly" | "yearly";
 
@@ -242,7 +242,7 @@ export function OverviewDashboard({
             </Select>
           }
         >
-          <PipelineChart data={pipelineData} series={pickedSeries} />
+          <PipelineDetail data={pipelineData} series={pickedSeries} />
           <TreatmentCoverageNote coverage={metrics.treatmentCoverage} />
         </ChartCard>
       </div>

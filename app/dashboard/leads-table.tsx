@@ -13,6 +13,8 @@ import {
   createLead,
   getEmployees,
   getLeadActivities,
+  getLeadDeletionBackups,
+  restoreLeadDeletionBackup,
   getLeadsForExport,
   getLeadsPage,
   updateLeadDetails,
@@ -26,6 +28,11 @@ import {
   type Employee,
   type ViewerRole,
 } from "@/app/actions/leads";
+import {
+  DELETE_ALL_CONFIRMATION,
+  LEAD_DELETION_BACKUP_SETUP_HINT,
+  type LeadDeletionBackup,
+} from "@/lib/lead-deletion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -371,6 +378,14 @@ export function LeadsTable({
   // True while the header "select all" checkbox is checked — bulk delete then
   // sends a { deleteAll: true } flag instead of thousands of IDs.
   const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
+  // A wipe-everything delete now needs the phrase typed out, and every bulk
+  // delete leaves a snapshot in `lead_deletion_backups` (restore panel below).
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isRestoreOpen, setIsRestoreOpen] = useState(false);
+  const [deletionBackups, setDeletionBackups] = useState<LeadDeletionBackup[]>([]);
+  const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+  const [backupErrorText, setBackupErrorText] = useState("");
+  const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
@@ -892,49 +907,114 @@ export function LeadsTable({
     setIsBulkActionPending(false);
   }
 
+  // A scoped delete (one employee / one search) already can't touch more than
+  // what is on screen, so only the true whole-table wipe needs typing.
+  const requiresTypedConfirm = isSelectAllChecked && !assignedTo.trim() && !activeSearch.trim();
+
   async function handleBulkDelete() {
     // When "select all" is active, delete with a single { deleteAll: true }
     // request instead of shipping thousands of IDs. If a server-side search is
     // active, the backend wipes only the leads matching that search.
     const deleteAll = isSelectAllChecked;
+    if (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
+      toast.add({
+        title: "Confirmation required",
+        description: `Type ${DELETE_ALL_CONFIRMATION} in the box to delete every lead.`,
+        type: "error",
+      });
+      return;
+    }
     setIsBulkActionPending(true);
-    const response = await bulkDeleteLeads(deleteAll ? [] : selectedLeads, deleteAll, activeSearch, assignedTo);
+    const response = await bulkDeleteLeads(deleteAll ? [] : selectedLeads, deleteAll, activeSearch, assignedTo, deleteConfirmText);
     if (!response.success) {
       toast.add({ title: "Delete failed", description: response.error, type: "error" });
+      setIsBulkActionPending(false);
+      return;
+    }
+    const deletedCount = response.data.deleted;
+    if (deleteAll) {
+      setLeads([]);
+      setPage(1);
+      setServerTotal(0);
+      setServerTotalPages(1);
     } else {
-      const deletedCount = response.data.deleted;
-      if (deleteAll) {
-        setLeads([]);
-        setPage(1);
-        setServerTotal(0);
-        setServerTotalPages(1);
-      } else {
-        setLeads((current) => current.filter((lead) => !selectedLeads.includes(lead.id)));
-        const remaining = Math.max(0, serverTotal - deletedCount);
-        const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
-        setServerTotal(remaining);
-        setServerTotalPages(nextTotalPages);
-        // The current page was the last one and is now empty — load the new last page.
-        if (page > nextTotalPages) {
-          await fetchPage(nextTotalPages);
-        }
+      setLeads((current) => current.filter((lead) => !selectedLeads.includes(lead.id)));
+      const remaining = Math.max(0, serverTotal - deletedCount);
+      const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
+      setServerTotal(remaining);
+      setServerTotalPages(nextTotalPages);
+      // The current page was the last one and is now empty — load the new last page.
+      if (page > nextTotalPages) {
+        await fetchPage(nextTotalPages);
       }
-      setSelectedLeads([]);
-      setIsSelectAllChecked(false);
-      setIsDeleteConfirmOpen(false);
-      // Sync the server-rendered stat cards after revalidatePath on the server.
-      router.refresh();
-      toast.add({
-        title: "Leads deleted",
-        description: deleteAll
+    }
+    setSelectedLeads([]);
+    setIsSelectAllChecked(false);
+    setIsDeleteConfirmOpen(false);
+    setDeleteConfirmText("");
+    // Sync the server-rendered stat cards after revalidatePath on the server.
+    router.refresh();
+    toast.add({
+      title: "Leads deleted",
+      description: `${
+        deleteAll
           ? activeSearch
-            ? `All ${deletedCount} leads matching the search were deleted.`
-            : `All ${deletedCount} leads were deleted.`
-          : `${deletedCount} leads deleted.`,
-        type: "success",
+            ? `All ${deletedCount} leads matching the search were deleted`
+            : `All ${deletedCount} leads were deleted`
+          : `${deletedCount} leads deleted`
+      }.${
+        response.data.snapshotSkipped
+          ? ""
+          : ' A snapshot was saved — "Recent Deletions" can restore them.'
+      }`,
+      type: "success",
+    });
+    if (response.data.snapshotSkipped) {
+      toast.add({
+        title: "Undo is not available yet",
+        description: `${deletedCount} leads were deleted, but no snapshot could be stored. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
+        type: "error",
       });
     }
     setIsBulkActionPending(false);
+  }
+
+  /** Loads the newest bulk-delete snapshots so an admin can undo one. */
+  async function openRestoreDialog() {
+    setIsRestoreOpen(true);
+    setIsLoadingBackups(true);
+    setBackupErrorText("");
+    const response = await getLeadDeletionBackups();
+    if (!response.success) {
+      // Usually means the snapshot migration hasn't been applied yet — the
+      // message says exactly which SQL file to run, and deletion keeps working.
+      setBackupErrorText(response.error);
+      setDeletionBackups([]);
+    } else {
+      setDeletionBackups(response.data);
+    }
+    setIsLoadingBackups(false);
+  }
+
+  async function handleRestoreBackup(backupId: string) {
+    setRestoringBackupId(backupId);
+    const response = await restoreLeadDeletionBackup(backupId);
+    if (!response.success) {
+      toast.add({ title: "Restore failed", description: response.error, type: "error" });
+    } else {
+      setDeletionBackups((current) =>
+        current.map((backup) =>
+          backup.id === backupId ? { ...backup, restored_at: new Date().toISOString() } : backup,
+        ),
+      );
+      router.refresh();
+      toast.add({
+        title: "Leads restored",
+        description: `${response.data.restored} leads were put back. Leads page refreshes automatically.`,
+        type: "success",
+      });
+    }
+    setRestoringBackupId(null);
   }
 
   async function handleQuickNote() {
@@ -1094,6 +1174,12 @@ export function LeadsTable({
               <Button type="button" variant="outline" disabled={isExporting} onClick={() => void handleExportCsv()}>
                 {isExporting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
                 {isExporting ? "Preparing..." : "Download CSV"}
+              </Button>
+            )}
+            {canDelete && (
+              <Button type="button" variant="outline" onClick={() => void openRestoreDialog()}>
+                <RotateCcw aria-hidden="true" />
+                Recent Deletions
               </Button>
             )}
             <Button type="button" onClick={() => setIsAddLeadOpen(true)}><Plus aria-hidden="true" />Add Lead</Button>
@@ -1476,14 +1562,92 @@ export function LeadsTable({
             <DialogDescription>
               {isSelectAllChecked
                 ? activeSearch
-                  ? `This permanently deletes ALL ${serverTotal.toLocaleString()} leads matching the search "${activeSearch}"${assignedTo ? ` assigned to ${assignedTo}` : ""} and their related activity history. This action cannot be undone.`
-                  : `This permanently deletes ALL ${serverTotal.toLocaleString()} leads${assignedTo ? ` assigned to ${assignedTo}` : " in your pipeline"} and their related activity history. This action cannot be undone.`
-                : `This permanently deletes ${selectedLeads.length} selected leads and their related activity history.`}
+                  ? `This deletes ALL ${serverTotal.toLocaleString()} leads matching the search "${activeSearch}"${assignedTo ? ` assigned to ${assignedTo}` : ""} and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
+                  : `This deletes ALL ${serverTotal.toLocaleString()} leads${assignedTo ? ` assigned to ${assignedTo}` : " in your pipeline"} and their activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
+                : `This deletes ${selectedLeads.length} selected leads and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : isSelectAllChecked ? (activeSearch ? "Delete All Matching" : "Delete All Leads") : "Delete Leads"}</Button></DialogFooter>
+          {requiresTypedConfirm && (
+            <div className="grid gap-2">
+              <Label htmlFor="delete-all-confirmation">
+                Type <span className="font-semibold">{DELETE_ALL_CONFIRMATION}</span> to confirm
+              </Label>
+              <Input
+                id="delete-all-confirmation"
+                value={deleteConfirmText}
+                autoComplete="off"
+                placeholder={DELETE_ALL_CONFIRMATION}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+              />
+            </div>
+          )}
+          <DialogFooter><Button type="button" variant="outline" onClick={() => { setIsDeleteConfirmOpen(false); setDeleteConfirmText(""); }}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION)} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : isSelectAllChecked ? (activeSearch ? "Delete All Matching" : "Delete All Leads") : "Delete Leads"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={isRestoreOpen} onOpenChange={setIsRestoreOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Recent Deletions</DialogTitle>
+            <DialogDescription>
+              Every bulk delete stores a snapshot of the leads and activities it removed. Restore one to put the rows back —
+              leads that already exist are skipped, so restoring twice is safe.
+            </DialogDescription>
+          </DialogHeader>
+          {isLoadingBackups ? (
+            <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="animate-spin" aria-hidden="true" /> Loading deletion history...
+            </p>
+          ) : backupErrorText ? (
+            <div className="rounded-md border border-dashed p-3 text-sm">
+              <p className="font-medium">Deletion history is not available yet</p>
+              <p className="mt-1 text-muted-foreground">
+                Deleting leads still works, but there is nothing to restore from. {LEAD_DELETION_BACKUP_SETUP_HINT}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">{backupErrorText}</p>
+            </div>
+          ) : deletionBackups.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              No stored deletions yet. Snapshots appear here after the next bulk delete.
+            </p>
+          ) : (
+            <ul className="max-h-80 space-y-2 overflow-y-auto">
+              {deletionBackups.map((backup) => (
+                <li key={backup.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div className="min-w-0 text-sm">
+                    <p className="truncate font-medium">
+                      {backup.row_count.toLocaleString()} leads
+                      {backup.activity_count ? ` · ${backup.activity_count.toLocaleString()} activities` : ""}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {new Date(backup.created_at).toLocaleString()} · {backup.scope}
+                      {backup.search ? ` · search "${backup.search}"` : ""} · by {backup.deleted_by_name}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={Boolean(backup.restored_at) || restoringBackupId === backup.id}
+                    onClick={() => void handleRestoreBackup(backup.id)}
+                  >
+                    {restoringBackupId === backup.id ? (
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <RotateCcw aria-hidden="true" />
+                    )}
+                    {backup.restored_at ? "Restored" : "Restore"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsRestoreOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
 
       <Dialog open={Boolean(editingLead)} onOpenChange={(open) => !open && setEditingLead(null)}>
         <DialogContent className="sm:max-w-xl">

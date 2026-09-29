@@ -6,7 +6,9 @@ import { getAnalyticsLeads, getEmployeeDirectory, getViewer, type EmployeeDirect
 import { buttonVariants } from "@/components/ui/button";
 
 import { AgentSection } from "../overview/agent-section";
-import { CitiesChart, PipelineChart, SourcesChart, TreatmentCoverageNote, TrendChart } from "../overview/charts";
+import { LeadOpenButton } from "../lead-open-button";
+import { PipelineDetail } from "../overview/pipeline-detail";
+import { CitiesChart, SourcesChart, TreatmentCoverageNote, TrendChart } from "../overview/charts";
 import { DashboardGreeting } from "../overview/greeting";
 import { KpiCards } from "../overview/kpi-cards";
 import { SectionCard, SectionHeader, StatTable, type StatTableColumn, type StatTableRow } from "../overview/stat-table";
@@ -176,7 +178,14 @@ function patientTableRows(rows: AnalyticsLead[]): StatTableRow[] {
   return rows.slice(0, 50).map((row) => ({
     key: row.id,
     cells: {
-      name: <span className="font-medium text-slate-900">{row.name || "—"}</span>,
+      name: (
+        <LeadOpenButton
+          leadId={row.id}
+          title={`${row.treatment || row.disease} · ${row.city}`}
+          label={row.name || "—"}
+          className="font-medium text-slate-900 hover:underline"
+        />
+      ),
       city: row.city,
       treatment: row.treatment || row.disease,
       source: row.source,
@@ -228,8 +237,8 @@ function renderSection(
             description="Funnel health: how many leads move from first contact to a completed surgery in the selected window."
           />
           <KpiCards kpis={metrics.kpis} />
-          <SectionCard title="Leads Pipeline by Stage" description="Treatment-wise split for every stage.">
-            <PipelineChart data={metrics.pipeline} />
+          <SectionCard title="Leads Pipeline by Stage" description="Treatment-wise split for every stage. Tap a segment to see those patients and edit them inline.">
+            <PipelineDetail data={metrics.pipeline} />
             <TreatmentCoverageNote coverage={metrics.treatmentCoverage} />
           </SectionCard>
           <SectionCard title="Stage totals">
@@ -284,7 +293,7 @@ function renderSection(
           <KpiCards kpis={metrics.kpis} />
           <SectionCard
             title="Patient pipeline"
-            description="Latest 50 patients with their source, assigned agent and current status."
+            description="Latest 50 patients — naam pe tap karke poora record dekho aur wahi se edit karo."
           >
             <StatTable
               columns={PATIENT_COLUMNS}

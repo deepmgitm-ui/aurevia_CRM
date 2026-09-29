@@ -175,9 +175,23 @@ function StageTick({ x, y, payload }: { x?: number; y?: number; payload?: { valu
 export function PipelineChart({
   data,
   series,
+  onSegmentClick,
 }: {
   data: PipelineRow[];
   series?: TreatmentSeries[];
+  /**
+   * Tap handler for one stack segment. When present it REPLACES the default
+   * router.push to the filtered leads list — used by the detail-enabled
+   * wrapper that opens a patient list + inline edit drawer instead.
+   */
+  onSegmentClick?: (detail: {
+    stageKey: string;
+    stageLabel: string;
+    treatmentKey: string;
+    treatmentLabel: string;
+    except: string;
+    sampleIds: string[];
+  }) => void;
 }) {
   const router = useRouter();
   // Treatments are discovered from the data, so the legend falls back to the
@@ -223,6 +237,22 @@ export function PipelineChart({
             .map((entry) => entry.key)
             .join(",")
         : "";
+
+    const row = data.find((candidate) => candidate.key === stageKey);
+    const cell = row?.series.find((candidate) => candidate.key === treatmentKey);
+
+    // Caller supplied a tap handler (patient preview + inline edit): use it.
+    if (onSegmentClick) {
+      onSegmentClick({
+        stageKey,
+        stageLabel: row?.stage ?? stageKey,
+        treatmentKey,
+        treatmentLabel: cell?.label ?? activeSeries.find((entry) => entry.key === treatmentKey)?.label ?? treatmentKey,
+        except,
+        sampleIds: cell?.sampleIds ?? [],
+      });
+      return;
+    }
     router.push(leadsHref({ stage: stageKey, treatment: treatmentKey, except }));
   };
 
