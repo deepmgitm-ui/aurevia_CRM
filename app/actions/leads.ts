@@ -771,6 +771,9 @@ export async function getLeadsForExport(
   statusFilter = "",
   assignedTo = "",
   filters?: Partial<LeadListFilters>,
+  // Optional explicit id list — used by the pre-delete safety copy, which has to
+  // fetch exactly the ticked rows (even when they span several pages).
+  ids?: string[],
 ): Promise<ActionResult<Lead[]>> {
   const EXPORT_LIMIT = 5000;
   const chunkSize = 1000;
@@ -787,6 +790,7 @@ export async function getLeadsForExport(
     if (resolved.empty) return { success: true, data: [] };
 
     let exportQuery = supabase.from("leads").select("*");
+    if (ids && ids.length > 0) exportQuery = exportQuery.in("id", ids);
     if (assignedTo.trim()) exportQuery = exportQuery.eq("assigned_to", assignedTo.trim());
     const searchFilter = buildLeadSearchFilter(search);
     if (searchFilter) exportQuery = exportQuery.or(searchFilter);
@@ -1835,6 +1839,17 @@ export async function bulkDeleteLeads(
         user.id,
       );
       if (!snapshot.ok) return { success: false, error: snapshot.error };
+      // FAIL CLOSED on the one unrecoverable operation: wiping EVERY lead when
+      // no snapshot could be stored (the backup table migration is missing)
+      // would leave the pipeline with no copy anywhere. Bounded deletes (one
+      // employee, one search, ticked rows) still work, and they are always
+      // accompanied by the browser's pre-delete CSV.
+      if (unscoped && snapshot.skipped) {
+        return {
+          success: false,
+          error: `Wiping EVERY lead is blocked: the deletion history table does not exist, so nothing could be saved for undo. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
+        };
+      }
 
       const countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
       const { count: total, error: countError } = await applyDeleteScope(countQuery, scope);

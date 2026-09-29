@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, X } from "lucide-react";
 
 import {
   addLeadActivity,
@@ -33,6 +33,8 @@ import {
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
+import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
+import { getMasterData } from "@/app/actions/master-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,24 +89,10 @@ interface ImportRow {
   source?: string;
 }
 
-const statuses = [
-  "New",
-  "Follow Up",
-  "DNP",
-  "DNP 3",
-  "RNR",
-  "Not Interested",
-  "Budget Issue",
-  "Location Issue",
-  "Non Surgical",
-  "OPD Booked",
-  "OPD Done",
-  "IPD Done",
-  "Invalid Number",
-  "Lost",
-  "Won",
-];
-const temperatures = ["Hot", "Warm", "Cold"];
+// Dropdown options (status / temperature / source) live in the DATABASE so an
+// admin can edit them in Settings → Master Data without a deploy
+// (supabase-master-data-migration.sql). `seedMasterData()` is the fallback: the
+// selects render real options immediately, before the fetch resolves.
 
 // Must match LEADS_PAGE_SIZE in app/actions/leads.ts ("use server" files can
 // only export async functions, so the constant is duplicated here).
@@ -177,17 +165,6 @@ function getInitials(name: string): string {
 
 // Common lead sources offered by the editable Source field. The lead's current
 // value is always merged in, so custom sources stay selectable.
-const SOURCE_OPTIONS = [
-  "Meta Ads",
-  "Online Enquiry",
-  "Agent Referral",
-  "Doctor Referral",
-  "Walk-in",
-  "Corporate Tie-up",
-  "Social Media",
-  "Manual",
-  "Excel/CSV",
-];
 
 function sourceBadgeClass(source: string): string {
   if (source.toLowerCase().includes("meta")) return "border-blue-200 bg-blue-50 text-blue-700";
@@ -339,6 +316,40 @@ function drillDownChips(filters: LeadListFilters): {
   return chips;
 }
 
+// The ONE place that turns lead rows into a downloaded CSV file. Used by the
+// toolbar export AND by the pre-delete safety copy below, so both always write
+// the same 15 columns (a backup that cannot be re-imported is not a backup).
+function downloadLeadsCsv(leads: Lead[], fileName: string) {
+  const rows = leads.map((lead) => ({
+    Name: lead.name,
+    Phone: lead.phone,
+    Email: lead.email,
+    Gender: lead.gender,
+    City: lead.city,
+    Treatment: lead.disease,
+    "Insurance Status": lead.insurance_status,
+    Remarks: lead.remarks,
+    "Lead Date": lead.lead_date,
+    "Follow-Up Date": lead.follow_up_date,
+    Source: lead.source,
+    Status: lead.status,
+    Temperature: lead.temperature,
+    "Assigned To": lead.assigned_to,
+    "Created At": lead.created_at,
+  }));
+  const csv = Papa.unparse(rows);
+  // BOM so Excel opens the file with correct encoding.
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
 export function LeadsTable({
   leads: initialLeads,
   initialTotal,
@@ -430,6 +441,9 @@ export function LeadsTable({
   const [note, setNote] = useState("");
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Master data (Settings → Master Data): the DB-backed picklists. Seeded first
+  // so the selects are never empty, then upgraded with the admin's lists.
+  const [masterData, setMasterData] = useState<MasterDataSnapshot>(() => seedMasterData());
   const [quickNoteLead, setQuickNoteLead] = useState<Lead | null>(null);
   const [quickNote, setQuickNote] = useState("");
   const [isSavingQuickNote, setIsSavingQuickNote] = useState(false);
@@ -461,6 +475,21 @@ export function LeadsTable({
   const fetchSequenceRef = useRef(0);
 
   const sourceOptions = Array.from(new Set(leads.map((lead) => lead.source)));
+  // Admin-editable picklists (master data) with the loaded page merged in, so a
+  // filter/edit still offers whatever values leads actually carry.
+  const statuses = masterData.lists.statuses;
+  const temperatures = masterData.lists.temperatures;
+  const masterSourceOptions = Array.from(
+    new Set([...masterData.lists.sources, ...sourceOptions]),
+  );
+  // "The database has nothing to show" — as opposed to "your filters hide it".
+  // Drives the empty state so an empty pipeline never reads as a broken page.
+  const isPipelineEmpty =
+    serverTotal === 0 &&
+    !assignedTo.trim() &&
+    !activeSearch.trim() &&
+    !activeStatusFilter.trim() &&
+    !hasLeadFilters(filters);
   // Memoized so its identity is stable per filter change (used as a dependency
   // of the filtered/sorted pipelines below — avoids re-filtering on unrelated
   // re-renders like search-input keystrokes).
@@ -643,35 +672,12 @@ export function LeadsTable({
     if (!response.success) {
       toast.add({ title: "Export failed", description: response.error, type: "error" });
     } else {
-      const rows = response.data.map((lead) => ({
-        Name: lead.name,
-        Phone: lead.phone,
-        Email: lead.email,
-        Gender: lead.gender,
-        City: lead.city,
-        Treatment: lead.disease,
-        "Insurance Status": lead.insurance_status,
-        Remarks: lead.remarks,
-        "Lead Date": lead.lead_date,
-        "Follow-Up Date": lead.follow_up_date,
-        Source: lead.source,
-        Status: lead.status,
-        Temperature: lead.temperature,
-        "Assigned To": lead.assigned_to,
-        "Created At": lead.created_at,
-      }));
-      const csv = Papa.unparse(rows);
-      // BOM so Excel opens the file with correct encoding.
-      const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `leads-export-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-      toast.add({ title: "Export ready", description: `${rows.length} leads downloaded as CSV.`, type: "success" });
+      downloadLeadsCsv(response.data, `leads-export-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.add({
+        title: "Export ready",
+        description: `${response.data.length} leads downloaded as CSV.`,
+        type: "success",
+      });
     }
     setIsExporting(false);
   }
@@ -679,6 +685,9 @@ export function LeadsTable({
   useEffect(() => {
     void getEmployees().then((result) => {
       if (result.success) setEmployees(result.data);
+    });
+    void getMasterData().then((result) => {
+      if (result.success && result.data) setMasterData(result.data);
     });
   }, []);
 
@@ -953,6 +962,34 @@ export function LeadsTable({
       return;
     }
     setIsBulkActionPending(true);
+    // SAFETY NET #1 (always): write every row this delete will remove to a local
+    // CSV BEFORE touching the database. Only the admin-only export can do a
+    // 5k-row read, so a manager gets the "ask an admin" path for a full wipe
+    // instead of silently unrecoverable data loss.
+    // SAFETY NET #2 (server): bulkDeleteLeads stores a snapshot in
+    // lead_deletion_backups when that migration has been applied.
+    const backupScope = deleteAll ? activeSearch : "";
+    const backup = deleteAll
+      ? await getLeadsForExport(backupScope, "", assignedTo)
+      : await getLeadsForExport("", "", "", undefined, selectedLeads);
+    if (backup.success) {
+      downloadLeadsCsv(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`);
+    } else if (requiresTypedConfirm) {
+      // Wiping EVERY lead with no copy anywhere = data loss we cannot undo.
+      toast.add({
+        title: "Delete cancelled — no backup could be saved",
+        description: `${backup.error} Deleting every lead without a saved copy is not allowed; export the CSV first (admin) or run supabase-deletion-backup-migration.sql.`,
+        type: "error",
+      });
+      setIsBulkActionPending(false);
+      return;
+    } else {
+      toast.add({
+        title: "No backup file saved",
+        description: `${backup.error} Continuing — the database snapshot is the only way back.`,
+        type: "error",
+      });
+    }
     const response = await bulkDeleteLeads(deleteAll ? [] : selectedLeads, deleteAll, activeSearch, assignedTo, deleteConfirmText);
     if (!response.success) {
       toast.add({ title: "Delete failed", description: response.error, type: "error" });
@@ -1290,7 +1327,7 @@ export function LeadsTable({
                   <SelectTrigger className="w-44" aria-label="Filter by source"><SelectValue placeholder="All Sources" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sources</SelectItem>
-                    {sourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}
+                    {masterSourceOptions.map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}
                   </SelectContent>
                 </Select>
               )}
@@ -1419,7 +1456,73 @@ export function LeadsTable({
             </TableRow></TableHeader>
             <TableBody>
               {sortedLeads.length === 0 ? (
-                <TableRow><TableCell colSpan={10} className="h-32 py-3 text-center text-slate-500">No leads found. Import a CSV or add a lead to get started.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={10} className="py-10">
+                    {/*
+                      Never look broken: distinguish "the database is empty" from
+                      "your filters hide everything", and put the fix (import /
+                      add / clear filters) one click away.
+                    */}
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <div className="rounded-full bg-slate-100 p-3">
+                        {isPipelineEmpty ? (
+                          <FileUp className="size-5 text-slate-500" aria-hidden="true" />
+                        ) : (
+                          <SearchX className="size-5 text-slate-500" aria-hidden="true" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-700">
+                          {isPipelineEmpty ? "The pipeline is empty" : "No leads match the current view"}
+                        </p>
+                        <p className="mx-auto mt-1 max-w-xl text-xs text-slate-500">
+                          {isPipelineEmpty
+                            ? "No leads are stored in the database yet. Import your Excel/CSV sheet (or paste rows straight from Excel) and they appear here instantly."
+                            : `${serverTotal.toLocaleString()} leads exist in the pipeline, but the current search / filters hide all of them. Clear the filters to see them.`}
+                        </p>
+                        {isPipelineEmpty && canDelete && (
+                          <p className="mx-auto mt-2 max-w-xl text-xs text-slate-400">
+                            {"Deleted leads by mistake? Re-import the CSV that every delete downloads automatically (leads-backup-before-delete-*.csv), or restore an admin snapshot from \"Recent Deletions\"."}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {isPipelineEmpty ? (
+                          <>
+                            {canBulkUpload && (
+                              <Button type="button" size="sm" onClick={() => fileInputRef.current?.click()}>
+                                <FileUp aria-hidden="true" />Import CSV / Excel
+                              </Button>
+                            )}
+                            {canBulkUpload && (
+                              <Button type="button" size="sm" variant="outline" onClick={() => setIsPasteOpen(true)}>
+                                <ClipboardPaste aria-hidden="true" />Paste from Excel
+                              </Button>
+                            )}
+                            <Button type="button" size="sm" variant="outline" onClick={() => setIsAddLeadOpen(true)}>
+                              <Plus aria-hidden="true" />Add Lead
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              // One place clears the filters (it also refetches
+                              // page 1 when the search/status hit the server).
+                              resetFilters();
+                              setIsSelectAllChecked(false);
+                              router.push(assignedTo ? `/dashboard/leads?assigned=${encodeURIComponent(assignedTo)}` : "/dashboard/leads");
+                            }}
+                          >
+                            <X aria-hidden="true" />Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ) : sortedLeads.map((lead) => {
                 // Fresh leads get a green row + NEW pill; every row carries the
                 // "Added yesterday / 2 days ago / 1 week ago" label.
@@ -1702,7 +1805,7 @@ export function LeadsTable({
             <div className="space-y-1"><Label htmlFor="full-edit-source">Source</Label>
               <Select value={editForm.source || "Manual"} onValueChange={(value) => setEditForm((current) => ({ ...current, source: String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-source" disabled={!canEditCore}><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...SOURCE_OPTIONS, editForm.source].filter(Boolean))].map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...masterSourceOptions, editForm.source].filter(Boolean))].map((source) => <SelectItem key={source} value={source}>{source}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1"><Label htmlFor="full-edit-status">Status</Label>
