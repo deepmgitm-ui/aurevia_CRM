@@ -110,8 +110,20 @@ report(
   backupTableError ? "bulk-delete undo is disabled until this SQL is run" : "",
 );
 
-// --- 5. is the pipeline actually populated? (informational, never a failure) ---
-console.log("\n5. leads data");
+// --- 5. master data (admin-editable picklists) ---
+console.log("\n5. supabase-master-data-migration.sql");
+const { error: optionListsError } = await supabase.from("crm_option_lists").select("key").limit(1);
+report("crm_option_lists table", !optionListsError, optionListsError ? "Settings → Master Data stays read-only (seed values)" : "");
+
+// --- 6. workflow automation ---
+console.log("\n6. supabase-automation-migration.sql");
+const { error: rulesError } = await supabase.from("crm_automation_rules").select("key").limit(1);
+report("crm_automation_rules table", !rulesError, rulesError ? "rules fall back to seed and cannot be toggled" : "");
+const { error: runsError } = await supabase.from("crm_automation_runs").select("id").limit(1);
+report("crm_automation_runs table", !runsError, runsError ? "run receipts are not stored" : "");
+
+// --- 7. is the pipeline actually populated? (informational, never a failure) ---
+console.log("\n7. leads data");
 const { count: leadCount, error: leadCountError } = await supabase
   .from("leads")
   .select("id", { count: "exact", head: true });

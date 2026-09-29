@@ -27,9 +27,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 
 import { relativeLeadAge } from "./lead-filters";
+import { getMasterData } from "@/app/actions/master-data";
+import { seedMasterData, withCurrentValue } from "@/lib/master-data";
 
 export type LeadDetailTab = "info" | "activity" | "call";
 
+/**
+ * Boot options only — the real list comes from the DB (Settings → Master Data)
+ * and always includes whatever status this lead already has, so a saved value
+ * can never silently reset to "New".
+ */
 const STATUS_OPTIONS = [
   "New",
   "Contacted",
@@ -83,6 +90,9 @@ export function LeadDetailDrawer({
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [edits, setEdits] = useState({ name: "", phone: "", status: "", treatment: "", followUpDate: "" });
+  const [masterStatuses, setMasterStatuses] = useState<string[]>(() =>
+    Array.from(new Set([...seedMasterData().lists.statuses, ...STATUS_OPTIONS])),
+  );
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [callDraft, setCallDraft] = useState(emptyCallDraft());
@@ -107,7 +117,7 @@ export function LeadDetailDrawer({
       setEdits({
         name: fresh.name,
         phone: fresh.phone ?? "",
-        status: STATUS_OPTIONS.includes(fresh.status as (typeof STATUS_OPTIONS)[number]) ? fresh.status : "New",
+        status: fresh.status && fresh.status !== "-" ? fresh.status : "New",
         treatment: fresh.disease && fresh.disease !== "-" ? fresh.disease : "",
         followUpDate: toDateInput(fresh.follow_up_date),
       });
@@ -128,6 +138,13 @@ export function LeadDetailDrawer({
     const handle = setTimeout(() => void load(leadId), 0);
     return () => clearTimeout(handle);
   }, [open, leadId, load]);
+
+  // Master data (Settings → Master Data): admin's stage list replaces the seed.
+  useEffect(() => {
+    void getMasterData().then((result) => {
+      if (result.success && result.data) setMasterStatuses(result.data.lists.statuses);
+    });
+  }, []);
 
   const tabButton = (key: LeadDetailTab, label: string) => (
     <button
@@ -344,8 +361,8 @@ export function LeadDetailDrawer({
                       <SelectTrigger id="drawer-detail-stage">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((option) => (
+                      <SelectContent className="max-h-72 overflow-y-auto">
+                        {withCurrentValue(masterStatuses, edits.status).map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
                           </SelectItem>
