@@ -1,7 +1,9 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { clinicDate, SESSION_DAY_COOKIE } from "@/lib/attendance";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
@@ -48,6 +50,16 @@ export async function login(
     if (error) {
       return { error: "Invalid credentials." };
     }
+
+    // Stamp the clinic day this session opened on. A Server Action CAN write
+    // cookies (unlike a Server Component), so the proxy has something to compare
+    // against on every later request and can end the session at midnight.
+    const cookieStore = await cookies();
+    cookieStore.set(SESSION_DAY_COOKIE, clinicDate(), {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+    });
   } catch (error) {
     // Missing environment variables or an unreachable auth server: report it
     // instead of letting the action reject with an unhandled error.

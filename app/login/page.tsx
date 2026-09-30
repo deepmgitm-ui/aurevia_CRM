@@ -12,9 +12,10 @@ import { LoginForm } from "./login-form";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ redirectTo?: string | string[] }>;
+  searchParams: Promise<{ redirectTo?: string | string[]; reason?: string | string[] }>;
 }) {
-  const { redirectTo } = await searchParams;
+  const { redirectTo, reason } = await searchParams;
+  const dayEnded = (Array.isArray(reason) ? reason[0] : reason) === "day_ended";
 
-  return <LoginForm redirectTo={sanitizeRedirectPath(redirectTo)} />;
+  return <LoginForm redirectTo={sanitizeRedirectPath(redirectTo)} dayEnded={dayEnded} />;
 }

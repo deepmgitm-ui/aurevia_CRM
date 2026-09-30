@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CheckSquare,
   ChevronDown,
+  CircleCheck,
   Kanban,
   LayoutDashboard,
   LogOut,
@@ -47,6 +48,11 @@ interface DashboardProfile {
 interface DashboardShellProps {
   children: React.ReactNode;
   profile: DashboardProfile;
+  /**
+   * Today's automatic check-in, stamped by the layout on sign-in. Shown as a
+   * quiet "when did I come in" chip; null when attendance isn't available.
+   */
+  attendanceToday?: { status: string; checkInLabel: string } | null;
 }
 
 // Sidebar modules, exactly as in the Aurevia HealthCare design reference.
@@ -330,7 +336,27 @@ function HeaderRangeButton({ range, onChange }: { range: DateRange; onChange: (r
   );
 }
 
-export function DashboardShell({ children, profile }: DashboardShellProps) {
+/** "Aaj: Present · 09:42" — proof that signing in marked the day. */
+function AttendanceChip({
+  attendance,
+}: {
+  attendance: { status: string; checkInLabel: string };
+}) {
+  return (
+    <span
+      title="Aaj ki attendance — login karte hi mark ho gayi"
+      className="hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 md:inline-flex"
+    >
+      <CircleCheck aria-hidden="true" />
+      {attendance.status}
+      {attendance.checkInLabel !== "-" && (
+        <span className="text-emerald-600">· {attendance.checkInLabel}</span>
+      )}
+    </span>
+  );
+}
+
+export function DashboardShell({ children, profile, attendanceToday }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [range, setRange] = useState<DateRange>(() => currentQuarterRange());
@@ -373,6 +399,7 @@ export function DashboardShell({ children, profile }: DashboardShellProps) {
               <TopTabs />
             </div>
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
+              {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
               <HeaderRangeButton range={range} onChange={handleRangeChange} />
               <RealtimeNotifications />
               <Link

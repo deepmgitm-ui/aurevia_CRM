@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { formatClock, normaliseStatus } from "@/lib/attendance";
 import { createClient } from "@/lib/supabase/server";
 import { stageForStatus } from "../overview/analytics";
 import { toLocalIso } from "./month-grid";
@@ -61,6 +62,37 @@ export interface CalendarDay {
   personal: PersonalEvent[];
   created: CreatedLead[];
   activities: ActivityEntry[];
+  /**
+   * Attendance marks for this day. Empty for employees (they only ever see
+   * their own row) and for any day nobody signed in on.
+   */
+  attendance: AttendanceMark[];
+}
+
+/** One employee's attendance on one day, as the calendar cell shows it. */
+export interface AttendanceMark {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  /** yyyy-mm-dd the mark belongs to (needed to patch the right day cell). */
+  date: string;
+  status: string;
+  /** "09:42" or "-" when a manager marked the day by hand. */
+  checkInLabel: string;
+  autoMarked: boolean;
+  note: string;
+}
+
+/** Raw `attendance` row as PostgREST returns it (joined profile is obj|array). */
+interface AttendanceDbMarkRow {
+  id: string;
+  employee_id: string;
+  attendance_date: string;
+  status: string | null;
+  check_in_at: string | null;
+  note: string | null;
+  auto_marked: boolean | null;
+  employee: { name: string | null } | { name: string | null }[] | null;
 }
 
 export interface MonthDays {
@@ -354,12 +386,53 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
       // Non-fatal: employees see this lane once the SELECT policy is deployed.
     }
 
+    // --- Attendance lane: who signed in on which day, with the check-in time ---
+    // The table is optional (it ships with supabase-hr-migration.sql), so a
+    // missing relation degrades to an empty lane instead of breaking the
+    // calendar. Employees only ever see their own row — the RLS SELECT policy
+    // enforces that, this just decides whether to even ask.
+    const attendanceByDay = new Map<string, AttendanceMark[]>();
+    try {
+      let attendanceQuery = supabase
+        .from("attendance")
+        .select("id, employee_id, attendance_date, status, check_in_at, note, employee:profiles!attendance_employee_id_fkey(name)")
+        .gte("attendance_date", from)
+        .lte("attendance_date", to)
+        .order("check_in_at", { ascending: true, nullsFirst: false })
+        .limit(1000);
+      if (!isTeamView) attendanceQuery = attendanceQuery.eq("employee_id", viewer.userId);
+
+      const { data: attendanceRows, error: attendanceError } = await attendanceQuery;
+      if (attendanceError && !attendanceError.message.includes("attendance")) {
+        throw new Error(attendanceError.message);
+      }
+
+      for (const row of (attendanceRows ?? []) as AttendanceDbMarkRow[]) {
+        const employee = Array.isArray(row.employee) ? row.employee[0] : row.employee;
+        const bucket = attendanceByDay.get(String(row.attendance_date)) ?? [];
+        bucket.push({
+          id: row.id,
+          employeeId: row.employee_id,
+          employeeName: (employee?.name ?? "").trim() || "Employee",
+          date: String(row.attendance_date),
+          status: normaliseStatus(row.status),
+          checkInLabel: row.check_in_at ? formatClock(row.check_in_at) : "-",
+          autoMarked: Boolean(row.auto_marked),
+          note: row.note ?? "",
+        });
+        attendanceByDay.set(String(row.attendance_date), bucket);
+      }
+    } catch {
+      // Non-fatal: the calendar renders without the attendance lane.
+    }
+
     const days: CalendarDay[] = cells.map((cell) => ({
       ...cell,
       reminders: byDay.get(cell.iso) ?? [],
       personal: personalByDay.get(cell.iso) ?? [],
       created: createdByDay.get(cell.iso) ?? [],
       activities: activitiesByDay.get(cell.iso) ?? [],
+      attendance: attendanceByDay.get(cell.iso) ?? [],
     }));
     const total = days.flatMap((day) => day.reminders);
     const overdue = total.filter((item) => item.overdue);

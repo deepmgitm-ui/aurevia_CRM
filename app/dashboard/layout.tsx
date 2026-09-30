@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { markMyAttendance } from "@/app/actions/attendance";
 import { DashboardShell } from "./dashboard-shell";
 import { createClient, getUserSafely } from "@/lib/supabase/server";
 
@@ -34,8 +35,20 @@ export default async function DashboardLayout({
   const profileName = profile?.name?.trim() || user.email?.split("@")[0] || "User";
   const profileRole = profile?.role && isUserRole(profile.role) ? profile.role : "employee";
 
+  // Signing in IS the check-in. This runs once per dashboard request, but the
+  // write is idempotent (unique employee+date, ignoreDuplicates), so it records
+  // the FIRST sign-in of the day and never moves it afterwards. A failure here
+  // must not block the dashboard, so the error is logged and swallowed.
+  const attendance = await markMyAttendance();
+  if (!attendance.success) {
+    console.warn("[attendance] Could not record the check-in:", attendance.error);
+  }
+
   return (
-    <DashboardShell profile={{ name: profileName, role: profileRole }}>
+    <DashboardShell
+      profile={{ name: profileName, role: profileRole }}
+      attendanceToday={attendance.success ? attendance.data : null}
+    >
       {children}
     </DashboardShell>
   );

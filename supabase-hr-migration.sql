@@ -46,19 +46,61 @@ create table if not exists public.attendance (
   unique (employee_id, attendance_date)
 );
 
+-- Check-in / check-out wall-clock times, plus the flag that says "this row came
+-- from a sign-in, not from a manager marking the register by hand".
+alter table public.attendance
+  add column if not exists check_in_at timestamptz,
+  add column if not exists check_out_at timestamptz,
+  add column if not exists auto_marked boolean not null default false;
+
+comment on column public.attendance.check_in_at is
+  'Set once, on the employee''s first sign-in of that clinic day.';
+comment on column public.attendance.auto_marked is
+  'true when the row was created by a sign-in rather than by a manager.';
+
+-- Rows created before this migration were manager entries; their created_at is
+-- the best available stand-in for a check-in time.
+update public.attendance
+set check_in_at = created_at
+where check_in_at is null and auto_marked = false;
+
+drop trigger if exists attendance_set_updated_at on public.attendance;
+create trigger attendance_set_updated_at
+before update on public.attendance
+for each row execute function public.set_updated_at();
+
 alter table public.attendance enable row level security;
 
 -- Role-based logic: employees can VIEW only their own attendance row; admins
 -- and managers can view and EDIT everyone's.
-drop policy if exists attendance_select_own_or_admin on public.attendance;
-create policy attendance_select_own_or_admin
-on public.attendance for select
+--
+-- Signing in IS the check-in, so an employee needs write access to their OWN
+-- row. The policy is deliberately narrow: today only, always 'Present', always
+-- auto_marked. A self-service mark can therefore never write "Absent" over a
+-- real day, nor back-fill yesterday, nor touch a colleague's row.
+drop policy if exists attendance_self_check_in on public.attendance;
+create policy attendance_self_check_in
+on public.attendance for insert
 to authenticated
-using (
+with check (
   employee_id = auth.uid()
-  or public.current_user_role() in ('admin', 'manager')
+  and attendance_date = (now() at time zone 'Asia/Kolkata')::date
+  and status = 'Present'
+  and auto_marked
 );
 
+-- Employees may correct their own check-in TIME on an auto-marked row (a
+-- sign-in that happened at the wrong moment). Status and note stay admin-only.
+drop policy if exists attendance_self_update_check_in on public.attendance;
+create policy attendance_self_update_check_in
+on public.attendance for update
+to authenticated
+using (employee_id = auth.uid() and auto_marked)
+with check (employee_id = auth.uid() and auto_marked);
+
+-- CHANGE / MODIFY / DELETE: admin + manager only. The self-service policies
+-- above deliberately do not grant delete, so an employee can never erase their
+-- own attendance — only a manager can.
 drop policy if exists attendance_admin_manager_write on public.attendance;
 create policy attendance_admin_manager_write
 on public.attendance for all
@@ -67,3 +109,5 @@ using (public.current_user_role() in ('admin', 'manager'))
 with check (public.current_user_role() in ('admin', 'manager'));
 
 create index if not exists attendance_date_idx on public.attendance (attendance_date desc);
+create index if not exists attendance_employee_date_idx
+  on public.attendance (employee_id, attendance_date desc);

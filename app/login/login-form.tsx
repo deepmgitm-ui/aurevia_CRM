@@ -23,9 +23,11 @@ interface LoginFormProps {
    * lands back where the expired session interrupted them.
    */
   redirectTo: string | null;
+  /** The proxy signed them out because the clinic day rolled over at midnight. */
+  dayEnded?: boolean;
 }
 
-export function LoginForm({ redirectTo }: LoginFormProps) {
+export function LoginForm({ redirectTo, dayEnded = false }: LoginFormProps) {
   const [state, formAction, isPending] = useActionState<LoginState, FormData>(
     login,
     null,
@@ -49,7 +51,12 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
           <CardDescription>Sign in to continue to Aurevia CRM.</CardDescription>
         </CardHeader>
         <CardContent>
-          {redirectTo ? (
+          {dayEnded ? (
+            <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-900">
+              Din khatam ho gaya, isliye aapko logout kar diya gaya hai. Dobara login
+              karte hi aaj ki attendance apne aap mark ho jayegi.
+            </p>
+          ) : redirectTo ? (
             <p className="mb-5 rounded-lg bg-muted px-3 py-2 text-center text-sm text-slate-600">
               Your session expired. Sign in again to continue where you left
               off.

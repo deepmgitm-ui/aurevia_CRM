@@ -13,6 +13,7 @@
     "verify:meta": "node scripts/verify-meta.mts",
     "verify:automation": "node scripts/verify-automation.mts",
     "verify:db": "node scripts/verify-db.mts",
+    "verify:attendance": "node scripts/verify-attendance.mts",
     "cleanup:sources": "node scripts/cleanup-polluted-source.mts"
   },
   "dependencies": {

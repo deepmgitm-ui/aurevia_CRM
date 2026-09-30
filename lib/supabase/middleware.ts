@@ -5,9 +5,13 @@ import {
 } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { clinicDate, needsFreshSignIn, SESSION_DAY_COOKIE } from "@/lib/attendance";
 import { getSupabaseEnv, MISSING_SUPABASE_ENV_MESSAGE } from "./env";
 
 const PROTECTED_PATH_PREFIX = "/dashboard";
+
+/** Kept in sync with the login action, which writes the same cookie. */
+const SESSION_DAY_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 /**
  * Supabase stores the session in cookies prefixed with `sb-`. When one of them
@@ -43,6 +47,27 @@ function buildLoginUrl(request: NextRequest): URL {
   }
 
   return url;
+}
+
+/**
+ * The session was opened yesterday (or the stamp is missing), so it is signed
+ * out. `reason=day_ended` lets the login page explain that the day rolled over
+ * instead of showing a bare "session expired".
+ */
+function buildDayEndedUrl(request: NextRequest): URL {
+  const url = buildLoginUrl(request);
+  url.searchParams.set("reason", "day_ended");
+  return url;
+}
+
+/** Refreshes the day stamp on the response the browser will actually receive. */
+function stampSessionDay(response: NextResponse): NextResponse {
+  response.cookies.set(SESSION_DAY_COOKIE, clinicDate(), {
+    path: "/",
+    sameSite: "lax",
+    maxAge: SESSION_DAY_MAX_AGE_SECONDS,
+  });
+  return response;
 }
 
 /** Expires every Supabase auth cookie carried by the request. */
@@ -192,7 +217,34 @@ async function refreshSession(request: NextRequest): Promise<NextResponse> {
   }
 
   if (hasUser) {
-    return supabaseResponse;
+    // The clinic ends the working day at midnight: a session opened on an
+    // earlier date is signed out so the employee signs in again, and THAT
+    // sign-in is what records the new day's check-in time. Only enforced on
+    // protected paths — bouncing a public page to /login would loop.
+    if (
+      protectedPath &&
+      needsFreshSignIn(request.cookies.get(SESSION_DAY_COOKIE)?.value)
+    ) {
+      // Sign out server-side too, so the Supabase refresh token is revoked
+      // rather than merely hidden from this browser.
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        // A network failure here must not trap the employee in a redirect
+        // loop: the cookies below still end the session locally.
+        console.warn(
+          "[supabase/middleware] Could not revoke the stale session, clearing cookies anyway:",
+          error,
+        );
+      }
+
+      const dayEndedResponse = NextResponse.redirect(buildDayEndedUrl(request));
+      copyResponseCookies(supabaseResponse, dayEndedResponse);
+
+      return clearAuthCookies(request, dayEndedResponse);
+    }
+
+    return stampSessionDay(supabaseResponse);
   }
 
   // From here on there is no verified user.
