@@ -16,7 +16,7 @@ import { LeadsTable } from "./leads-table";
 import { SmartAssignmentBanner } from "./smart-assignment";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
-import { currentQuarterRange, parseIsoDate, toAnalyticsLead, type DateRange } from "./overview/analytics";
+import { currentQuarterRange, defaultDashboardRange, formatRangeLabel, parseIsoDate, toAnalyticsLead, type DateRange } from "./overview/analytics";
 import { PipelineInsights } from "./pipeline-insights";
 import { TeamOverview } from "./team-overview";
 
@@ -78,6 +78,11 @@ function resolveRange(params: { from?: string; to?: string }): DateRange {
   };
 }
 
+/** True when the URL pinned an explicit window (don't second-guess the user). */
+function hasExplicitRange(params: { from?: string; to?: string }): boolean {
+  return Boolean(parseIsoDate(params.from) || parseIsoDate(params.to));
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -85,7 +90,6 @@ export default async function DashboardPage({
 }) {
   const query = await searchParams;
   const { employee: selectedEmployee } = query;
-  const range = resolveRange(query);
   const viewerResult = await getViewer();
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
@@ -153,6 +157,13 @@ export default async function DashboardPage({
     const employees = directoryResult.success ? directoryResult.data : [];
     const team = teamResult.success ? teamResult.data : emptyTeam;
     const rows = leads.map(toAnalyticsLead);
+    // The window must be able to SHOW the data: a quarter with no leads (an
+    // import from an older month) would otherwise render every card as zero.
+    const range = hasExplicitRange(query) ? resolveRange(query) : defaultDashboardRange(rows);
+    const rangeNote =
+      !hasExplicitRange(query) && formatRangeLabel(range) !== formatRangeLabel(currentQuarterRange())
+        ? `Your leads fall between ${range.from} and ${range.to}, so the dashboard opened on that window instead of the current quarter. Pick any dates in the filter bar to change it.`
+        : undefined;
     const insightsResult = await getPipelineInsights();
     const insights = insightsResult.success ? insightsResult.data : null;
 
@@ -169,6 +180,7 @@ export default async function DashboardPage({
           rows={rows}
           employees={employees}
           range={range}
+          rangeNote={rangeNote}
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 

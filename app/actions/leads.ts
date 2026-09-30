@@ -1337,7 +1337,11 @@ export async function bulkInsertLeads(
     return { success: false, error: "No leads were provided." };
   }
 
-  const batchSource = fileName.trim() || "Excel/CSV";
+  // A sheet with no Source/Channel column is filed as "Excel/CSV" — a real
+  // master-data source. The uploaded FILE NAME is not a source: using it here
+  // (as this code used to) put "Untitled spreadsheet.xlsx" on every lead and
+  // polluted the Lead Source Performance chart on every import.
+  const batchSource = "Excel/CSV";
   const supabase = await createClient();
 
   // RBAC: bulk import is an Admin/Manager capability. Employees add leads
@@ -1421,6 +1425,19 @@ export async function bulkInsertLeads(
       const assignedProfileName = importedAssignee
         ? validProfileNames.get(importedAssignee.toLowerCase()) ?? "-"
         : "-";
+      // The sheet's own source column wins whenever it has one.
+      const importedSource = text(
+        "Source",
+        "source",
+        "Lead Source",
+        "lead_source",
+        "Channel",
+        "channel",
+        "Campaign",
+        "campaign",
+        "Platform",
+        "platform",
+      );
 
       records.push({
         name: dashIfEmpty(name),
@@ -1434,7 +1451,7 @@ export async function bulkInsertLeads(
         remarks: dashIfEmpty(text("Remark 1", "remarks", "remark", "Remark", "note", "notes", "comment", "comments")),
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
-        source: batchSource,
+        source: importedSource || batchSource,
         status: dashIfEmpty(text("Lead Status", "status", "lead_status")),
         temperature: "Warm",
         assigned_to: assignedProfileName,

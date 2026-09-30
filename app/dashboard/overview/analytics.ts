@@ -362,6 +362,41 @@ export function currentQuarterRange(today = new Date()): DateRange {
   };
 }
 
+/**
+ * Dashboard default window that can never look empty by accident.
+ *
+ * The current quarter wins whenever it holds leads. When it does not (an
+ * imported sheet can sit months in the past — the 97-lead March 2026 import
+ * against a Jul-Sep window), the window snaps to the months the data actually
+ * covers, otherwise every KPI would read 0 while the pipeline is full.
+ */
+export function defaultDashboardRange(rows: AnalyticsLead[], today = new Date()): DateRange {
+  const quarter = currentQuarterRange(today);
+  if (rows.length === 0) return quarter;
+
+  const dated = rows
+    .map((row) => parseLeadDateText(row.lead_date))
+    .filter((date): date is Date => date !== null)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  // No usable dates: those leads are counted by every range, keep the quarter.
+  if (dated.length === 0) return quarter;
+
+  const quarterFrom = parseIsoDate(quarter.from);
+  const quarterTo = parseIsoDate(quarter.to);
+  const inQuarter = dated.filter(
+    (date) => (!quarterFrom || date >= quarterFrom) && (!quarterTo || date <= quarterTo),
+  );
+  if (inQuarter.length > 0) return quarter;
+
+  const first = dated[0];
+  const last = dated[dated.length - 1];
+  return {
+    from: toIsoDate(new Date(first.getFullYear(), first.getMonth(), 1)),
+    to: toIsoDate(new Date(last.getFullYear(), last.getMonth() + 1, 0)),
+  };
+}
+
 /** "01 Jul 2026 - 30 Sep 2026" — the label used by the header range button. */
 export function formatRangeLabel(range: DateRange): string {
   const format = (date: Date | null) =>

@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BarChart3, MapPin, Megaphone, PieChart } from "lucide-react";
+import { BarChart3, Info, MapPin, Megaphone, PieChart } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -97,11 +97,14 @@ export function OverviewDashboard({
   rows,
   employees,
   range,
+  rangeNote,
   viewer,
 }: {
   rows: AnalyticsLead[];
   employees: EmployeeDirectoryEntry[];
   range: DateRange;
+  /** Set when the opening window was widened to match the data (never silent). */
+  rangeNote?: string;
   /** Signed-in admin/manager — powers the personalised greeting banner. */
   viewer?: { name: string; role: string };
 }) {
@@ -192,6 +195,13 @@ export function OverviewDashboard({
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
 
       <FilterBar filters={filters} options={options} isSample={isSample} onChange={updateFilter} onReset={resetFilters} />
+
+      {rangeNote && (
+        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {rangeNote}
+        </p>
+      )}
 
       <KpiCards kpis={metrics.kpis} />
 

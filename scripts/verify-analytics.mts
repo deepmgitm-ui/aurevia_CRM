@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 
 import {
   buildDashboardMetrics,
+  currentQuarterRange,
+  defaultDashboardRange,
   resolveDashboardMetrics,
   createSampleMetrics,
   detectTreatmentName,
@@ -368,6 +370,60 @@ const foldedTotal = manyMetrics.pipeline.reduce(
   0,
 );
 assert.equal(foldedTotal, 3 + 2 + 1, "Other holds exactly the three smallest written treatments");
+
+// ---------------------------------------------------------------------------
+// 18. The opening window must never hide a full pipeline: the quarter wins
+//     whenever it has leads, otherwise it snaps onto the months the data is in
+//     (the March 2026 import against a Jul-Sep window).
+// ---------------------------------------------------------------------------
+const TODAY = new Date(2026, 7, 15); // 15 Aug 2026 → Q3 = Jul-Sep
+const dated = (leadDate: string): AnalyticsLead => ({ ...lead("d", "LASIK", "New"), lead_date: leadDate });
+
+const quarter = currentQuarterRange(TODAY);
+assert.deepEqual(quarter, { from: "2026-07-01", to: "2026-09-30" }, "Q3 window for 15 Aug 2026");
+
+assert.deepEqual(
+  defaultDashboardRange([dated("15/08/2026"), dated("02/09/2026")], TODAY),
+  quarter,
+  "leads inside the quarter keep the quarter window",
+);
+
+assert.deepEqual(
+  defaultDashboardRange([dated("05/03/2026"), dated("27/03/2026")], TODAY),
+  { from: "2026-03-01", to: "2026-03-31" },
+  "an empty quarter snaps onto the single month the data covers",
+);
+
+assert.deepEqual(
+  defaultDashboardRange([dated("05/01/2026"), dated("27/05/2026")], TODAY),
+  { from: "2026-01-01", to: "2026-05-31" },
+  "a multi-month import opens on the full span, month start to month end",
+);
+
+assert.deepEqual(
+  defaultDashboardRange([dated("05/03/2026"), dated("15/08/2026")], TODAY),
+  quarter,
+  "one lead inside the quarter is enough to keep the quarter window",
+);
+
+assert.deepEqual(
+  defaultDashboardRange([], TODAY),
+  quarter,
+  "no leads at all keeps the plain current quarter",
+);
+
+assert.deepEqual(
+  defaultDashboardRange([dated("not a date"), dated("-")], TODAY),
+  quarter,
+  "leads without a usable date can't move the window",
+);
+
+const snapped = defaultDashboardRange([dated("05/03/2026")], TODAY);
+const nonEmpty = buildDashboardMetrics([dated("05/03/2026"), dated("09/03/2026")], [], snapped);
+assert.ok(
+  nonEmpty.kpis.length > 0 && nonEmpty.pipeline.reduce((sum, row) => sum + row.total, 0) === 2,
+  "the snapped window really does show the imported leads instead of zeroes",
+);
 
 console.log("✓ all analytics assertions passed");
 console.log("  treatment series:", labels.join(", "));

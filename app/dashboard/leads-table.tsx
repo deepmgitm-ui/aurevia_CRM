@@ -410,13 +410,16 @@ export function LeadsTable({
     name: "",
     phone: "",
     email: "",
+    gender: "",
     city: "",
     disease: "",
+    insurance_status: "",
     remarks: "",
     assigned_to: "",
     status: "",
     temperature: "",
     lead_date: "",
+    follow_up_date: "",
     source: "",
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -1142,14 +1145,17 @@ export function LeadsTable({
       name: lead.name && lead.name !== "-" ? lead.name : "",
       phone: lead.phone && lead.phone !== "-" ? lead.phone : "",
       email: lead.email && lead.email !== "-" ? lead.email : "",
+      gender: lead.gender && lead.gender !== "-" ? lead.gender : "",
       city: lead.city === "-" ? "" : lead.city,
       disease: lead.disease === "-" ? "" : lead.disease,
+      insurance_status: lead.insurance_status === "-" ? "" : lead.insurance_status,
       remarks: lead.remarks === "-" ? "" : lead.remarks,
       assigned_to: lead.assigned_to && lead.assigned_to !== "-" ? lead.assigned_to : "",
       status: lead.status ?? "",
       temperature: lead.temperature ?? "",
       // Date input needs ISO format; unparseable stored values start empty.
       lead_date: parseLeadDateForSort(lead.lead_date) || "",
+      follow_up_date: parseLeadDateForSort(lead.follow_up_date) || "",
       source: lead.source && lead.source !== "-" ? lead.source : "",
     });
   }
@@ -1790,9 +1796,12 @@ export function LeadsTable({
             <div className="space-y-1"><Label htmlFor="full-edit-name">Patient Name</Label><Input id="full-edit-name" value={editForm.name} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-phone">Contact (Phone Number)</Label><Input id="full-edit-phone" value={editForm.phone} inputMode="tel" disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, phone: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-email">Email</Label><Input id="full-edit-email" value={editForm.email} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-gender">Gender</Label><Input id="full-edit-gender" value={editForm.gender} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, gender: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-insurance">Insurance Status</Label><Input id="full-edit-insurance" value={editForm.insurance_status} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, insurance_status: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-city">City / Area</Label><Input id="full-edit-city" value={editForm.city} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, city: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-disease">Treatment / Disease</Label><Input id="full-edit-disease" value={editForm.disease} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, disease: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-date">Lead Date</Label><Input id="full-edit-date" type="date" value={editForm.lead_date} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, lead_date: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-followup">Next Follow-Up Date</Label><Input id="full-edit-followup" type="date" value={editForm.follow_up_date} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, follow_up_date: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-assigned">Assigned To</Label>
               <Select value={editForm.assigned_to || "unassigned"} onValueChange={(value) => setEditForm((current) => ({ ...current, assigned_to: value === "unassigned" ? "" : String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-assigned" disabled={!canEditCore}><SelectValue /></SelectTrigger>

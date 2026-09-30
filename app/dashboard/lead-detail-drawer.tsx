@@ -12,6 +12,7 @@ import {
   addLeadActivity,
   getLeadActivities,
   getLeadsPage,
+  getViewer,
   logLeadCall,
   updateLeadDetails,
   type Lead,
@@ -89,9 +90,27 @@ export function LeadDetailDrawer({
   const [saving, setSaving] = useState(false);
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
-  const [edits, setEdits] = useState({ name: "", phone: "", status: "", treatment: "", followUpDate: "" });
+  const [edits, setEdits] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    gender: "",
+    city: "",
+    insurance: "",
+    status: "",
+    temperature: "",
+    treatment: "",
+    followUpDate: "",
+  });
+  // Core fields are admin/manager-only server-side (updateLeadDetails strips
+  // them for employees), so the UI asks who is looking instead of letting an
+  // employee type into a field that would silently not save.
+  const [canEditCore, setCanEditCore] = useState(false);
   const [masterStatuses, setMasterStatuses] = useState<string[]>(() =>
     Array.from(new Set([...seedMasterData().lists.statuses, ...STATUS_OPTIONS])),
+  );
+  const [masterTemperatures, setMasterTemperatures] = useState<string[]>(
+    () => seedMasterData().lists.temperatures,
   );
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -117,7 +136,12 @@ export function LeadDetailDrawer({
       setEdits({
         name: fresh.name,
         phone: fresh.phone ?? "",
+        email: fresh.email && fresh.email !== "-" ? fresh.email : "",
+        gender: fresh.gender && fresh.gender !== "-" ? fresh.gender : "",
+        city: fresh.city && fresh.city !== "-" ? fresh.city : "",
+        insurance: fresh.insurance_status && fresh.insurance_status !== "-" ? fresh.insurance_status : "",
         status: fresh.status && fresh.status !== "-" ? fresh.status : "New",
+        temperature: fresh.temperature && fresh.temperature !== "-" ? fresh.temperature : "",
         treatment: fresh.disease && fresh.disease !== "-" ? fresh.disease : "",
         followUpDate: toDateInput(fresh.follow_up_date),
       });
@@ -142,7 +166,15 @@ export function LeadDetailDrawer({
   // Master data (Settings → Master Data): admin's stage list replaces the seed.
   useEffect(() => {
     void getMasterData().then((result) => {
-      if (result.success && result.data) setMasterStatuses(result.data.lists.statuses);
+      if (result.success && result.data) {
+        setMasterStatuses(result.data.lists.statuses);
+        setMasterTemperatures(result.data.lists.temperatures);
+      }
+    });
+    void getViewer().then((result) => {
+      if (result.success && result.data) {
+        setCanEditCore(result.data.role === "admin" || result.data.role === "manager");
+      }
     });
   }, []);
 
@@ -182,8 +214,21 @@ export function LeadDetailDrawer({
         name: edits.name.trim() || lead.name,
         phone: edits.phone.trim(),
         status: edits.status,
+        // Stage + temperature are the two fields employees may change, so they
+        // go out for everyone.
+        temperature: edits.temperature,
         disease: edits.treatment.trim() || "-",
         follow_up_date: edits.followUpDate || "-",
+        // Core fields are ignored server-side for employees — send them only
+        // when this viewer is allowed, so the toast never lies about a save.
+        ...(canEditCore
+          ? {
+              email: edits.email.trim() || "-",
+              gender: edits.gender.trim() || "-",
+              city: edits.city.trim() || "-",
+              insurance_status: edits.insurance.trim() || "-",
+            }
+          : {}),
       },
       "Patient update ho gaya",
     );
@@ -351,6 +396,43 @@ export function LeadDetailDrawer({
                     />
                   </div>
                   <div>
+                    <Label htmlFor="drawer-detail-email">Email</Label>
+                    <Input
+                      id="drawer-detail-email"
+                      type="email"
+                      value={edits.email}
+                      disabled={!canEditCore}
+                      onChange={(event) => setEdits((current) => ({ ...current, email: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-detail-gender">Gender</Label>
+                    <Input
+                      id="drawer-detail-gender"
+                      value={edits.gender}
+                      disabled={!canEditCore}
+                      onChange={(event) => setEdits((current) => ({ ...current, gender: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-detail-city">City / Area</Label>
+                    <Input
+                      id="drawer-detail-city"
+                      value={edits.city}
+                      disabled={!canEditCore}
+                      onChange={(event) => setEdits((current) => ({ ...current, city: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-detail-insurance">Insurance Status</Label>
+                    <Input
+                      id="drawer-detail-insurance"
+                      value={edits.insurance}
+                      disabled={!canEditCore}
+                      onChange={(event) => setEdits((current) => ({ ...current, insurance: event.target.value }))}
+                    />
+                  </div>
+                  <div>
                     <Label htmlFor="drawer-detail-stage">Stage</Label>
                     <Select
                       value={edits.status}
@@ -363,6 +445,31 @@ export function LeadDetailDrawer({
                       </SelectTrigger>
                       <SelectContent className="max-h-72 overflow-y-auto">
                         {withCurrentValue(masterStatuses, edits.status).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    {/* Temperature is one of the fields employees may change. */}
+                    <Label htmlFor="drawer-detail-temp">Temperature</Label>
+                    <Select
+                      value={edits.temperature || "unset"}
+                      onValueChange={(value) =>
+                        setEdits((current) => ({
+                          ...current,
+                          temperature: value === "unset" ? "" : (value ?? ""),
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="drawer-detail-temp">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72 overflow-y-auto">
+                        <SelectItem value="unset">Not set</SelectItem>
+                        {withCurrentValue(masterTemperatures, edits.temperature).map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
                           </SelectItem>
@@ -391,10 +498,10 @@ export function LeadDetailDrawer({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">City: {lead.city}</p>
+                  {/* City / temperature are editable inputs above, so only the
+                      read-only facts are repeated here. */}
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Source: {lead.source}</p>
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Agent: {lead.assigned_to}</p>
-                  <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Temp: {lead.temperature}</p>
                   {/* Same helper as the leads table, so both always agree. */}
                   <p className="col-span-2 rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">
                     {relativeLeadAge(lead.created_at) ?? "Added: -"}
