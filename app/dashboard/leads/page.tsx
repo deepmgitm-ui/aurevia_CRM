@@ -1,14 +1,24 @@
 import Link from "next/link";
 import { X } from "lucide-react";
 
-import { getLeadCounts, getLeadsPage, getTreatmentTally, getViewer, type LeadCounts } from "@/app/actions/leads";
+import {
+  getLeadCounts,
+  getLeadMonthTally,
+  getLeadsPage,
+  getTreatmentTally,
+  getViewer,
+  type LeadCounts,
+  type LeadMonthTally,
+} from "@/app/actions/leads";
+import { LeadMonthPicker } from "./lead-month-picker";
 
 import { DashboardStats } from "../dashboard-stats";
 import {
-  AGE_BUCKETS,
+  AGE_CHIP_BUCKETS,
   describeActiveFilters,
   hasLeadFilters,
   leadsHref,
+  monthFilterLabel,
   parseLeadFilters,
   type LeadListFilters,
   type TreatmentTally,
@@ -75,31 +85,56 @@ function TreatmentBreakdown({
 }
 
 /**
- * Age strip: how fresh the leads in view are — Today → Yesterday → 2..6 days →
- * 1/2/3 weeks → Older, the exact ladder the team asked for.
+ * Age strip: how fresh the leads in view are — Today → 1 day ago → 2..7 days →
+ * 1/2/3 weeks, then a MONTH picker.
+ *
+ * The month picker replaces the old vague "Month" chip: instead of one bucket
+ * labelled "older", the team picks the actual month (Mar 2026, Apr 2026, …) from
+ * a list built out of the months that really hold leads. Choosing a month clears
+ * the age chip and vice versa, since "today" and "Mar 2026" are alternatives,
+ * not something to intersect.
  */
-function AgeStrip({ filters }: { filters: LeadListFilters }) {
+function AgeStrip({
+  filters,
+  months,
+}: {
+  filters: LeadListFilters;
+  months: LeadMonthTally[];
+}) {
+  // A month already covers every day, so the day/week chips would be noise.
+  const ageLocked = filters.month.length > 0;
+
   return (
-    <section aria-label="Lead age" className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h2 className="text-sm font-semibold text-slate-900">How old are these leads?</h2>
+    <section
+      aria-label="Lead age"
+      className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-slate-900">How old are these leads?</h2>
+        {/* Client leaf: this page is a Server Component, so the navigating
+            dropdown lives in its own file. */}
+        <LeadMonthPicker filters={filters} months={months} />
+      </div>
       <div className="flex flex-wrap gap-2">
         <Link
-          href={leadsHref({ ...filters, age: "" })}
-          aria-pressed={!filters.age}
+          href={leadsHref({ ...filters, age: "", month: "" })}
+          aria-pressed={!filters.age && !ageLocked}
           className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-            !filters.age
+            !filters.age && !ageLocked
               ? "border-blue-300 bg-blue-50 text-blue-800"
               : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
           }`}
         >
           All time
         </Link>
-        {AGE_BUCKETS.map((bucket) => {
+        {AGE_CHIP_BUCKETS.map((bucket) => {
           const active = filters.age === bucket.key;
           return (
             <Link
               key={bucket.key}
-              href={leadsHref({ ...filters, age: active ? "" : bucket.key })}
+              // Picking a day/week drops the month: they describe the same
+              // "how old is this lead" question two different ways.
+              href={leadsHref({ ...filters, age: active ? "" : bucket.key, month: "" })}
               aria-pressed={active}
               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                 active
@@ -112,6 +147,12 @@ function AgeStrip({ filters }: { filters: LeadListFilters }) {
           );
         })}
       </div>
+      {ageLocked && (
+        <p className="text-xs text-slate-500">
+          {monthFilterLabel(filters.month)} ke leads dikh rahe hain — din/hafte ke filter
+          iske saath lagta nahi hai.
+        </p>
+      )}
     </section>
   );
 }
@@ -129,11 +170,14 @@ export default async function LeadsPage({
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, countsResult, tallyResult, viewerResult] = await Promise.all([
+  const [leadsResult, countsResult, tallyResult, viewerResult, monthsResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getLeadCounts(),
     getTreatmentTally(filters),
     getViewer(),
+    // Month picker options: the months that really hold leads, so picking one
+    // can never land on an empty list.
+    getLeadMonthTally(),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
@@ -141,6 +185,7 @@ export default async function LeadsPage({
     ? countsResult.data
     : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
   const tally = tallyResult.success ? tallyResult.data : [];
+  const months: LeadMonthTally[] = monthsResult.success ? monthsResult.data : [];
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
   // filtered result — the difference is what the filters are hiding. When that is
@@ -187,7 +232,7 @@ export default async function LeadsPage({
         </div>
       )}
       <TreatmentBreakdown tally={tally} filters={filters} />
-      <AgeStrip filters={filters} />
+      <AgeStrip filters={filters} months={months} />
       {/* Key remounts on every filter change so the table drops its loaded page
           and refetches page 1 of the new result set. */}
       <LeadsTable

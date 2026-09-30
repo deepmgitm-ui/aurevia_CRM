@@ -53,13 +53,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { celebrateLeadWin } from "./celebrate";
 import {
-  AGE_BUCKETS,
+  AGE_CHIP_BUCKETS,
   EMPTY_LEAD_FILTERS,
   ageBucketLabel,
   filterChipLabels,
   hasLeadFilters,
   isNewLead,
   leadsHref,
+  monthFilterLabel,
   prettifyFilterKey,
   relativeLeadAge,
   stageFilterKeys,
@@ -308,6 +309,9 @@ function drillDownChips(filters: LeadListFilters): {
     });
   }
   if (filters.age) chips.push({ key: "age", label: ageBucketLabel(filters.age), next: { age: "" } });
+  if (filters.month) {
+    chips.push({ key: "month", label: monthFilterLabel(filters.month), next: { month: "" } });
+  }
   if (filters.city) chips.push({ key: "city", label: filters.city, next: { city: "" } });
   if (filters.source) chips.push({ key: "source", label: filters.source, next: { source: "" } });
   if (filters.assigned) chips.push({ key: "assigned", label: filters.assigned, next: { assigned: "" } });
@@ -1281,19 +1285,24 @@ export function LeadsTable({
               </div>
             )}
 
-            {/* Age buckets — the Phase 1 date buckets (Today → Yesterday → 2–6d →
-                weeks → month-wise older). One click rewrites ?age= and refetches. */}
+            {/* Age buckets — Today → 1 day → 2…7 days → 1/2/3 weeks. One click
+                rewrites ?age= and refetches. The month picker next to it replaces
+                the old vague "Month" chip, so picking a month clears the age. */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-xs font-semibold text-slate-500">Lead age</span>
-              {AGE_BUCKETS.map((bucket) => {
+              {AGE_CHIP_BUCKETS.map((bucket) => {
                 const isActive = filters.age === bucket.key;
                 return (
                   <button
                     key={bucket.key}
                     type="button"
                     aria-pressed={isActive}
-                    title={`Leads created ${bucket.label.toLowerCase()}`}
-                    onClick={() => router.push(leadsHref({ ...filters, age: isActive ? "" : bucket.key }))}
+                    title={`Leads added ${bucket.label.toLowerCase()}`}
+                    onClick={() =>
+                      router.push(
+                        leadsHref({ ...filters, age: isActive ? "" : bucket.key, month: "" }),
+                      )
+                    }
                     className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                       isActive
                         ? "border-blue-600 bg-blue-600 text-white"
@@ -1304,6 +1313,19 @@ export function LeadsTable({
                   </button>
                 );
               })}
+              {/* The month itself, shown as a chip here (the picker lives in the
+                  page-level AgeStrip) so the active month is always visible. */}
+              {filters.month && (
+                <button
+                  type="button"
+                  aria-pressed="true"
+                  title={`${monthFilterLabel(filters.month)} ke leads — hatane ke liye dabao`}
+                  onClick={() => router.push(leadsHref({ ...filters, month: "" }))}
+                  className="rounded-full border border-blue-600 bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors"
+                >
+                  {monthFilterLabel(filters.month)}
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

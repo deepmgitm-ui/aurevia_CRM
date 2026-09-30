@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   AGE_BUCKETS,
+  AGE_CHIP_BUCKETS,
   EMPTY_LEAD_FILTERS,
   NEW_LEAD_WINDOW_DAYS,
   ageBucketFor,
@@ -16,8 +17,12 @@ import {
   hasLeadFilters,
   inListExpression,
   isNewLead,
-  leadAgeInDays,
   leadsHref,
+  leadAgeInDays,
+  isMonthFilterKey,
+  monthFilterKey,
+  monthFilterLabel,
+  monthWindow,
   parseLeadFilters,
   prettifyFilterKey,
   relativeLeadAge,
@@ -39,6 +44,7 @@ const original: LeadListFilters = {
   treatment: "other",
   except: "hair,skin",
   age: "today",
+  month: "2026-03",
   city: "Mumbai",
   source: "Meta Ads",
   assigned: "Ravi Sharma",
@@ -72,6 +78,7 @@ assert.deepEqual(describeActiveFilters(parsed), [
   "Surgery Completed",
   "Other",
   "Today",
+  "Mar 2026",
   "Mumbai",
   "Meta Ads",
   "Ravi Sharma",
@@ -85,10 +92,42 @@ assert.equal(filterChipLabels().surgery, "Surgery Completed");
 const reference = new Date(2026, 8, 28, 13, 45); // 28 Sep 2026, afternoon
 assert.deepEqual(
   AGE_BUCKETS.map((bucket) => bucket.key),
-  ["today", "yesterday", "d2", "d3", "d4", "d5", "d6", "w1", "w2", "w3", "older"],
+  ["today", "yesterday", "d2", "d3", "d4", "d5", "d6", "d7", "w1", "w2", "w3", "older"],
+);
+// The chip row stops at 3 weeks: "older" is served by the month picker, which
+// names the actual month instead of saying "older".
+assert.deepEqual(
+  AGE_CHIP_BUCKETS.map((bucket) => bucket.key),
+  ["today", "yesterday", "d2", "d3", "d4", "d5", "d6", "d7", "w1", "w2", "w3"],
 );
 assert.equal(ageBucketLabel("today"), "Today");
+// "1 day ago" is named the way the team asked for it, with yesterday kept in the
+// label so the chip is never ambiguous.
+assert.equal(ageBucketLabel("yesterday"), "1 day ago (Yesterday)");
+assert.equal(ageBucketLabel("d7"), "7 days ago");
+assert.equal(ageBucketLabel("w1"), "1 week ago");
 assert.equal(ageBucketLabel("weird"), "All time");
+
+// The day ladder must be gapless: every age from 0 to 27 days old lands in its
+// own named bucket, which is what "1 day, then 2,3,4,5,6,7, then 1 week, 2 weeks"
+// asks for.
+for (let days = 0; days <= 27; days++) {
+  const date = new Date(2026, 8, 28 - days);
+  const bucket = ageBucketFor(date, reference);
+  assert.ok(bucket, `${days} days ago must fall in a bucket`);
+  if (days >= 1 && days <= 7) {
+    assert.equal(bucket, days === 1 ? "yesterday" : `d${days}`, `${days} days ago bucket`);
+  }
+  if (days >= 8 && days <= 13) assert.equal(bucket, "w1", `${days} days ago is 1 week`);
+  if (days >= 14 && days <= 20) assert.equal(bucket, "w2", `${days} days ago is 2 weeks`);
+  if (days >= 21 && days <= 27) assert.equal(bucket, "w3", `${days} days ago is 3 weeks`);
+}
+assert.equal(
+  ageBucketFor(new Date(2026, 7, 31), reference),
+  "older",
+  "28 days ago is the open-ended bucket the month picker serves",
+);
+assert.equal(ageBucketFor(new Date(2026, 8, 1), reference), "w3", "27 days ago is still 3 weeks");
 
 const todayWindow = ageBucketWindow("today", reference)!;
 assert.equal(todayWindow.fromIso, new Date(2026, 8, 28).toISOString());
@@ -100,7 +139,11 @@ assert.equal(yesterdayWindow.toIso, new Date(2026, 8, 28).toISOString());
 
 const weekWindow = ageBucketWindow("w1", reference)!;
 assert.equal(weekWindow.fromIso, new Date(2026, 8, 15).toISOString());
-assert.equal(weekWindow.toIso, new Date(2026, 8, 22).toISOString());
+assert.equal(weekWindow.toIso, new Date(2026, 8, 21).toISOString());
+
+const sevenDayWindow = ageBucketWindow("d7", reference)!;
+assert.equal(sevenDayWindow.fromIso, new Date(2026, 8, 21).toISOString());
+assert.equal(sevenDayWindow.toIso, new Date(2026, 8, 22).toISOString());
 
 const olderWindow = ageBucketWindow("older", reference)!;
 assert.equal(olderWindow.fromIso, null);
@@ -120,6 +163,52 @@ for (let days = 0; days < 400; days++) {
   if (window.fromIso) assert.ok(time >= new Date(window.fromIso).getTime(), `${context}: before window`);
   assert.ok(time < new Date(window.toIso!).getTime(), `${context}: after window`);
 }
+
+// ---------------------------------------------------------------------------
+// 4b. The month picker: the replacement for the old vague "Month" chip. It must
+//     name a real month, cover that month exactly (February included), and
+//     survive junk from the URL.
+// ---------------------------------------------------------------------------
+assert.equal(monthFilterKey(new Date(2026, 2, 15)), "2026-03", "key is yyyy-mm");
+assert.equal(monthFilterKey(new Date(2026, 11, 1)), "2026-12", "December is month 12, not 0");
+assert.equal(monthFilterKey(new Date(2026, 0, 31)), "2026-01", "January is month 01");
+
+assert.ok(isMonthFilterKey("2026-03"), "a real month key is accepted");
+assert.ok(!isMonthFilterKey("2026-13"), "month 13 does not exist");
+assert.ok(!isMonthFilterKey("2026-00"), "month 0 does not exist");
+assert.ok(!isMonthFilterKey("2026-3"), "a one-digit month is rejected, not guessed");
+assert.ok(!isMonthFilterKey("March"), "a month NAME is rejected, not guessed");
+assert.ok(!isMonthFilterKey(""), "empty is rejected");
+
+assert.equal(monthFilterLabel("2026-03"), "Mar 2026", "the dropdown shows a readable month");
+assert.equal(monthFilterLabel("junk"), "All time", "junk never renders as a month");
+
+// February: the window must end on the 1st of March, never a guessed "31 days".
+const feb = monthWindow("2026-02")!;
+assert.equal(feb.fromIso, new Date(2026, 1, 1).toISOString(), "Feb starts on the 1st");
+assert.equal(feb.toIso, new Date(2026, 2, 1).toISOString(), "Feb ends where March begins");
+assert.equal(monthWindow("2026-13"), null, "an impossible month yields no window");
+assert.equal(monthWindow("nope"), null, "junk yields no window");
+
+// The URL round trip: ?month= survives parse → href, junk does not.
+assert.equal(parseLeadFilters({ month: "2026-03" }).month, "2026-03", "a valid month parses");
+assert.equal(parseLeadFilters({ month: "2026-13" }).month, "", "an impossible month is dropped");
+assert.equal(parseLeadFilters({ month: "<script>" }).month, "", "junk is dropped, not rendered");
+assert.ok(
+  leadsHref({ ...EMPTY_LEAD_FILTERS, month: "2026-03" }).includes("month=2026-03"),
+  "the month survives the link builder",
+);
+assert.ok(
+  !leadsHref({ ...EMPTY_LEAD_FILTERS, month: "" }).includes("month="),
+  "an empty month adds nothing to the URL",
+);
+
+// A month selection counts as an active filter (the amber banner depends on it).
+assert.ok(hasLeadFilters({ ...EMPTY_LEAD_FILTERS, month: "2026-03" }), "month counts as a filter");
+assert.ok(
+  describeActiveFilters({ ...EMPTY_LEAD_FILTERS, month: "2026-03" }).includes("Mar 2026"),
+  "the chip reads as a month, not a raw URL value",
+);
 
 // ---------------------------------------------------------------------------
 // 5. SQL fragment helpers used by resolveLeadFilters / applyLeadFilters.

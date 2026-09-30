@@ -16,7 +16,7 @@ import { LeadsTable } from "./leads-table";
 import { SmartAssignmentBanner } from "./smart-assignment";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
-import { currentQuarterRange, defaultDashboardRange, formatRangeLabel, parseIsoDate, toAnalyticsLead, type DateRange } from "./overview/analytics";
+import { resolveDashboardWindow, toAnalyticsLead } from "./overview/analytics";
 import { PipelineInsights } from "./pipeline-insights";
 import { TeamOverview } from "./team-overview";
 
@@ -67,20 +67,6 @@ function StatCardSection({ values }: { values: [number, number, number] }) {
       ))}
     </section>
   );
-}
-
-/** Header range (?from/?to) with the current quarter as the default window. */
-function resolveRange(params: { from?: string; to?: string }): DateRange {
-  const quarter = currentQuarterRange();
-  return {
-    from: parseIsoDate(params.from) ? String(params.from) : quarter.from,
-    to: parseIsoDate(params.to) ? String(params.to) : quarter.to,
-  };
-}
-
-/** True when the URL pinned an explicit window (don't second-guess the user). */
-function hasExplicitRange(params: { from?: string; to?: string }): boolean {
-  return Boolean(parseIsoDate(params.from) || parseIsoDate(params.to));
 }
 
 export default async function DashboardPage({
@@ -159,11 +145,8 @@ export default async function DashboardPage({
     const rows = leads.map(toAnalyticsLead);
     // The window must be able to SHOW the data: a quarter with no leads (an
     // import from an older month) would otherwise render every card as zero.
-    const range = hasExplicitRange(query) ? resolveRange(query) : defaultDashboardRange(rows);
-    const rangeNote =
-      !hasExplicitRange(query) && formatRangeLabel(range) !== formatRangeLabel(currentQuarterRange())
-        ? `Your leads fall between ${range.from} and ${range.to}, so the dashboard opened on that window instead of the current quarter. Pick any dates in the filter bar to change it.`
-        : undefined;
+    // Shared with every analysis tab so the two can never disagree.
+    const { range, note: rangeNote } = resolveDashboardWindow(query, rows);
     const insightsResult = await getPipelineInsights();
     const insights = insightsResult.success ? insightsResult.data : null;
 

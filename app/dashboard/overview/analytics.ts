@@ -397,6 +397,37 @@ export function defaultDashboardRange(rows: AnalyticsLead[], today = new Date())
   };
 }
 
+/**
+ * The window EVERY dashboard screen opens on, plus the note explaining it when
+ * it had to move.
+ *
+ * Both the Overview page and each analysis tab (Consultations, Surgeries,
+ * Patients, …) call this, which is the point: when the two disagreed, the
+ * Overview snapped onto the March 2026 import while the tabs stayed on the
+ * empty Jul-Sep quarter and every lead table rendered 0 rows. One function,
+ * one window, no drift.
+ */
+export function resolveDashboardWindow(
+  params: { from?: string; to?: string },
+  rows: AnalyticsLead[],
+  today = new Date(),
+): { range: DateRange; note?: string } {
+  // An explicit ?from/?to is the user's decision — never second-guess it.
+  const from = parseIsoDate(params.from) ? String(params.from) : null;
+  const to = parseIsoDate(params.to) ? String(params.to) : null;
+  if (from || to) {
+    const quarter = currentQuarterRange(today);
+    return { range: { from: from ?? quarter.from, to: to ?? quarter.to } };
+  }
+
+  const range = defaultDashboardRange(rows, today);
+  const note =
+    formatRangeLabel(range) !== formatRangeLabel(currentQuarterRange(today))
+      ? `Your leads fall between ${range.from} and ${range.to}, so this screen opened on that window instead of the current quarter. Pick any dates in the filter bar to change it.`
+      : undefined;
+  return { range, note };
+}
+
 /** "01 Jul 2026 - 30 Sep 2026" — the label used by the header range button. */
 export function formatRangeLabel(range: DateRange): string {
   const format = (date: Date | null) =>

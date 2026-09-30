@@ -8,6 +8,8 @@ import {
   blankColumnClause,
   EMPTY_LEAD_FILTERS,
   escapeLikePattern,
+  monthFilterLabel,
+  monthWindow,
   inListExpression,
   isUnrecordedTreatment,
   stageFilterKeys,
@@ -25,6 +27,7 @@ import {
   UNRECORDED_TREATMENT_KEY,
   canonicalTreatment,
   detectTreatmentName,
+  parseLeadDateText,
   stageForStatus,
   toAnalyticsLead,
   type StageKey,
@@ -505,6 +508,7 @@ interface ResolvedLeadFilters {
   inFilters: { column: string; values: string[] }[];
   orExpressions: string[];
   ageWindow: AgeWindow | null;
+  monthWindow: AgeWindow | null;
   city: string | null;
   source: string | null;
   assigned: string | null;
@@ -516,6 +520,7 @@ function emptyResolvedFilters(): ResolvedLeadFilters {
     inFilters: [],
     orExpressions: [],
     ageWindow: null,
+    monthWindow: null,
     city: null,
     source: null,
     assigned: null,
@@ -535,15 +540,32 @@ interface LeadFilterQuery<Q> {
   eq(column: string, value: string): Q;
 }
 
+/**
+ * Intersects the two date windows (`age` and `month`).
+ *
+ * The UI treats them as alternatives — picking a month clears the age chip and
+ * vice versa — but a hand-typed URL can carry both, so intersect rather than let
+ * one silently win. `null` bounds mean "open", so the overlap is the tighter of
+ * the two on each side.
+ */
+function intersectWindows(a: AgeWindow | null, b: AgeWindow | null): AgeWindow | null {
+  if (!a) return b;
+  if (!b) return a;
+  const fromIso = a.fromIso && b.fromIso ? (a.fromIso > b.fromIso ? a.fromIso : b.fromIso) : (a.fromIso ?? b.fromIso);
+  const toIso = a.toIso && b.toIso ? (a.toIso < b.toIso ? a.toIso : b.toIso) : (a.toIso ?? b.toIso);
+  return { fromIso, toIso };
+}
+
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
   // (stage AND treatment AND age ...).
   for (const expression of resolved.orExpressions) filtered = filtered.or(expression);
-  if (resolved.ageWindow) {
-    if (resolved.ageWindow.fromIso) filtered = filtered.gte("created_at", resolved.ageWindow.fromIso);
-    if (resolved.ageWindow.toIso) filtered = filtered.lt("created_at", resolved.ageWindow.toIso);
+  const dateWindow = intersectWindows(resolved.ageWindow, resolved.monthWindow);
+  if (dateWindow) {
+    if (dateWindow.fromIso) filtered = filtered.gte("created_at", dateWindow.fromIso);
+    if (dateWindow.toIso) filtered = filtered.lt("created_at", dateWindow.toIso);
   }
   if (resolved.city) filtered = filtered.ilike("city", resolved.city);
   if (resolved.source) filtered = filtered.ilike("source", resolved.source);
@@ -566,10 +588,13 @@ async function resolveLeadFilters(
   const stageKeys = stageFilterKeys(filters.stage ?? "");
   const treatment = (filters.treatment ?? "").trim();
   const age = (filters.age ?? "").trim();
+  const month = (filters.month ?? "").trim();
   const city = (filters.city ?? "").trim();
   const source = (filters.source ?? "").trim();
   const assigned = (filters.assigned ?? "").trim();
-  if (stageKeys.length === 0 && !treatment && !age && !city && !source && !assigned) return resolved;
+  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned) {
+    return resolved;
+  }
 
   // --- Stage: run every distinct status through stageForStatus() (the exact
   // function the pipeline chart uses), then ask Postgres for those statuses.
@@ -591,6 +616,10 @@ async function resolveLeadFilters(
 
   // --- Age bucket → created_at window (server-local calendar; see ageBucketWindow).
   if (age) resolved.ageWindow = ageBucketWindow(age);
+
+  // --- Month picker → that calendar month's window. Validated again here: the URL
+  // is user input, and `monthWindow` returns null for anything malformed.
+  if (month) resolved.monthWindow = monthWindow(month);
 
   // --- Treatment: map raw treatment text onto the chart's series key.
   if (treatment && !resolved.empty) {
@@ -838,6 +867,43 @@ export async function getTreatmentTally(
   if (!result.success) return result;
   const resolved: LeadListFilters = { ...EMPTY_LEAD_FILTERS, ...filters };
   return { success: true, data: tallyTreatments(result.data.map(toAnalyticsLead), resolved) };
+}
+
+export interface LeadMonthTally {
+  /** "2026-03" — the `?month=` value. */
+  key: string;
+  /** "Mar 2026" — what the dropdown shows. */
+  label: string;
+  count: number;
+}
+
+/**
+ * Which calendar months actually hold leads, newest first.
+ *
+ * The month picker is built from THIS rather than from a rolling "last 12 months"
+ * guess: the dropdown then only ever offers months that return rows, so a
+ * selection can never land on an empty result. The month filter itself is
+ * ignored while building the list (otherwise selecting March would hide every
+ * other month from the dropdown and trap the user with no way back).
+ */
+export async function getLeadMonthTally(): Promise<ActionResult<LeadMonthTally[]>> {
+  const result = await getAnalyticsLeads();
+  if (!result.success) return result;
+
+  const counts = new Map<string, number>();
+  for (const row of result.data.map(toAnalyticsLead)) {
+    // toAnalyticsLead already falls back to created_at when lead_date is unusable.
+    const date = parseLeadDateText(row.lead_date);
+    if (!date) continue;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const tally = [...counts.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, count]) => ({ key, label: monthFilterLabel(key), count }));
+
+  return { success: true, data: tally };
 }
 
 export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadCounts>> {

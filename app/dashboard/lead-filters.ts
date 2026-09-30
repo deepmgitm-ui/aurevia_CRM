@@ -28,6 +28,7 @@ export type AgeBucketKey =
   | "d4"
   | "d5"
   | "d6"
+  | "d7"
   | "w1"
   | "w2"
   | "w3"
@@ -43,21 +44,33 @@ export interface AgeBucketDefinition {
   short: string;
 }
 
-// Ordered exactly as the product asked: today → yesterday → 2..6 days →
-// 1 week → 2 weeks → 3 weeks → then month-wise (older).
+// The ladder the team asked for: today → 1 day ago → 2…7 days ago → 1 week →
+// 2 weeks → 3 weeks → everything older (4+ weeks), which the UI offers as a
+// MONTH PICKER rather than one vague "Month" chip — see `monthFilterKey`.
 export const AGE_BUCKETS: AgeBucketDefinition[] = [
   { key: "today", label: "Today", short: "Today", minDays: 0, maxDays: 0 },
-  { key: "yesterday", label: "Yesterday", short: "Yesterday", minDays: 1, maxDays: 1 },
+  { key: "yesterday", label: "1 day ago (Yesterday)", short: "1d", minDays: 1, maxDays: 1 },
   { key: "d2", label: "2 days ago", short: "2d", minDays: 2, maxDays: 2 },
   { key: "d3", label: "3 days ago", short: "3d", minDays: 3, maxDays: 3 },
   { key: "d4", label: "4 days ago", short: "4d", minDays: 4, maxDays: 4 },
   { key: "d5", label: "5 days ago", short: "5d", minDays: 5, maxDays: 5 },
   { key: "d6", label: "6 days ago", short: "6d", minDays: 6, maxDays: 6 },
-  { key: "w1", label: "1 week ago", short: "1w", minDays: 7, maxDays: 13 },
+  { key: "d7", label: "7 days ago", short: "7d", minDays: 7, maxDays: 7 },
+  { key: "w1", label: "1 week ago", short: "1w", minDays: 8, maxDays: 13 },
   { key: "w2", label: "2 weeks ago", short: "2w", minDays: 14, maxDays: 20 },
   { key: "w3", label: "3 weeks ago", short: "3w", minDays: 21, maxDays: 27 },
-  { key: "older", label: "Older (month-wise)", short: "Month", minDays: 28, maxDays: null },
+  { key: "older", label: "4+ weeks old", short: "4w+", minDays: 28, maxDays: null },
 ];
+
+/**
+ * The buckets rendered as chips. "older" is deliberately NOT here: it is the
+ * catch-all for everything past 3 weeks, and a chip reading just "older" tells
+ * the team nothing. That span is served by the month picker instead, which
+ * names the actual month.
+ */
+export const AGE_CHIP_BUCKETS: AgeBucketDefinition[] = AGE_BUCKETS.filter(
+  (bucket) => bucket.key !== "older",
+);
 
 const AGE_BUCKET_MAP = new Map(AGE_BUCKETS.map((bucket) => [bucket.key, bucket]));
 
@@ -93,6 +106,45 @@ export function ageBucketFor(date: Date | null, today = new Date()): AgeBucketKe
 /** "Sep 2026" — the month-wise grouping label for the "older" bucket. */
 export function ageMonthLabel(date: Date): string {
   return date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// Month picker — the filter the team asked for instead of a vague "Month" chip
+// ---------------------------------------------------------------------------
+
+/** "2026-03" for one date, in the server's local calendar. */
+export function monthFilterKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** True for a well-formed `?month=` value; anything else is ignored, not shown. */
+export function isMonthFilterKey(value: string): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value.trim());
+}
+
+/** "Mar 2026" — what the month dropdown and the active-filter chip show. */
+export function monthFilterLabel(key: string): string {
+  if (!isMonthFilterKey(key)) return "All time";
+  const [year, month] = key.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString("en-GB", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * The calendar month a key names, as a `created_at` window.
+ *
+ * Inclusive of the whole month: from the 1st at 00:00 local to the 1st of the
+ * next month at 00:00 (exclusive), which sidesteps the "31 days" guess that a
+ * February would get wrong.
+ */
+export function monthWindow(key: string): AgeWindow | null {
+  if (!isMonthFilterKey(key)) return null;
+  const [year, month] = key.split("-").map(Number);
+  const from = new Date(year, month - 1, 1);
+  const to = new Date(year, month, 1);
+  return { fromIso: from.toISOString(), toIso: to.toISOString() };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +248,8 @@ export interface LeadListFilters {
   except: string;
   /** Age bucket key from AGE_BUCKETS. */
   age: string;
+  /** Calendar month the lead was added, `2026-03` — the month picker. */
+  month: string;
   /** Exact city / source / agent + raw status, straight from the URL. */
   city: string;
   source: string;
@@ -209,6 +263,7 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   treatment: "",
   except: "",
   age: "",
+  month: "",
   city: "",
   source: "",
   assigned: "",
@@ -229,6 +284,7 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     treatment: firstValue(params.treatment),
     except: firstValue(params.except),
     age: firstValue(params.age),
+    month: isMonthFilterKey(firstValue(params.month)) ? firstValue(params.month) : "",
     city: firstValue(params.city),
     source: firstValue(params.source),
     assigned: firstValue(params.assigned),
@@ -243,6 +299,7 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
     filters.stage.length > 0 ||
     filters.treatment.length > 0 ||
     filters.age.length > 0 ||
+    filters.month.length > 0 ||
     filters.city.length > 0 ||
     filters.source.length > 0 ||
     filters.assigned.length > 0 ||
@@ -310,6 +367,7 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   for (const key of stageFilterKeys(filters.stage)) chips.push(labels[key] ?? prettifyFilterKey(key));
   if (filters.treatment) chips.push(labels[filters.treatment] ?? prettifyFilterKey(filters.treatment));
   if (filters.age) chips.push(ageBucketLabel(filters.age));
+  if (filters.month) chips.push(monthFilterLabel(filters.month));
   if (filters.city) chips.push(filters.city);
   if (filters.source) chips.push(filters.source);
   if (filters.assigned) chips.push(filters.assigned);
@@ -477,6 +535,14 @@ function matchesTallyFilters(row: AnalyticsLead, filters: LeadListFilters, today
     // Same bucket ladder the SQL window enforces; `lead_date` already falls back
     // to `created_at` inside toAnalyticsLead().
     if (ageBucketFor(parseLeadDateValue(row.lead_date), today) !== filters.age) return false;
+  }
+
+  if (filters.month) {
+    // The month picker's client-side twin of the SQL window. An undated lead can
+    // never satisfy a month selection, so it drops out rather than showing up in
+    // every month at once.
+    const date = parseLeadDateValue(row.lead_date);
+    if (!date || monthFilterKey(date) !== filters.month) return false;
   }
 
   if (filters.q) {

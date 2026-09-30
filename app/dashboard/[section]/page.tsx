@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Lock } from "lucide-react";
+import { Info, Lock } from "lucide-react";
 
 import { getAnalyticsLeads, getEmployeeDirectory, getViewer, type EmployeeDirectoryEntry } from "@/app/actions/leads";
 import { buttonVariants } from "@/components/ui/button";
@@ -13,18 +13,16 @@ import { DashboardGreeting } from "../overview/greeting";
 import { KpiCards } from "../overview/kpi-cards";
 import { SectionCard, SectionHeader, StatTable, type StatTableColumn, type StatTableRow } from "../overview/stat-table";
 import {
-  currentQuarterRange,
   filterLeadsByRange,
   formatNumber,
   formatRate,
-  parseIsoDate,
   resolveDashboardMetrics,
+  resolveDashboardWindow,
   stageForStatus,
   toAnalyticsLead,
   type AnalyticsLead,
   type BreakdownRow,
   type DashboardMetrics,
-  type DateRange,
   type PipelineRow,
   type StageKey,
 } from "../overview/analytics";
@@ -48,13 +46,15 @@ function isSection(value: string): value is SectionSlug {
   return (SECTIONS as readonly string[]).includes(value);
 }
 
-/** Same default window as the header button (current quarter, or ?from/?to). */
-function resolveRange(params: { from?: string; to?: string }): DateRange {
-  const quarter = currentQuarterRange();
-  return {
-    from: parseIsoDate(params.from) ? String(params.from) : quarter.from,
-    to: parseIsoDate(params.to) ? String(params.to) : quarter.to,
-  };
+/** The amber strip telling the user the window moved to fit the data. */
+function RangeNote({ note }: { note?: string }) {
+  if (!note) return null;
+  return (
+    <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+      <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      {note}
+    </p>
+  );
 }
 
 const BREAKDOWN_COLUMNS: StatTableColumn[] = [
@@ -459,7 +459,6 @@ export default async function SectionPage({
   const [{ section }, query] = await Promise.all([params, searchParams]);
   if (!isSection(section)) notFound();
 
-  const range = resolveRange(query);
   const [viewerResult, leadsResult, directoryResult] = await Promise.all([
     getViewer(),
     // Light projection (no `select('*')`) — only the columns the cards read.
@@ -471,14 +470,18 @@ export default async function SectionPage({
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
   const allRows = (leadsResult.success ? leadsResult.data : []).map(toAnalyticsLead);
   const employees = directoryResult.success ? directoryResult.data : [];
+  // Same window the Overview dashboard opens on, so a tab can never disagree
+  // with the home page (that drift is what made every lead table read 0).
+  const { range, note: rangeNote } = resolveDashboardWindow(query, allRows);
   const metrics = resolveDashboardMetrics(allRows, range, employees);
-  // Every lead list below must honour the header's date window. Without this a
-  // table would show patients that the KPIs above it are not counting.
+  // Every lead list below must honour the window the screen opened on. Without
+  // this a table would show patients the KPIs above it are not counting.
   const rows = filterLeadsByRange(allRows, range);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4">
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <RangeNote note={rangeNote} />
       {renderSection(section, metrics, rows, employees, isTeamLead)}
     </div>
   );
