@@ -17,6 +17,7 @@ import {
   Menu,
   Settings,
   Stethoscope,
+  UserCheck,
   UserCog,
   UserRound,
   Users,
@@ -67,6 +68,15 @@ const navigation = [
   { label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
   { label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
   { label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
+] as const;
+
+/**
+ * Admin-only modules. Kept out of `navigation` so an employee never even sees
+ * the link; the page repeats the check on the server, because hiding a link is
+ * not a permission.
+ */
+const managerNavigation = [
+  { label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
 ] as const;
 
 // Secondary (in-dashboard) tab navigation shown in the top white bar.
@@ -121,12 +131,14 @@ function BrandLogo({
   );
 }
 
-function Navigation({ mobile = false }: { mobile?: boolean }) {
+function Navigation({ mobile = false, role }: { mobile?: boolean; role: DashboardProfile["role"] }) {
   const pathname = usePathname();
+  const isManager = role === "admin" || role === "manager";
+  const items = isManager ? [...navigation, ...managerNavigation] : navigation;
 
   return (
     <nav className="space-y-1.5">
-      {navigation.map(({ label, href, icon: Icon, exact }) => {
+      {items.map(({ label, href, icon: Icon, exact }) => {
         const isActive = isActivePath(pathname, href, exact);
         const link = (
           <Link
@@ -157,7 +169,7 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
         <BrandLogo className="h-11 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-4">
-        <Navigation />
+        <Navigation role={profile.role} />
       </div>
       {/* Faint brand watermark at the foot of the sidebar, as in the design. */}
       <div className="relative mt-auto overflow-hidden px-4 pt-6 pb-3">
@@ -204,7 +216,7 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
           <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
-          <Navigation mobile />
+          <Navigation mobile role={profile.role} />
           <div className="mt-auto flex items-center gap-3 border-t border-slate-200 px-3 pt-5">
             <Avatar size="sm">
               <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>

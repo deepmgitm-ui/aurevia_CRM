@@ -6,7 +6,7 @@ import { getAnalyticsLeads, getEmployeeDirectory, getViewer, type EmployeeDirect
 import { buttonVariants } from "@/components/ui/button";
 
 import { AgentSection } from "../overview/agent-section";
-import { LeadOpenButton } from "../lead-open-button";
+import { LeadListTable } from "../overview/lead-list-table";
 import { PipelineDetail } from "../overview/pipeline-detail";
 import { CitiesChart, SourcesChart, TreatmentCoverageNote, TrendChart } from "../overview/charts";
 import { DashboardGreeting } from "../overview/greeting";
@@ -14,16 +14,19 @@ import { KpiCards } from "../overview/kpi-cards";
 import { SectionCard, SectionHeader, StatTable, type StatTableColumn, type StatTableRow } from "../overview/stat-table";
 import {
   currentQuarterRange,
+  filterLeadsByRange,
   formatNumber,
   formatRate,
   parseIsoDate,
   resolveDashboardMetrics,
+  stageForStatus,
   toAnalyticsLead,
   type AnalyticsLead,
   type BreakdownRow,
   type DashboardMetrics,
   type DateRange,
   type PipelineRow,
+  type StageKey,
 } from "../overview/analytics";
 
 // Every secondary tab / sidebar module, all fed by the same aggregation.
@@ -164,41 +167,53 @@ function agentTableRows(metrics: DashboardMetrics): StatTableRow[] {
   }));
 }
 
-const PATIENT_COLUMNS: StatTableColumn[] = [
-  { key: "name", label: "Patient" },
-  { key: "city", label: "City" },
-  { key: "treatment", label: "Treatment" },
-  { key: "source", label: "Source" },
-  { key: "agent", label: "Assigned To" },
-  { key: "status", label: "Status" },
-  { key: "date", label: "Lead Date" },
-];
-
-function patientTableRows(rows: AnalyticsLead[]): StatTableRow[] {
-  return rows.slice(0, 50).map((row) => ({
-    key: row.id,
-    cells: {
-      name: (
-        <LeadOpenButton
-          leadId={row.id}
-          title={`${row.treatment || row.disease} · ${row.city}`}
-          label={row.name || "—"}
-          className="font-medium text-slate-900 hover:underline"
-        />
-      ),
-      city: row.city,
-      treatment: row.treatment || row.disease,
-      source: row.source,
-      agent: row.assigned_to,
-      status: row.status,
-      date: row.lead_date,
-    },
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------
+
+/**
+ * The leads sitting in any of the given pipeline stages. The tabs answer "how
+ * many"; this is the "which patients" behind that number, so every section
+ * ends with the same kind of list the Overview dashboard shows.
+ */
+function leadsInStages(rows: AnalyticsLead[], stages: StageKey[]): AnalyticsLead[] {
+  const wanted = new Set(stages);
+  return rows.filter((row) => wanted.has(stageForStatus(row.status)));
+}
+
+// A consultation is booked OR attended; a surgery is the completed stage only,
+// so the list always matches the "Surgeries Completed" KPI above it.
+const CONSULTATION_STAGES: StageKey[] = ["booked", "attended"];
+const SURGERY_STAGES: StageKey[] = ["surgery"];
+
+function LeadListCard({
+  title,
+  description,
+  rows,
+  limit = 50,
+  emptyMessage,
+}: {
+  title: string;
+  description: string;
+  rows: AnalyticsLead[];
+  limit?: number;
+  emptyMessage: string;
+}) {
+  if (rows.length === 0) return null;
+  const capped = rows.length > limit;
+  return (
+    <SectionCard
+      title={`${title} (${rows.length})`}
+      description={
+        capped
+          ? `${description} — pehle ${limit} dikh rahe hain, baaki Leads module me.`
+          : `${description} — naam pe tap karke poora record kholo.`
+      }
+    >
+      <LeadListTable rows={rows} limit={limit} emptyMessage={emptyMessage} />
+    </SectionCard>
+  );
+}
 
 function AdminOnlyNotice() {
   return (
@@ -261,6 +276,12 @@ function renderSection(
           <SectionCard title="Consultations by agent">
             <StatTable columns={AGENT_COLUMNS} rows={agentTableRows(metrics)} />
           </SectionCard>
+          <LeadListCard
+            title="Consultation patients"
+            description="Booked ya attended consultation wale patients"
+            rows={leadsInStages(rows, CONSULTATION_STAGES)}
+            emptyMessage="Is window me koi booked/attended consultation nahi."
+          />
         </>
       );
 
@@ -280,6 +301,12 @@ function renderSection(
           <SectionCard title="Surgeries by treatment type">
             <StatTable columns={TREATMENT_COLUMNS} rows={treatmentTableRows(metrics.pipeline)} />
           </SectionCard>
+          <LeadListCard
+            title="Surgery records"
+            description="Completed surgery wale patients"
+            rows={leadsInStages(rows, SURGERY_STAGES)}
+            emptyMessage="Is window me koi completed surgery nahi."
+          />
         </>
       );
 
@@ -291,16 +318,12 @@ function renderSection(
             description="Leads that moved past the first contact — the patients your team is actively working on."
           />
           <KpiCards kpis={metrics.kpis} />
-          <SectionCard
-            title="Patient pipeline"
-            description="Latest 50 patients — naam pe tap karke poora record dekho aur wahi se edit karo."
-          >
-            <StatTable
-              columns={PATIENT_COLUMNS}
-              rows={patientTableRows(rows.filter((row) => row.status.trim().toLowerCase() !== "new"))}
-              emptyMessage="No patients beyond the first contact in this window yet."
-            />
-          </SectionCard>
+          <LeadListCard
+            title="Patients"
+            description="Pehle contact se aage badhe leads — yehi team abhi kaam kar rahi hai"
+            rows={rows.filter((row) => row.status.trim().toLowerCase() !== "new")}
+            emptyMessage="Is window me first contact se aage koi lead nahi."
+          />
         </>
       );
 
@@ -313,6 +336,13 @@ function renderSection(
             description="Names only on the roster — open a card for the secure performance and HR panel."
           />
           <AgentSection employees={employees} agents={metrics.agents} />
+          <LeadListCard
+            title="Team leads"
+            description="Sabhi agents ke assigned leads — Assigned To column se dekh lo kis agent ke paas kaun hai"
+            rows={rows}
+            limit={100}
+            emptyMessage="Is window me koi lead nahi."
+          />
         </>
       );
 
@@ -330,6 +360,13 @@ function renderSection(
           <SectionCard title="Source-wise performance" description="Conversion and surgery counts by acquisition channel.">
             <StatTable columns={BREAKDOWN_COLUMNS} rows={breakdownTableRows(metrics.sources)} />
           </SectionCard>
+          <LeadListCard
+            title="Leads by source"
+            description="Har channel ke leads — Source column se group samajh lo"
+            rows={rows}
+            limit={100}
+            emptyMessage="Is window me koi lead nahi."
+          />
         </>
       );
 
@@ -350,6 +387,13 @@ function renderSection(
           <SectionCard title="Agent performance">
             <StatTable columns={AGENT_COLUMNS} rows={agentTableRows(metrics)} />
           </SectionCard>
+          <LeadListCard
+            title="All leads in this window"
+            description="Poore window ke leads — jaise Overview dashboard me, naam pe tap karke record kholo"
+            rows={rows}
+            limit={100}
+            emptyMessage="Is window me koi lead nahi."
+          />
         </>
       );
 
@@ -366,6 +410,13 @@ function renderSection(
           <SectionCard title="Source breakdown">
             <StatTable columns={BREAKDOWN_COLUMNS} rows={breakdownTableRows(metrics.sources)} />
           </SectionCard>
+          <LeadListCard
+            title="Leads by source"
+            description="Har channel ke leads — Source column se group samajh lo"
+            rows={rows}
+            limit={100}
+            emptyMessage="Is window me koi lead nahi."
+          />
         </>
       );
 
@@ -379,6 +430,13 @@ function renderSection(
           <SectionCard title="City breakdown">
             <StatTable columns={BREAKDOWN_COLUMNS} rows={breakdownTableRows(metrics.cities)} />
           </SectionCard>
+          <LeadListCard
+            title="Leads by city"
+            description="Sabhi leads — City column se group samajh lo"
+            rows={rows}
+            limit={100}
+            emptyMessage="Is window me koi lead nahi."
+          />
         </>
       );
 
@@ -411,9 +469,12 @@ export default async function SectionPage({
 
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
-  const rows = (leadsResult.success ? leadsResult.data : []).map(toAnalyticsLead);
+  const allRows = (leadsResult.success ? leadsResult.data : []).map(toAnalyticsLead);
   const employees = directoryResult.success ? directoryResult.data : [];
-  const metrics = resolveDashboardMetrics(rows, range, employees);
+  const metrics = resolveDashboardMetrics(allRows, range, employees);
+  // Every lead list below must honour the header's date window. Without this a
+  // table would show patients that the KPIs above it are not counting.
+  const rows = filterLeadsByRange(allRows, range);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4">

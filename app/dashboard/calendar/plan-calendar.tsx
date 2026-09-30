@@ -28,7 +28,6 @@ import {
   Sparkles,
   Stethoscope,
   Trash2,
-  UserCheck,
   UserRound,
 } from "lucide-react";
 
@@ -42,8 +41,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { updateLeadFollowUpDate } from "@/app/actions/leads";
-import { deleteAttendance, updateAttendance } from "@/app/actions/attendance";
-import { ATTENDANCE_STATUSES, type AttendanceStatus } from "@/lib/attendance";
 import {
   clearFollowUp,
   createPersonalEvent,
@@ -53,7 +50,6 @@ import {
   postponeFollowUp,
   searchLeadsForCalendar,
   updatePersonalEvent,
-  type AttendanceMark,
   type CalendarDay,
   type CalendarReminder,
   type FollowUpKind,
@@ -96,19 +92,6 @@ function eventDotClass(kind: PersonalEvent["kind"]) {
   if (kind === "visit") return "bg-teal-500";
   if (kind === "call") return "bg-amber-500";
   return "bg-sky-500";
-}
-
-/** One dot per marked employee; the colour is the attendance status. */
-function attendanceDotClass(status: string) {
-  if (status === "Absent") return "bg-rose-500";
-  if (status === "Half-Day") return "bg-amber-500";
-  return "bg-emerald-500";
-}
-
-function statusBadgeClass(status: string) {
-  if (status === "Absent") return "bg-rose-100 text-rose-800";
-  if (status === "Half-Day") return "bg-amber-100 text-amber-800";
-  return "bg-emerald-100 text-emerald-800";
 }
 
 
@@ -305,57 +288,6 @@ export function PlanCalendar({
     setItemsFor((current) => ({ ...current, days: updater(current.days) }));
   }
 
-  /**
-   * Admin/manager changing a marked day (Present ↔ Absent ↔ Half-Day). The
-   * server refuses this for employees, and the UI only renders the control in
-   * the team view, so the two stay in agreement.
-   */
-  async function handleChangeAttendance(mark: AttendanceMark, status: AttendanceStatus) {
-    if (mark.status === status) return;
-    setBusyId(`attendance-${mark.id}`);
-    const response = await updateAttendance({ id: mark.id, status });
-    setBusyId(null);
-    if (!response.success) {
-      toast.add({ title: "Attendance update nahi hua", description: response.error, type: "error" });
-      return;
-    }
-    const updated = response.data;
-    patchDays((current) =>
-      current.map((day) =>
-        day.iso === mark.date
-          ? {
-              ...day,
-              attendance: day.attendance.map((item) =>
-                item.id === mark.id
-                  ? { ...item, status: updated.status, checkInLabel: updated.checkInLabel, note: updated.note }
-                  : item,
-              ),
-            }
-          : day,
-      ),
-    );
-    toast.add({ title: `${updated.employeeName} — ${updated.status}` });
-  }
-
-  /** Removes a day from the register entirely (admin/manager only). */
-  async function handleDeleteAttendance(mark: AttendanceMark) {
-    setBusyId(`attendance-${mark.id}`);
-    const response = await deleteAttendance(mark.id);
-    setBusyId(null);
-    if (!response.success) {
-      toast.add({ title: "Attendance delete nahi hua", description: response.error, type: "error" });
-      return;
-    }
-    patchDays((current) =>
-      current.map((day) =>
-        day.iso === mark.date
-          ? { ...day, attendance: day.attendance.filter((item) => item.id !== mark.id) }
-          : day,
-      ),
-    );
-    toast.add({ title: "Attendance hata diya" });
-  }
-
   function patchReminderDay(date: string, updater: (reminders: CalendarReminder[]) => CalendarReminder[]) {
     patchDays((current) =>
       current.map((day) => (day.iso === date ? { ...day, reminders: updater(day.reminders) } : day)),
@@ -516,22 +448,6 @@ export function PlanCalendar({
                       <span className="text-[10px] font-semibold text-slate-500">+{day.activities.length - 3}</span>
                     )}
                   </span>
-                  {/* Attendance: one dot per employee, colour = status. */}
-                  {day.attendance.length > 0 && (
-                    <span className="mt-1 flex flex-wrap items-center gap-0.5" aria-hidden="true">
-                      {day.attendance.slice(0, 4).map((mark) => (
-                        <span
-                          key={mark.id}
-                          className={`size-2 rounded-full ${attendanceDotClass(mark.status)}`}
-                        />
-                      ))}
-                      {day.attendance.length > 4 && (
-                        <span className="text-[10px] font-semibold text-slate-500">
-                          +{day.attendance.length - 4}
-                        </span>
-                      )}
-                    </span>
-                  )}
                 </button>
               );
             })}
@@ -619,30 +535,6 @@ export function PlanCalendar({
                   meta={activity.description || activity.actionType}
                   icon={<MessageSquareText className="size-3.5 text-sky-600" aria-hidden="true" />}
                   onClick={() => openTimeline(activity.leadId)}
-                />
-              ))}
-            </section>
-
-            <section aria-label="Attendance" className="space-y-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                <UserCheck className="size-3.5" aria-hidden="true" /> Attendance (
-                {selected?.attendance.length ?? 0})
-              </h3>
-              {(selected?.attendance.length ?? 0) === 0 && (
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  {isTeamView
-                    ? "Is din kisi ne login nahi kiya, ya manager ne attendance mark nahi ki."
-                    : "Is din login nahi kiya tha. Aaj login karte hi check-in mark ho jayega."}
-                </p>
-              )}
-              {selected?.attendance.map((mark) => (
-                <AttendanceCard
-                  key={mark.id}
-                  mark={mark}
-                  canManage={isTeamView}
-                  busy={busyId === `attendance-${mark.id}`}
-                  onChangeStatus={(status) => void handleChangeAttendance(mark, status)}
-                  onDelete={() => void handleDeleteAttendance(mark)}
                 />
               ))}
             </section>
@@ -860,72 +752,6 @@ function ReminderCard({
           Clear
         </Button>
       </div>
-    </article>
-  );
-}
-
-/**
- * One attendance row in the day panel: who, what time they signed in, and — for
- * managers — the controls to correct the status or remove the row. Employees
- * get the read-only version; the server rejects their edits either way.
- */
-function AttendanceCard({
-  mark,
-  canManage,
-  busy,
-  onChangeStatus,
-  onDelete,
-}: {
-  mark: AttendanceMark;
-  canManage: boolean;
-  busy: boolean;
-  onChangeStatus: (status: AttendanceStatus) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <article className="rounded-xl border border-slate-200 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-          <UserRound className="size-3.5 text-slate-400" aria-hidden="true" />
-          {mark.employeeName}
-        </p>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(mark.status)}`}
-        >
-          {mark.status}
-        </span>
-      </div>
-      <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-        {mark.checkInLabel === "-" ? (
-          <span>Login time nahi hai (manager ne mark kiya)</span>
-        ) : (
-          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
-            <CircleCheck className="size-3" aria-hidden="true" /> {mark.checkInLabel} par login
-          </span>
-        )}
-        {mark.autoMarked && <span>· apne aap mark hua</span>}
-      </p>
-      {mark.note && <p className="mt-1 text-xs text-slate-500">{mark.note}</p>}
-
-      {canManage && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {ATTENDANCE_STATUSES.filter((option) => option !== mark.status).map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="xs"
-              variant="outline"
-              disabled={busy}
-              onClick={() => onChangeStatus(option)}
-            >
-              {option} karo
-            </Button>
-          ))}
-          <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={onDelete}>
-            <Trash2 aria-hidden="true" /> Delete
-          </Button>
-        </div>
-      )}
     </article>
   );
 }

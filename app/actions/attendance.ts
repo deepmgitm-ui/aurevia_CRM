@@ -271,7 +271,7 @@ export async function markAttendance(
       return { success: false, error: getErrorMessage(error, "Attendance save nahi hua.") };
     }
 
-    revalidatePath("/dashboard/calendar");
+    revalidatePath("/dashboard/attendance");
     return { success: true, data: toAttendanceRow(data as AttendanceDbRow) };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Attendance save nahi hua.") };
@@ -319,7 +319,7 @@ export async function updateAttendance(
       return { success: false, error: "Ye attendance row ab nahi hai (shayad delete ho gayi)." };
     }
 
-    revalidatePath("/dashboard/calendar");
+    revalidatePath("/dashboard/attendance");
     return { success: true, data: toAttendanceRow(data as AttendanceDbRow) };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Attendance update nahi hua.") };
@@ -349,7 +349,7 @@ export async function deleteAttendance(id: string): Promise<AttendanceResult<{ i
       return { success: false, error: getErrorMessage(error, "Attendance delete nahi hua.") };
     }
 
-    revalidatePath("/dashboard/calendar");
+    revalidatePath("/dashboard/attendance");
     return { success: true, data: { id } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Attendance delete nahi hua.") };
