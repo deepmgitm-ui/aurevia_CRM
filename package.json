@@ -14,6 +14,7 @@
     "verify:automation": "node scripts/verify-automation.mts",
     "verify:db": "node scripts/verify-db.mts",
     "verify:attendance": "node scripts/verify-attendance.mts",
+    "audit:db": "node scripts/audit-db.mts",
     "cleanup:sources": "node scripts/cleanup-polluted-source.mts"
   },
   "dependencies": {
