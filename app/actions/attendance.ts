@@ -98,6 +98,8 @@ function toAttendanceRow(row: AttendanceDbRow): AttendanceRow {
 const SELECT_COLUMNS =
   "id, employee_id, attendance_date, status, check_in_at, note, auto_marked, employee:profiles!attendance_employee_id_fkey(name), marker:profiles!attendance_marked_by_fkey(name)";
 
+const SELECT_COLUMNS_TABLE = "attendance";
+
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -110,13 +112,44 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * on the same day changes nothing — it can never move an existing check-in time
  * or add a second row for the day.
  */
-export async function markMyAttendance(): Promise<AttendanceResult<AttendanceRow | null>> {
+export async function markMyAttendance(
+  /**
+   * The caller's own identity, when it already has it. The dashboard layout
+   * loads the profile to render the shell, and looking it up a second time here
+   * cost one extra round-trip on EVERY page load for no new information.
+   */
+  known?: { id: string; role: string },
+): Promise<AttendanceResult<AttendanceRow | null>> {
   try {
-    const viewer = await getViewerContext();
+    const viewer = known ? { id: known.id, role: known.role, supabase: null } : await getViewerContext();
     if (!viewer) return { success: true, data: null };
-
+    const supabase = viewer.supabase ?? (await createClient());
     const today = clinicDate();
-    const { error } = await viewer.supabase.from("attendance").upsert(
+
+    // READ before writing. This runs on every dashboard request, and the day is
+    // already marked after the first one, so the common path must not be a
+    // write. A conditional upsert would still POST on every page load; this is
+    // one SELECT instead, and the day's check-in time can never be disturbed.
+    const { data: existing, error: readError } = await supabase
+      .from(SELECT_COLUMNS_TABLE)
+      .select(SELECT_COLUMNS)
+      .eq("employee_id", viewer.id)
+      .eq("attendance_date", today)
+      .maybeSingle();
+
+    if (readError) {
+      if (isMissingTableError(readError.message)) {
+        return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
+      }
+      return { success: false, error: getErrorMessage(readError, "Attendance check nahi hua.") };
+    }
+
+    // Already checked in today — hand back what is stored, write nothing.
+    if (existing) return { success: true, data: toAttendanceRow(existing as AttendanceDbRow) };
+
+    // First sign-in of the day. ignoreDuplicates covers the race where two
+    // requests (or two tabs) both reach this line at once: exactly one row.
+    const { error } = await supabase.from(SELECT_COLUMNS_TABLE).upsert(
       {
         employee_id: viewer.id,
         attendance_date: today,
@@ -136,8 +169,8 @@ export async function markMyAttendance(): Promise<AttendanceResult<AttendanceRow
       return { success: false, error: getErrorMessage(error, "Attendance mark nahi hua.") };
     }
 
-    const { data } = await viewer.supabase
-      .from("attendance")
+    const { data } = await supabase
+      .from(SELECT_COLUMNS_TABLE)
       .select(SELECT_COLUMNS)
       .eq("employee_id", viewer.id)
       .eq("attendance_date", today)

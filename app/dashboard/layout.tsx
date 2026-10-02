@@ -35,11 +35,14 @@ export default async function DashboardLayout({
   const profileName = profile?.name?.trim() || user.email?.split("@")[0] || "User";
   const profileRole = profile?.role && isUserRole(profile.role) ? profile.role : "employee";
 
-  // Signing in IS the check-in. This runs once per dashboard request, but the
-  // write is idempotent (unique employee+date, ignoreDuplicates), so it records
-  // the FIRST sign-in of the day and never moves it afterwards. A failure here
-  // must not block the dashboard, so the error is logged and swallowed.
-  const attendance = await markMyAttendance();
+  // Signing in IS the check-in. It runs on every dashboard request, but it now
+  // reads first and only writes when the day has no mark yet — and the profile
+  // is handed in, because this function would otherwise look the SAME row up a
+  // second time on every page load.
+  const attendance = await markMyAttendance({
+    id: user.id,
+    role: profileRole,
+  });
   if (!attendance.success) {
     console.warn("[attendance] Could not record the check-in:", attendance.error);
   }

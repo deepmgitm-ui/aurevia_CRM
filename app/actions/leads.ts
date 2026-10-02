@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cache } from "react";
 
 import {
   ageBucketWindow,
@@ -285,8 +286,17 @@ async function resolveTreatmentColumns(
   return treatmentColumnsCache;
 }
 
-/** All leads (RLS-scoped) for the dashboard, projected to the analytics columns only. */
-export async function getAnalyticsLeads(): Promise<ActionResult<Lead[]>> {
+/**
+ * All leads (RLS-scoped) for the dashboard, projected to the analytics columns only.
+ *
+ * Wrapped in React's `cache()` so that everything ONE page render asks for is
+ * fetched once. The Leads page, for example, calls this from getTreatmentTally()
+ * AND getLeadMonthTally() — and both need the whole table. Without this wrapper
+ * the browser downloaded every lead row twice on every visit; with it, the
+ * second caller reuses the first call's result. The scope is a single request
+ * (never shared between users), so RLS stays exactly as strict as before.
+ */
+export const getAnalyticsLeads = cache(async (): Promise<ActionResult<Lead[]>> => {
   try {
     const supabase = await createClient();
     const {
@@ -319,7 +329,7 @@ export async function getAnalyticsLeads(): Promise<ActionResult<Lead[]>> {
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to fetch analytics leads.") };
   }
-}
+});
 
 // Page size for server-side pagination. The table fetches 50 leads per page so
 // the dashboard stays fast with 1k+ leads instead of loading the entire table.
