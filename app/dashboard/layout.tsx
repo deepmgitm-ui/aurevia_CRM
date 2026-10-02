@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { markMyAttendance } from "@/app/actions/attendance";
+import { getDashboardWindow } from "@/app/actions/leads";
 import { DashboardShell } from "./dashboard-shell";
 import { createClient, getUserSafely } from "@/lib/supabase/server";
 
@@ -47,10 +48,16 @@ export default async function DashboardLayout({
     console.warn("[attendance] Could not record the check-in:", attendance.error);
   }
 
+  // The header's date button must show the window the cards actually use. It
+  // lives in the layout while the data lives in the page, so both read the same
+  // cached resolution instead of the layout guessing "this quarter".
+  const window = await getDashboardWindow();
+
   return (
     <DashboardShell
       profile={{ name: profileName, role: profileRole }}
       attendanceToday={attendance.success ? attendance.data : null}
+      initialRange={window.range}
     >
       {children}
     </DashboardShell>

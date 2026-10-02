@@ -29,6 +29,7 @@ import {
   canonicalTreatment,
   detectTreatmentName,
   parseLeadDateText,
+  resolveDashboardWindow,
   stageForStatus,
   toAnalyticsLead,
   type StageKey,
@@ -285,6 +286,26 @@ async function resolveTreatmentColumns(
   treatmentColumnsCache = results.filter((candidate): candidate is string => candidate !== null);
   return treatmentColumnsCache;
 }
+
+/**
+ * The window every dashboard screen should OPEN on, resolved once per request.
+ *
+ * The header date button lives in the layout while the data lives in the page,
+ * so without a shared value the button can claim one window and the cards show
+ * another — which is exactly what the "leads fall between 2026-03-01 and
+ * 2026-03-31" note was contradicting. Both now read this.
+ *
+ * Wrapped in cache() so it costs nothing extra: getAnalyticsLeads() is itself
+ * cached, and the page's own ?from/?to handling still wins when the user has
+ * picked dates themselves.
+ */
+export const getDashboardWindow = cache(
+  async (): Promise<{ range: { from: string; to: string }; note?: string }> => {
+    const result = await getAnalyticsLeads();
+    const rows = result.success ? result.data.map(toAnalyticsLead) : [];
+    return resolveDashboardWindow({}, rows);
+  },
+);
 
 /**
  * All leads (RLS-scoped) for the dashboard, projected to the analytics columns only.

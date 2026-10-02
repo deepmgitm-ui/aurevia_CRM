@@ -54,6 +54,12 @@ interface DashboardShellProps {
    * quiet "when did I come in" chip; null when attendance isn't available.
    */
   attendanceToday?: { status: string; checkInLabel: string } | null;
+  /**
+   * The window the server actually resolved for this request. Without it the
+   * header would always say "this quarter" while the cards show the month the
+   * data really lives in.
+   */
+  initialRange?: DateRange;
 }
 
 // Sidebar modules, exactly as in the Aurevia HealthCare design reference.
@@ -368,10 +374,12 @@ function AttendanceChip({
   );
 }
 
-export function DashboardShell({ children, profile, attendanceToday }: DashboardShellProps) {
+export function DashboardShell({ children, profile, attendanceToday, initialRange }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [range, setRange] = useState<DateRange>(() => currentQuarterRange());
+  // Seeded from the server's resolved window so the button and the cards agree;
+  // ?from/?to in the URL still overrides it below, which is the user's choice.
+  const [range, setRange] = useState<DateRange>(() => initialRange ?? currentQuarterRange());
 
   // The header range lives in the URL (?from=&to=) so the server components
   // (Overview + every analysis page) read exactly the same window. Read it from
