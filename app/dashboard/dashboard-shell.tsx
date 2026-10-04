@@ -362,7 +362,7 @@ function AttendanceChip({
 }) {
   return (
     <span
-      title="Aaj ki attendance — login karte hi mark ho gayi"
+      title="Today's attendance — marked automatically when you signed in"
       className="hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 md:inline-flex"
     >
       <CircleCheck aria-hidden="true" />

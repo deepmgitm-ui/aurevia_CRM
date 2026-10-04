@@ -44,7 +44,7 @@ function toRows(rows: AnalyticsLead[]): StatTableRow[] {
 export function LeadListTable({
   rows,
   limit = 50,
-  emptyMessage = "Is window me koi lead nahi.",
+  emptyMessage = "No leads in this date range.",
 }: {
   rows: AnalyticsLead[];
   /** How many rows to render; the count in the card heading is the real total. */

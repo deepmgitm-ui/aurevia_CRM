@@ -882,8 +882,8 @@ export async function getLeadsForExport(
 // Lightweight stat counters for the dashboard cards. Uses head-only exact
 // counts instead of loading every lead row, so it stays fast at 1k+ leads.
 /**
- * Treatment-wise tally for the leads page — "konsa lead kis treatment / disease
- * ka hai" at a glance.
+ * Treatment-wise tally for the leads page — "which lead wants which treatment
+ * or disease" at a glance.
  *
  * Reuses the LIGHT analytics projection (no `select('*')`) and groups in JS with
  * the exact helpers the pipeline chart uses, so the chip counts and the chart

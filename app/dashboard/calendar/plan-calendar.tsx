@@ -216,7 +216,7 @@ export function PlanCalendar({
       const response = await updateLeadFollowUpDate(pickedLead.leadId, selectedIso);
       setSaving(false);
       if (!response.success) {
-        toast.add({ title: "Follow-up set nahi hua", description: response.error, type: "error" });
+        toast.add({ title: "Could not set the follow-up", description: response.error, type: "error" });
         return;
       }
       moveReminderTo(selectedIso, {
@@ -245,7 +245,7 @@ export function PlanCalendar({
       : await createPersonalEvent({ date: selectedIso, title: title.trim(), kind, notes: notes.trim() });
     setSaving(false);
     if (!response.success) {
-      toast.add({ title: "Save nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not save", description: response.error, type: "error" });
       return;
     }
     const saved = response.data;
@@ -271,7 +271,7 @@ export function PlanCalendar({
     const response = await deletePersonalEvent(event.id);
     setBusyId(null);
     if (!response.success) {
-      toast.add({ title: "Delete nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not delete", description: response.error, type: "error" });
       return;
     }
     patchDays((current) =>
@@ -324,7 +324,7 @@ export function PlanCalendar({
           : await clearFollowUp(reminder.leadId);
     setBusyId(null);
     if (!response.success) {
-      toast.add({ title: "Update nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not update", description: response.error, type: "error" });
       return;
     }
     if (action === "postpone") {
@@ -393,7 +393,7 @@ export function PlanCalendar({
                   type="button"
                   onClick={() => setSelectedIso(day.iso)}
                   onDoubleClick={() => startComposer(null, day.iso)}
-                  title={`${day.iso} — double-click se personal event add karo`}
+                  title={`${day.iso} — double-click to add a personal event`}
                   className={`flex min-h-[74px] flex-col items-stretch gap-1 rounded-xl border p-1.5 text-left transition-colors sm:min-h-[86px] ${
                     isSelected
                       ? "border-blue-500 bg-blue-50/70"
@@ -453,7 +453,7 @@ export function PlanCalendar({
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Neeli goli = lead follow-up / call, dusre rang = tumhare personal events, <span className="font-semibold text-emerald-700">new</span> = us din lead create hui, grey dot = koi activity (note / status / call). Din par double-click karke personal event add karo, ya selected din par “Follow-up” se kisi lead ka follow-up schedule karo.
+            Blue dot = lead follow-up or call, other colours = your personal events, <span className="font-semibold text-emerald-700">green</span> = a lead was created that day, grey dot = activity (note, status or call). Double-click a day to add a personal event, or use Follow-up on a selected day to schedule a lead&apos;s follow-up.
           </p>
         </CardContent>
       </Card>
@@ -486,7 +486,7 @@ export function PlanCalendar({
               </h3>
               {(selected?.reminders.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Is din koi follow-up / call reminder nahi hai.
+                  No follow-up or call reminders on this day.
                 </p>
               )}
               {selected?.reminders.map((reminder) => (
@@ -506,7 +506,7 @@ export function PlanCalendar({
                 {selected?.created.length ?? 0})
               </h3>
               {(selected?.created.length ?? 0) === 0 && (
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">Is din koi naya lead add nahi hua.</p>
+                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">No new leads were added on this day.</p>
               )}
               {selected?.created.map((lead) => (
                 <LeadChipButton
@@ -525,7 +525,7 @@ export function PlanCalendar({
               </h3>
               {(selected?.activities.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Is din koi note / status / call activity nahi hui.
+                  No notes, status changes or calls on this day.
                 </p>
               )}
               {selected?.activities.map((activity) => (
@@ -545,7 +545,7 @@ export function PlanCalendar({
               </h3>
               {(selected?.personal.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Koi personal event nahi — Event dabakar chhutti, visit ya note add karo.
+                  No personal events — use Event to add leave, a visit or a note.
                 </p>
               )}
               {selected?.personal.map((event) => (
@@ -565,12 +565,12 @@ export function PlanCalendar({
       <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Event edit karo" : `${selectedIso} — naya event`}</DialogTitle>
+            <DialogTitle>{editing ? "Edit event" : `${selectedIso} — naya event`}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {!editing && (
               <div className="space-y-1">
-                <Label htmlFor="plan-lead-search">Lead ka follow-up schedule karo (optional)</Label>
+                <Label htmlFor="plan-lead-search">Schedule a follow-up for a lead (optional)</Label>
                 {pickedLead ? (
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2">
                     <p className="truncate text-sm font-semibold text-slate-900">
@@ -597,14 +597,14 @@ export function PlanCalendar({
                       id="plan-lead-search"
                       value={leadQuery}
                       onChange={(event) => setLeadQuery(event.target.value)}
-                      placeholder="lead ka naam ya phone search karo…"
+                      placeholder="Search by lead name or phone…"
                       className="pl-8"
                     />
                     {leadQuery.trim().length >= 2 && (
                       <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
                         {leadSearching && <p className="px-3 py-2 text-xs text-slate-500">Search…</p>}
                         {!leadSearching && leadResults.length === 0 && (
-                          <p className="px-3 py-2 text-xs text-slate-500">Koi lead nahi mili.</p>
+                          <p className="px-3 py-2 text-xs text-slate-500">No leads found.</p>
                         )}
                         {!leadSearching &&
                           leadResults.map((lead) => (
@@ -628,7 +628,7 @@ export function PlanCalendar({
                   </div>
                 )}
                 <p className="text-[11px] text-slate-400">
-                  Lead chunoge to ye {selectedIso} par us lead ka follow-up ban jayega — tab Title/Type khaali chhodo.
+                  Picking a lead turns {selectedIso} into that lead&apos;s follow-up — leave Title and Type blank.
                 </p>
               </div>
             )}
@@ -699,7 +699,7 @@ function LeadChipButton({
     <button
       type="button"
       onClick={onClick}
-      title="Lead ki poori timeline dekho"
+      title="View this lead's full timeline"
       className="flex w-full items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/50"
     >
       <span className="mt-0.5">{icon}</span>

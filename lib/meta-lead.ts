@@ -191,7 +191,7 @@ export function detectTreatmentInText(text: string): string {
 }
 
 /**
- * Answers "konsa lead kis treatment ka hai" for Meta traffic: tries the
+ * Answers "which lead wants which treatment" for Meta traffic: tries the
  * documented names, then any custom question that smells like a treatment
  * ("eye_problem", "which_treatment…"), and finally scans the free-text answers
  * for a treatment keyword so even an oddly named form lands in the right bucket.

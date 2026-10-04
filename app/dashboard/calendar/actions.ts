@@ -73,7 +73,7 @@ export interface MonthDays {
 const PERSONAL_KINDS = ["note", "call", "visit", "leave"];
 
 const CALENDAR_TABLE_MISSING_ERROR =
-  "calendar_events table abhi bani nahi hai — pehle supabase-calendar-migration.sql ko Supabase SQL editor me chalao.";
+  "The calendar_events table does not exist yet — run supabase-calendar-migration.sql in the Supabase SQL editor first.";
 
 interface LeadReminderRow {
   id: string;
@@ -374,7 +374,7 @@ export async function postponeFollowUp(leadId: string, fromIso: string): Promise
   if (!leadId) return { success: false, error: "Lead ID is required." };
   try {
     const [year, month, day] = fromIso.split("-").map(Number);
-    if (!year || !month || !day) return { success: false, error: "Date samajh nahi aayi." };
+    if (!year || !month || !day) return { success: false, error: "Could not read that date." };
     const next = new Date(year, month - 1, day + 1);
     const supabase = await createClient();
     const { error } = await supabase
@@ -385,7 +385,7 @@ export async function postponeFollowUp(leadId: string, fromIso: string): Promise
     revalidatePath("/dashboard/calendar");
     return { success: true, data: true };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Postpone nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not postpone.") };
   }
 }
 
@@ -399,7 +399,7 @@ export async function clearFollowUp(leadId: string): Promise<CalendarResult<true
     revalidatePath("/dashboard/calendar");
     return { success: true, data: true };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Clear nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not clear.") };
   }
 }
 
@@ -416,12 +416,12 @@ export async function markFollowUpDone(leadId: string): Promise<CalendarResult<t
     await supabase.from("lead_activities").insert({
       lead_id: leadId,
       action_type: "follow_up_done",
-      description: "Follow-up calendar se done mark kiya gaya.",
+      description: "Follow-up marked done from the calendar.",
     });
     revalidatePath("/dashboard/calendar");
     return { success: true, data: true };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Done mark nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not mark as done.") };
   }
 }
 
@@ -433,9 +433,9 @@ function cleanPersonalInput(input: { title?: string; kind?: string; notes?: stri
   const kind = (input.kind ?? "note").trim().toLowerCase();
   const notes = (input.notes ?? "").trim().slice(0, 1000);
   const date = (input.date ?? "").trim();
-  if (!title) return { error: "Event ko ek title do." };
-  if (!PERSONAL_KINDS.includes(kind)) return { error: "Type note, call, visit ya leave me se ho." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Date samajh nahi aayi." };
+  if (!title) return { error: "Give the event a title." };
+  if (!PERSONAL_KINDS.includes(kind)) return { error: "Type must be one of note, call, visit or leave." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Could not read that date." };
   return { title, kind, notes, date };
 }
 
@@ -480,7 +480,7 @@ export async function createPersonalEvent(input: {
       },
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Event add nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not add the event.") };
   }
 }
 
@@ -516,7 +516,7 @@ export async function updatePersonalEvent(
       },
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Event update nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not update the event.") };
   }
 }
 
@@ -531,7 +531,7 @@ export async function deletePersonalEvent(id: string): Promise<CalendarResult<tr
     revalidatePath("/dashboard/calendar");
     return { success: true, data: true };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Event delete nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not delete the event.") };
   }
 }
 
@@ -580,7 +580,7 @@ export async function getLeadTimeline(leadId: string): Promise<CalendarResult<Le
       .eq("id", leadId)
       .single();
     if (error || !lead) {
-      return { success: false, error: error?.message ?? "Lead nahi mila (aapki access me nahi hai)." };
+      return { success: false, error: error?.message ?? "Lead not found (it is outside your access)." };
     }
 
     const agent = (lead.assigned_to ?? "").trim() || "-";
@@ -628,7 +628,7 @@ export async function getLeadTimeline(leadId: string): Promise<CalendarResult<Le
       },
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Timeline load nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not load the timeline.") };
   }
 }
 
@@ -683,6 +683,6 @@ export async function searchLeadsForCalendar(query: string): Promise<CalendarRes
       })),
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Lead search nahi ho paya.") };
+    return { success: false, error: getErrorMessage(error, "Could not search leads.") };
   }
 }

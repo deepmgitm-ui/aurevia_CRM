@@ -59,8 +59,8 @@ export default async function AttendancePage({
           Attendance
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Employee login karte hi check-in mark ho jata hai. Kisi bhi employee ka card tap karo
-          aur uska apna calendar khul jayega.
+          Attendance is marked automatically the moment an employee signs in. Tap any
+          employee&apos;s card to open that person&apos;s own calendar.
         </p>
       </div>
 

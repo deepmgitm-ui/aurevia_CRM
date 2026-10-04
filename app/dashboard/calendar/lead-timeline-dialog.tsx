@@ -67,7 +67,7 @@ export function LeadTimelineDialog({
       setCache({
         leadId,
         timeline: response.success ? (response.data ?? null) : null,
-        error: response.success ? null : (response.error ?? "Timeline load nahi ho paya."),
+        error: response.success ? null : (response.error ?? "Could not load the timeline."),
       });
     });
     return () => {
@@ -108,7 +108,7 @@ export function LeadTimelineDialog({
 
             <ol className="relative space-y-3 border-l border-slate-200 pl-4">
               {timeline.items.length === 0 && (
-                <li className="text-sm text-slate-500">Abhi koi activity record nahi hui.</li>
+                <li className="text-sm text-slate-500">No activity recorded yet.</li>
               )}
               {timeline.items.map((item) => (
                 <li key={item.id} className="relative">

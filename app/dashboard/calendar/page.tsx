@@ -36,8 +36,8 @@ export default async function CalendarPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Plan your calendar</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Lead follow-ups aur DNP callbacks apne aap aate hain, aur neeche Event dabakar apni chhutti / visit / note
-          khud plan karo.
+          Lead follow-ups and DNP callbacks appear automatically. Use the Event button below
+          to plan your own leave, visits and notes.
         </p>
       </div>
       {upcoming.length > 0 && (

@@ -53,8 +53,8 @@ export function LoginForm({ redirectTo, dayEnded = false }: LoginFormProps) {
         <CardContent>
           {dayEnded ? (
             <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-sm text-amber-900">
-              Din khatam ho gaya, isliye aapko logout kar diya gaya hai. Dobara login
-              karte hi aaj ki attendance apne aap mark ho jayegi.
+              The day has ended, so you have been signed out. Today&apos;s attendance will be
+              marked automatically the moment you sign in again.
             </p>
           ) : redirectTo ? (
             <p className="mb-5 rounded-lg bg-muted px-3 py-2 text-center text-sm text-slate-600">

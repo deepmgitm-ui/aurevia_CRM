@@ -124,8 +124,8 @@ export function LeadDetailDrawer({
       setLoading(false);
       if (!response.success || response.data.leads.length === 0) {
         toast.add({
-          title: "Lead load nahi hua",
-          description: response.success ? "Ye lead is view me nahi dikhta." : response.error,
+          title: "Could not load lead",
+          description: response.success ? "This lead is not visible in this view." : response.error,
           type: "error",
         });
         return;
@@ -199,7 +199,7 @@ export function LeadDetailDrawer({
     const update = await updateLeadDetails({ ...patch, id: lead.id });
     setSaving(false);
     if (!update.success) {
-      toast.add({ title: "Save nahi hua", description: update.error, type: "error" });
+      toast.add({ title: "Could not save", description: update.error, type: "error" });
       return;
     }
     setLead(update.data);
@@ -240,7 +240,7 @@ export function LeadDetailDrawer({
     const response = await addLeadActivity({ lead_id: lead.id, action_type: "note", description: note.trim() });
     setSavingNote(false);
     if (!response.success) {
-      toast.add({ title: "Note save nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not save note", description: response.error, type: "error" });
       return;
     }
     setActivities((current) => [response.data, ...current]);
@@ -259,7 +259,7 @@ export function LeadDetailDrawer({
     });
     setSaving(false);
     if (!response.success) {
-      toast.add({ title: "Call log nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not log call", description: response.error, type: "error" });
       return;
     }
     setActivities((current) => [response.data, ...current]);
@@ -274,7 +274,7 @@ export function LeadDetailDrawer({
       <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading activity…
     </p>
   ) : activities.length === 0 ? (
-    <p className="text-sm text-slate-500">Abhi koi activity nahi — pehla note Info tab se add karo.</p>
+    <p className="text-sm text-slate-500">No activity yet — add the first note from the Info tab.</p>
   ) : (
     <div className="space-y-4 border-l border-slate-200 pl-4">
       {activities.map((activity) => (
@@ -518,7 +518,7 @@ export function LeadDetailDrawer({
                     <Input
                       id="drawer-detail-note"
                       value={note}
-                      placeholder="Follow-up me kya hua…"
+                      placeholder="What happened in this follow-up…"
                       onChange={(event) => setNote(event.target.value)}
                     />
                     <Button
@@ -541,7 +541,7 @@ export function LeadDetailDrawer({
         {!loading && !lead && (
           <div className="space-y-3 py-10 text-center">
             <X className="mx-auto size-6 text-slate-300" aria-hidden="true" />
-            <p className="text-sm text-slate-500">Lead open nahi ho paya. Dobara tap karo.</p>
+            <p className="text-sm text-slate-500">Could not open this lead. Tap again.</p>
           </div>
         )}
       </SheetContent>

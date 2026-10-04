@@ -27,7 +27,7 @@ import { LeadsTable } from "../leads-table";
 import { treatmentColor } from "../overview/analytics";
 
 /**
- * Treatment-wise strip: "konsa lead kis treatment / disease ka hai" — one chip
+ * Treatment-wise strip: "which lead wants which treatment / disease" — one chip
  * per treatment for the current selection, each a one-click filter toggle, so the
  * table below can always be narrowed to LASIK / Cataract / Retina / … instantly.
  */
@@ -149,8 +149,8 @@ function AgeStrip({
       </div>
       {ageLocked && (
         <p className="text-xs text-slate-500">
-          {monthFilterLabel(filters.month)} ke leads dikh rahe hain — din/hafte ke filter
-          iske saath lagta nahi hai.
+          Showing leads for {monthFilterLabel(filters.month)} — the day and week filters do
+          not apply alongside it.
         </p>
       )}
     </section>

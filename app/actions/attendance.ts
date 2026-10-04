@@ -18,9 +18,14 @@ export type AttendanceResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-/** Shown instead of crashing the calendar when the migration isn't applied. */
+/**
+ * Shown instead of crashing the calendar when the migration isn't applied.
+ *
+ * This is the one string an engineer actually needs, so it names the file and
+ * the two things the SQL must contain.
+ */
 const ATTENDANCE_TABLE_MISSING_ERROR =
-  "Attendance abhi start nahi ho sakta — pehle supabase-hr-migration.sql ko Supabase SQL editor me chalao (attendance table + check_in_at columns).";
+  "Attendance cannot start yet — run supabase-hr-migration.sql in the Supabase SQL editor first (it creates the attendance table and the check_in_at columns).";
 
 /** PostgREST wording for a missing relation/column, so we can say something useful. */
 function isMissingTableError(message: string): boolean {
@@ -141,7 +146,7 @@ export async function markMyAttendance(
       if (isMissingTableError(readError.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(readError, "Attendance check nahi hua.") };
+      return { success: false, error: getErrorMessage(readError, "Could not check attendance.") };
     }
 
     // Already checked in today — hand back what is stored, write nothing.
@@ -166,7 +171,7 @@ export async function markMyAttendance(
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance mark nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not mark attendance.") };
     }
 
     const { data } = await supabase
@@ -178,7 +183,7 @@ export async function markMyAttendance(
 
     return { success: true, data: data ? toAttendanceRow(data as AttendanceDbRow) : null };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance mark nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not mark attendance.") };
   }
 }
 
@@ -188,9 +193,9 @@ export async function getMyAttendance(
 ): Promise<AttendanceResult<{ month: string; rows: AttendanceRow[] }>> {
   try {
     const viewer = await getViewerContext();
-    if (!viewer) return { success: false, error: "Pehle login karo." };
+    if (!viewer) return { success: false, error: "Please sign in first." };
     if (!MONTH_PATTERN.test(month)) {
-      return { success: false, error: "Month 2026-09 jaisa hona chahiye." };
+      return { success: false, error: "Month must look like 2026-09." };
     }
 
     const { data, error } = await viewer.supabase
@@ -205,13 +210,13 @@ export async function getMyAttendance(
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance load nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
     }
 
     const rows = ((data ?? []) as AttendanceDbRow[]).map(toAttendanceRow);
     return { success: true, data: { month, rows: sortByCheckIn(rows) } };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance load nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
   }
 }
 
@@ -227,12 +232,12 @@ export async function getTeamAttendance(
 > {
   try {
     const viewer = await getViewerContext();
-    if (!viewer) return { success: false, error: "Pehle login karo." };
+    if (!viewer) return { success: false, error: "Please sign in first." };
     if (!isManager(viewer.role)) {
-      return { success: false, error: "Team attendance sirf admin/manager dekh sakta hai." };
+      return { success: false, error: "Only an admin or manager can view team attendance." };
     }
     if (!MONTH_PATTERN.test(month)) {
-      return { success: false, error: "Month 2026-09 jaisa hona chahiye." };
+      return { success: false, error: "Month must look like 2026-09." };
     }
 
     const { data, error } = await viewer.supabase
@@ -247,13 +252,13 @@ export async function getTeamAttendance(
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance load nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
     }
 
     const rows = ((data ?? []) as AttendanceDbRow[]).map(toAttendanceRow);
     return { success: true, data: { month, rows, summary: summariseMonth(rows) } };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance load nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
   }
 }
 
@@ -267,16 +272,16 @@ export async function markAttendance(
 ): Promise<AttendanceResult<AttendanceRow>> {
   try {
     const viewer = await getViewerContext();
-    if (!viewer) return { success: false, error: "Pehle login karo." };
+    if (!viewer) return { success: false, error: "Please sign in first." };
     if (!isManager(viewer.role)) {
-      return { success: false, error: "Attendance sirf admin/manager change kar sakta hai." };
+      return { success: false, error: "Only an admin or manager can change attendance." };
     }
-    if (!input.employeeId) return { success: false, error: "Employee chuno." };
+    if (!input.employeeId) return { success: false, error: "Choose an employee." };
     if (!DATE_PATTERN.test(input.date)) {
-      return { success: false, error: "Date 2026-09-30 jaisi honi chahiye." };
+      return { success: false, error: "Date must look like 2026-09-30." };
     }
     if (!isAttendanceStatus(input.status)) {
-      return { success: false, error: "Status Present / Absent / Half-Day me se ek chuno." };
+      return { success: false, error: "Choose one of Present, Absent or Half-Day." };
     }
 
     const { data, error } = await viewer.supabase
@@ -301,13 +306,13 @@ export async function markAttendance(
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance save nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not save attendance.") };
     }
 
     revalidatePath("/dashboard/attendance");
     return { success: true, data: toAttendanceRow(data as AttendanceDbRow) };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance save nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not save attendance.") };
   }
 }
 
@@ -322,13 +327,13 @@ export async function updateAttendance(
 ): Promise<AttendanceResult<AttendanceRow>> {
   try {
     const viewer = await getViewerContext();
-    if (!viewer) return { success: false, error: "Pehle login karo." };
+    if (!viewer) return { success: false, error: "Please sign in first." };
     if (!isManager(viewer.role)) {
-      return { success: false, error: "Attendance sirf admin/manager change kar sakta hai." };
+      return { success: false, error: "Only an admin or manager can change attendance." };
     }
-    if (!input.id) return { success: false, error: "Attendance row nahi mili." };
+    if (!input.id) return { success: false, error: "That attendance row no longer exists." };
     if (!isAttendanceStatus(input.status)) {
-      return { success: false, error: "Status Present / Absent / Half-Day me se ek chuno." };
+      return { success: false, error: "Choose one of Present, Absent or Half-Day." };
     }
 
     const { data, error } = await viewer.supabase
@@ -346,16 +351,16 @@ export async function updateAttendance(
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance update nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not update attendance.") };
     }
     if (!data) {
-      return { success: false, error: "Ye attendance row ab nahi hai (shayad delete ho gayi)." };
+      return { success: false, error: "This attendance row no longer exists — it may have been deleted." };
     }
 
     revalidatePath("/dashboard/attendance");
     return { success: true, data: toAttendanceRow(data as AttendanceDbRow) };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance update nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not update attendance.") };
   }
 }
 
@@ -367,11 +372,11 @@ export async function updateAttendance(
 export async function deleteAttendance(id: string): Promise<AttendanceResult<{ id: string }>> {
   try {
     const viewer = await getViewerContext();
-    if (!viewer) return { success: false, error: "Pehle login karo." };
+    if (!viewer) return { success: false, error: "Please sign in first." };
     if (!isManager(viewer.role)) {
-      return { success: false, error: "Attendance sirf admin/manager delete kar sakta hai." };
+      return { success: false, error: "Only an admin or manager can delete attendance." };
     }
-    if (!id) return { success: false, error: "Attendance row nahi mili." };
+    if (!id) return { success: false, error: "That attendance row no longer exists." };
 
     const { error } = await viewer.supabase.from("attendance").delete().eq("id", id);
 
@@ -379,12 +384,12 @@ export async function deleteAttendance(id: string): Promise<AttendanceResult<{ i
       if (isMissingTableError(error.message)) {
         return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
       }
-      return { success: false, error: getErrorMessage(error, "Attendance delete nahi hua.") };
+      return { success: false, error: getErrorMessage(error, "Could not delete attendance.") };
     }
 
     revalidatePath("/dashboard/attendance");
     return { success: true, data: { id } };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Attendance delete nahi hua.") };
+    return { success: false, error: getErrorMessage(error, "Could not delete attendance.") };
   }
 }

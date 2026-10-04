@@ -90,8 +90,8 @@ export function PipelineDetail({
             </DialogTitle>
             <DialogDescription>
               {loadingPatients
-                ? "Segment ke patient load ho rahe hain…"
-                : `${segmentTotal.toLocaleString()} patient is segment me — naam pe tap karke dekho aur edit bhi karo.`}
+                ? "Loading patients in this segment…"
+                : `${segmentTotal.toLocaleString()}  patients in this segment — click a name to view and edit it.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -102,7 +102,7 @@ export function PipelineDetail({
           )}
 
           {!loadingPatients && patients.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">Is segment me koi patient nahi mila.</p>
+            <p className="py-6 text-center text-sm text-slate-500">No patients in this segment.</p>
           )}
 
           {!loadingPatients && patients.length > 0 && (
@@ -128,7 +128,7 @@ export function PipelineDetail({
           )}
 
           {!loadingPatients && segmentTotal > patients.length && (
-            <p className="text-xs text-slate-500">Pehle {patients.length} dikhaye ja rahe hain.</p>
+            <p className="text-xs text-slate-500">Showing the first {patients.length}.</p>
           )}
 
           <div className="flex justify-end">

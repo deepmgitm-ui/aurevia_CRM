@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Aurevia CRM — Patient Relationship Management",
   description:
-    "Aurevia HealthCare ka CRM — leads, pipeline, consultations, surgeries, patients aur attendance ek hi system me.",
+    "Aurevia HealthCare's CRM — leads, pipeline, consultations, surgeries, patients and attendance in one system.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

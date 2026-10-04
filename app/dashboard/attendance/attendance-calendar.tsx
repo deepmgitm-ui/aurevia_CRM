@@ -160,7 +160,7 @@ export function AttendanceCalendar({
     const response = await updateAttendance({ id: row.id, status });
     setBusyKey(null);
     if (!response.success) {
-      toast.add({ title: "Update nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not update", description: response.error, type: "error" });
       return;
     }
     replaceRow(response.data);
@@ -172,7 +172,7 @@ export function AttendanceCalendar({
     const response = await deleteAttendance(row.id);
     setBusyKey(null);
     if (!response.success) {
-      toast.add({ title: "Delete nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not delete", description: response.error, type: "error" });
       return;
     }
     removeRow(row);
@@ -194,7 +194,7 @@ export function AttendanceCalendar({
     });
     setBusyKey(null);
     if (!response.success) {
-      toast.add({ title: "Mark nahi hua", description: response.error, type: "error" });
+      toast.add({ title: "Could not mark", description: response.error, type: "error" });
       return;
     }
     replaceRow(response.data);
@@ -313,8 +313,8 @@ export function AttendanceCalendar({
           </div>
           <p className="mt-3 text-xs text-slate-500">
             {focusEmployeeId
-              ? `${focusEmployeeName ?? "Employee"} ka ${monthLabel(monthCursor)} — har tile me us din ki status (P / H / A). Din pe tap karo aur detail kholo.`
-              : "Har dot ek employee hai — green = Present, amber = Half-Day, red = Absent. Din pe tap karo aur us din ki list kholo."}
+              ? `${focusEmployeeName ?? "This employee"} — ${monthLabel(monthCursor)}. Each tile shows that day's status (P / H / A). Tap a day for details.`
+              : "Each dot is one employee — green = Present, amber = Half-Day, red = Absent. Tap a day to see everyone marked on it."}
           </p>
         </CardContent>
       </Card>
@@ -327,7 +327,7 @@ export function AttendanceCalendar({
 
           {selected.length === 0 ? (
             <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">
-              Is din kisi ne login nahi kiya — koi attendance mark nahi.
+              Nobody signed in on this day — no attendance marked.
             </p>
           ) : null}
 
@@ -370,7 +370,7 @@ export function AttendanceCalendar({
                   disabled={!addEmployee || busyKey === `add-${selectedIso}`}
                   onClick={() => void addMark()}
                 >
-                  Mark karo
+                  Mark
                 </Button>
               </div>
             </div>
@@ -388,7 +388,7 @@ export function AttendanceCalendar({
               </div>
               <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                 {row.checkInLabel === "-" ? (
-                  <span>Login time nahi (manager entry)</span>
+                  <span>No login time (entered by manager)</span>
                 ) : (
                   <span className="inline-flex items-center gap-1 font-medium text-slate-700">
                     <CircleCheck className="size-3" aria-hidden="true" /> {row.checkInLabel} par

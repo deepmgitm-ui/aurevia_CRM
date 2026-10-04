@@ -99,7 +99,7 @@ export function AttendanceTeam({
           {selectedId && (
             <Button size="xs" variant="ghost" onClick={() => onSelect(null)}>
               <X aria-hidden="true" />
-              Sab employees
+              All employees
             </Button>
           )}
         </div>
@@ -113,7 +113,7 @@ export function AttendanceTeam({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Employee dhoondo"
+              placeholder="Search employees"
               aria-label="Employee search"
               className="h-8 w-44 pl-8 text-xs"
             />
@@ -139,7 +139,7 @@ export function AttendanceTeam({
       </div>
 {visible.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
-          &quot;{query}&quot; se koi employee nahi mila.
+          No employees match “{query}”.
         </p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -192,7 +192,7 @@ export function AttendanceTeam({
                         {card.total === 0 ? "—" : `${card.rate}%`}
                       </p>
                       <p className="text-[10px] text-slate-400">
-                        {card.total === 0 ? "no marks" : `${card.total} din`}
+                        {card.total === 0 ? "no marks" : `${card.total} days`}
                       </p>
                     </div>
                   </div>
@@ -223,17 +223,17 @@ export function AttendanceTeam({
                   <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
                     {todayStatus ? (
                       <span className={`rounded-full px-2 py-0.5 font-semibold ${statusChip(todayStatus)}`}>
-                        Aaj: {todayStatus}
+                        Today: {todayStatus}
                       </span>
                     ) : (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">
-                        Aaj: mark nahi
+                        Today: not marked
                       </span>
                     )}
                     {card.streak > 1 && (
                       <span className="inline-flex items-center gap-1">
                         <Flame className="size-3 text-emerald-600" aria-hidden="true" />
-                        {card.streak} din
+                        {card.streak}-day streak
                       </span>
                     )}
                     {card.averageCheckIn !== "-" && (

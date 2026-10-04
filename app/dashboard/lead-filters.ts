@@ -17,7 +17,7 @@ import {
 // the server components (parsing ?stage=&treatment=&age= from the URL) and the
 // client components (building the drill-down links) share one definition of
 // every filter. A link built here parses back to exactly the same filter set —
-// that is what makes "chart pe click karo, list aa jaaye" reliable.
+// that is what makes "click a chart, get the matching list" reliable.
 // ---------------------------------------------------------------------------
 
 export type AgeBucketKey =
@@ -506,7 +506,7 @@ export function andClauses(clauses: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Treatment-wise tally — "konsa lead kis treatment / disease ka hai"
+// Treatment-wise tally — "which lead wants which treatment / disease"
 // ---------------------------------------------------------------------------
 
 export interface TreatmentTally {

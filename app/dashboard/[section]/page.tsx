@@ -206,8 +206,8 @@ function LeadListCard({
       title={`${title} (${rows.length})`}
       description={
         capped
-          ? `${description} — pehle ${limit} dikh rahe hain, baaki Leads module me.`
-          : `${description} — naam pe tap karke poora record kholo.`
+          ? `${description} — showing the first ${limit}; the rest are in the Leads module.`
+          : `${description} — click a name to open the full record.`
       }
     >
       <LeadListTable rows={rows} limit={limit} emptyMessage={emptyMessage} />
@@ -280,7 +280,7 @@ function renderSection(
             title="Consultation patients"
             description="Booked ya attended consultation wale patients"
             rows={leadsInStages(rows, CONSULTATION_STAGES)}
-            emptyMessage="Is window me koi booked/attended consultation nahi."
+            emptyMessage="No booked or attended consultations in this date range."
           />
         </>
       );
@@ -305,7 +305,7 @@ function renderSection(
             title="Surgery records"
             description="Completed surgery wale patients"
             rows={leadsInStages(rows, SURGERY_STAGES)}
-            emptyMessage="Is window me koi completed surgery nahi."
+            emptyMessage="No completed surgeries in this date range."
           />
         </>
       );
@@ -320,9 +320,9 @@ function renderSection(
           <KpiCards kpis={metrics.kpis} />
           <LeadListCard
             title="Patients"
-            description="Pehle contact se aage badhe leads — yehi team abhi kaam kar rahi hai"
+            description="Leads that have moved past first contact — the team currently working these"
             rows={rows.filter((row) => row.status.trim().toLowerCase() !== "new")}
-            emptyMessage="Is window me first contact se aage koi lead nahi."
+            emptyMessage="No leads in this date range have moved past first contact."
           />
         </>
       );
@@ -338,10 +338,10 @@ function renderSection(
           <AgentSection employees={employees} agents={metrics.agents} />
           <LeadListCard
             title="Team leads"
-            description="Sabhi agents ke assigned leads — Assigned To column se dekh lo kis agent ke paas kaun hai"
+            description="Every agent's assigned leads — use the Assigned To column to see who owns which"
             rows={rows}
             limit={100}
-            emptyMessage="Is window me koi lead nahi."
+            emptyMessage="No leads in this date range."
           />
         </>
       );
@@ -362,10 +362,10 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="Leads by source"
-            description="Har channel ke leads — Source column se group samajh lo"
+            description="Leads from every channel — group them by the Source column"
             rows={rows}
             limit={100}
-            emptyMessage="Is window me koi lead nahi."
+            emptyMessage="No leads in this date range."
           />
         </>
       );
@@ -389,10 +389,10 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="All leads in this window"
-            description="Poore window ke leads — jaise Overview dashboard me, naam pe tap karke record kholo"
+            description="Every lead in this range, same as the Overview dashboard — click a name to open the record"
             rows={rows}
             limit={100}
-            emptyMessage="Is window me koi lead nahi."
+            emptyMessage="No leads in this date range."
           />
         </>
       );
@@ -412,10 +412,10 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="Leads by source"
-            description="Har channel ke leads — Source column se group samajh lo"
+            description="Leads from every channel — group them by the Source column"
             rows={rows}
             limit={100}
-            emptyMessage="Is window me koi lead nahi."
+            emptyMessage="No leads in this date range."
           />
         </>
       );
@@ -432,10 +432,10 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="Leads by city"
-            description="Sabhi leads — City column se group samajh lo"
+            description="All leads — group them by the City column"
             rows={rows}
             limit={100}
-            emptyMessage="Is window me koi lead nahi."
+            emptyMessage="No leads in this date range."
           />
         </>
       );

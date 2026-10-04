@@ -1888,7 +1888,7 @@ export function LeadsTable({
                   <Button type="button" size="sm" onClick={() => void handleSaveLeadEdits()} disabled={isSavingEdits}>
                     {isSavingEdits ? "Saving..." : "Save Changes"}
                   </Button>
-                  <span className="text-xs text-slate-400">City, Treatment, Insurance &amp; Remarks yahan se edit kiye ja sakte hain.</span>
+                  <span className="text-xs text-slate-400">City, Treatment, Insurance and Remarks can be edited here.</span>
                 </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
