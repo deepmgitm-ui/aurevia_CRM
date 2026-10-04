@@ -4,7 +4,7 @@ import { getTeamAttendance } from "@/app/actions/attendance";
 import { getEmployeeDirectory, getViewer } from "@/app/actions/leads";
 import { clinicDate } from "@/lib/attendance";
 
-import { AttendanceCalendar } from "./attendance-calendar";
+import { AttendanceBoard } from "./attendance-board";
 
 /**
  * /dashboard/attendance — the attendance register as its own month calendar.
@@ -37,15 +37,19 @@ export default async function AttendancePage({
 
   const result = await getTeamAttendance(month);
   const rows = result.success ? result.data.rows : [];
-  const summary = result.success
-    ? result.data.summary
-    : { present: 0, absent: 0, halfDay: 0, total: 0 };
 
-  // The roster drives the "add a mark for someone who never signed in" control.
-  // getEmployeeDirectory is itself admin/manager-only and returns [] otherwise.
+  // The roster drives the employee cards AND the "add a mark for someone who
+  // never signed in" control. getEmployeeDirectory is itself admin/manager-only
+  // and returns [] otherwise, so an employee can't leak the contact sheet.
   const directoryResult = await getEmployeeDirectory();
   const employees = directoryResult.success
-    ? directoryResult.data.map((person) => ({ id: person.id, name: person.name }))
+    ? directoryResult.data.map((person) => ({
+        id: person.id,
+        name: person.name,
+        role: person.role,
+        phone: person.phone,
+        photo_url: person.photo_url,
+      }))
     : [];
 
   return (
@@ -55,42 +59,24 @@ export default async function AttendancePage({
           Attendance
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Employee login karte hi check-in mark ho jata hai. Status change ya delete karne ke liye
-          din ke andar us employee par dropdown use karo.
+          Employee login karte hi check-in mark ho jata hai. Kisi bhi employee ka card tap karo
+          aur uska apna calendar khul jayega.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: "Total marks", value: summary.total, tone: "text-slate-900" },
-          { label: "Present", value: summary.present, tone: "text-emerald-600" },
-          { label: "Half-Day", value: summary.halfDay, tone: "text-amber-600" },
-          { label: "Absent", value: summary.absent, tone: "text-rose-600" },
-        ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
-              {card.label}
-            </p>
-            <p className={`mt-1 text-2xl font-semibold ${card.tone}`}>
-              {card.value.toLocaleString("en-IN")}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {!result.success && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {result.error}
-        </p>
-      )}
-
-      <AttendanceCalendar
+      <AttendanceBoard
         rows={rows}
         month={month}
         todayIso={clinicDate()}
         canManage={canManage}
         employees={employees}
       />
+
+      {!result.success && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {result.error}
+        </p>
+      )}
     </div>
   );
 }

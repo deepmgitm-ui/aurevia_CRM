@@ -133,6 +133,165 @@ export function summariseMonth(rows: AttendanceRow[]): MonthSummary {
 }
 
 /**
+ * Attendance rate as a whole percentage, where a half-day is worth half a
+ * present.
+ *
+ * The denominator is the number of MARKS, not the number of days in the month.
+ * That matters: we have no holiday calendar for the clinic, so dividing by 30
+ * would quietly report healthy staff as absent for every Sunday. Counting only
+ * the days somebody was actually marked keeps the number honest, and the card
+ * shows "N din mark hue" right beside it so the denominator is never hidden.
+ */
+export function attendanceRate(summary: MonthSummary): number {
+  if (summary.total === 0) return 0;
+  const credit = summary.present + summary.halfDay / 2;
+  return Math.round((credit / summary.total) * 100);
+}
+
+/** "Ravi Sharma" -> "RS"; "Chirag" -> "C". Used for the avatar fallback. */
+export function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export interface EmployeeAttendanceStats {
+  employeeId: string;
+  employeeName: string;
+  present: number;
+  halfDay: number;
+  absent: number;
+  total: number;
+  /** Whole percentage — see attendanceRate for why the denominator is the marks. */
+  rate: number;
+  /** "09:42" mean check-in, or "-" when this person never signed in. */
+  averageCheckIn: string;
+  /** First and last sign-in of the month, "-" when there was none. */
+  earliestCheckIn: string;
+  latestCheckIn: string;
+  /** Consecutive present/half days ending on the LAST marked day. */
+  streak: number;
+}
+
+const MARKED_STATUSES: AttendanceStatus[] = ["Present", "Half-Day"];
+
+/** "09:42" -> 582. "-" and anything unparsable -> null. */
+function clockToMinutes(label: string): number | null {
+  if (!/^\d{1,2}:\d{2}$/.test(label)) return null;
+  const [hour, minute] = label.split(":").map(Number);
+  if (hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function minutesToClock(minutes: number): string {
+  const hour = Math.floor(minutes / 60);
+  return `${String(hour).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** Tolerant join: an unnamed row still groups under its own employee id. */
+function groupByEmployee(rows: AttendanceRow[]): Map<string, AttendanceRow[]> {
+  const grouped = new Map<string, AttendanceRow[]>();
+  for (const row of rows) {
+    const bucket = grouped.get(row.employeeId);
+    if (bucket) bucket.push(row);
+    else grouped.set(row.employeeId, [row]);
+  }
+  return grouped;
+}
+
+/**
+ * Per-person totals for the profile cards, newest check-in first per person so
+ * the streak walk below sees days in order.
+ */
+export function summariseByEmployee(rows: AttendanceRow[]): EmployeeAttendanceStats[] {
+  return [...groupByEmployee(rows).entries()]
+    .map(([employeeId, list]) => {
+      const byDay = [...list].sort((a, b) => a.date.localeCompare(b.date));
+      const summary = summariseMonth(byDay);
+
+      const checkIns = byDay
+        .map((row) => clockToMinutes(row.checkInLabel))
+        .filter((value): value is number => value !== null);
+
+      // The streak counts back from the most recent marked day, so an employee
+      // on leave at the end of the month still shows the run they had built.
+      let streak = 0;
+      for (let index = byDay.length - 1; index >= 0; index -= 1) {
+        if (MARKED_STATUSES.includes(byDay[index].status)) streak += 1;
+        else break;
+      }
+
+      return {
+        employeeId,
+        employeeName: byDay[0]?.employeeName ?? "-",
+        present: summary.present,
+        halfDay: summary.halfDay,
+        absent: summary.absent,
+        total: summary.total,
+        rate: attendanceRate(summary),
+        averageCheckIn:
+          checkIns.length === 0
+            ? "-"
+            : minutesToClock(Math.round(checkIns.reduce((a, b) => a + b, 0) / checkIns.length)),
+        earliestCheckIn: checkIns.length === 0 ? "-" : minutesToClock(Math.min(...checkIns)),
+        latestCheckIn: checkIns.length === 0 ? "-" : minutesToClock(Math.max(...checkIns)),
+        streak,
+      };
+    })
+    .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+}
+
+/**
+ * The team cards, including employees who have NOT been marked at all this
+ * month. Without them a newcomer silently vanishes from the register — the one
+ * person a manager most needs to notice.
+ */
+export function buildTeamCards(
+  roster: { id: string; name: string }[],
+  rows: AttendanceRow[],
+): EmployeeAttendanceStats[] {
+  const measured = summariseByEmployee(rows);
+  const measuredById = new Map(measured.map((entry) => [entry.employeeId, entry]));
+
+  // The ROSTER name wins over the one denormalised onto the attendance row.
+  // That join column is a snapshot: an employee who has since been renamed
+  // would otherwise show two different names on the same screen.
+  const named = measured.map((entry) => {
+    const person = roster.find((candidate) => candidate.id === entry.employeeId);
+    const rosterName = person?.name?.trim();
+    return rosterName ? { ...entry, employeeName: rosterName } : entry;
+  });
+
+  const unmeasured = roster
+    .filter((person) => !measuredById.has(person.id))
+    .map<EmployeeAttendanceStats>((person) => ({
+      employeeId: person.id,
+      employeeName: person.name || "-",
+      present: 0,
+      halfDay: 0,
+      absent: 0,
+      total: 0,
+      rate: 0,
+      averageCheckIn: "-",
+      earliestCheckIn: "-",
+      latestCheckIn: "-",
+      streak: 0,
+    }));
+
+  return [...named, ...unmeasured].sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+}
+
+/** This employee's status on one clinic day, or null when nothing is marked. */
+export function statusOn(
+  rows: AttendanceRow[],
+  employeeId: string,
+  date: string,
+): AttendanceStatus | null {
+  return rows.find((row) => row.employeeId === employeeId && row.date === date)?.status ?? null;
+}
+
+/**
  * Did the sign-in happen on a NEW clinic day?
  *
  * The proxy stores the clinic date of the last sign-in in a cookie. A mismatch

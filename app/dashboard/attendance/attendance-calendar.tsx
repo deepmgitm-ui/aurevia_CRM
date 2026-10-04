@@ -31,6 +31,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import {
   ATTENDANCE_STATUSES,
+  summariseByEmployee,
   type AttendanceRow,
   type AttendanceStatus,
 } from "@/lib/attendance";
@@ -81,6 +82,8 @@ export function AttendanceCalendar({
   todayIso,
   canManage,
   employees,
+  focusEmployeeId = null,
+  focusEmployeeName = null,
 }: {
   rows: AttendanceRow[];
   month: string;
@@ -88,6 +91,9 @@ export function AttendanceCalendar({
   canManage: boolean;
   /** Roster, so a manager can add a day for someone who never signed in. */
   employees: { id: string; name: string }[];
+  /** When set, the grid shows only this person and the header names them. */
+  focusEmployeeId?: string | null;
+  focusEmployeeName?: string | null;
 }) {
   const [monthCursor, setMonthCursor] = useState(month);
   const [selectedIso, setSelectedIso] = useState(todayIso);
@@ -97,10 +103,37 @@ export function AttendanceCalendar({
   const [addStatus, setAddStatus] = useState<AttendanceStatus>("Absent");
 
   const cells = useMemo(() => buildMonthCells(monthCursor), [monthCursor]);
-  const selected = data[selectedIso] ?? [];
+
+  /**
+   * Focus mode. Tapping an employee card narrows BOTH the grid dots and the
+   * day panel to that person, so the grid stops being a wall of six colours
+   * and starts reading as one person's month.
+   *
+   * The mark is applied to the derived view only — `data` still holds every
+   * employee's rows, so clearing the focus brings the whole team straight back
+   * without a refetch or a lost edit.
+   */
+  const focusRows = useMemo(
+    () => (focusEmployeeId ? rows.filter((row) => row.employeeId === focusEmployeeId) : rows),
+    [rows, focusEmployeeId],
+  );
+
+  /** The focused person's own totals, so the header can show their rate. */
+  const focusStats = useMemo(
+    () => (focusEmployeeId ? summariseByEmployee(focusRows)[0] : undefined),
+    [focusRows, focusEmployeeId],
+  );
+
+  const selected = useMemo(
+    () => (data[selectedIso] ?? []).filter((row) => !focusEmployeeId || row.employeeId === focusEmployeeId),
+    [data, selectedIso, focusEmployeeId],
+  );
+
   // Someone who has no row for this day yet — the only people a manager can add.
   const unmarked = employees.filter(
-    (person) => !selected.some((row) => row.employeeId === person.id),
+    (person) =>
+      !selected.some((row) => row.employeeId === person.id) &&
+      (!focusEmployeeId || person.id === focusEmployeeId),
   );
 
   function replaceRow(row: AttendanceRow) {
@@ -174,7 +207,16 @@ export function AttendanceCalendar({
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900">{monthLabel(monthCursor)}</h2>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">{monthLabel(monthCursor)}</h2>
+              {focusEmployeeId && focusStats && (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {focusEmployeeName ?? focusStats.employeeName} — {focusStats.rate}% attendance ·{" "}
+                  {focusStats.present} present · {focusStats.absent} absent
+                  {focusStats.averageCheckIn !== "-" && ` · ${focusStats.averageCheckIn} avg login`}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <Button
                 type="button"
@@ -207,7 +249,11 @@ export function AttendanceCalendar({
 
           <div className="mt-1 grid grid-cols-7 gap-1">
             {cells.map((cell) => {
-              const dayRows = data[cell.iso] ?? [];
+              // Focus mode shows one dot per day, so the cell can be a proper
+              // status tile instead of a row of tiny specks.
+              const dayRows = (focusEmployeeId
+                ? (data[cell.iso] ?? []).filter((row) => row.employeeId === focusEmployeeId)
+                : (data[cell.iso] ?? []));
               const isSelected = cell.iso === selectedIso;
               return (
                 <button
@@ -229,27 +275,46 @@ export function AttendanceCalendar({
                   >
                     {cell.day}
                   </span>
-                  <span className="mt-1 flex flex-wrap gap-0.5">
-                    {dayRows.slice(0, 6).map((row) => (
-                      <span
-                        key={row.id}
-                        className={`size-2 rounded-full ${dotClass(row.status)}`}
-                        title={`${row.employeeName} · ${row.status}`}
-                      />
-                    ))}
-                    {dayRows.length > 6 && (
-                      <span className="text-[9px] font-semibold text-slate-500">
-                        +{dayRows.length - 6}
-                      </span>
-                    )}
-                  </span>
+                  {focusEmployeeId ? (
+                    <span className="mt-1">
+                      {dayRows[0] ? (
+                        <span
+                          className={`block truncate rounded px-1 py-0.5 text-[9px] font-semibold ${badgeClass(dayRows[0].status)}`}
+                        >
+                          {dayRows[0].status === "Half-Day" ? "H" : dayRows[0].status === "Present" ? "P" : "A"}
+                        </span>
+                      ) : (
+                        cell.isCurrentMonth && (
+                          <span className="block rounded bg-slate-100 px-1 py-0.5 text-center text-[9px] text-slate-400">
+                            —
+                          </span>
+                        )
+                      )}
+                    </span>
+                  ) : (
+                    <span className="mt-1 flex flex-wrap gap-0.5">
+                      {dayRows.slice(0, 6).map((row) => (
+                        <span
+                          key={row.id}
+                          className={`size-2 rounded-full ${dotClass(row.status)}`}
+                          title={`${row.employeeName} · ${row.status}`}
+                        />
+                      ))}
+                      {dayRows.length > 6 && (
+                        <span className="text-[9px] font-semibold text-slate-500">
+                          +{dayRows.length - 6}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Har dot ek employee hai — green = Present, amber = Half-Day, red = Absent. Din pe
-            tap karo aur us din ki list kholo.
+            {focusEmployeeId
+              ? `${focusEmployeeName ?? "Employee"} ka ${monthLabel(monthCursor)} — har tile me us din ki status (P / H / A). Din pe tap karo aur detail kholo.`
+              : "Har dot ek employee hai — green = Present, amber = Half-Day, red = Absent. Din pe tap karo aur us din ki list kholo."}
           </p>
         </CardContent>
       </Card>
