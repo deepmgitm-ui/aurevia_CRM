@@ -1,4 +1,4 @@
-// Aurevia CRM — "Plan your calendar": month view mixing lead follow-up / call
+// Aurevia CRM â€” "Plan your calendar": month view mixing lead follow-up / call
 // reminders (read from each lead's `follow_up_date`) with the signed-in user's
 // own personal events (stored in the `calendar_events` table, one row each).
 //
@@ -22,9 +22,7 @@ import {
   History,
   MessageSquareText,
   NotebookPen,
-  PhoneCall,
   Plus,
-  Search,
   Sparkles,
   Stethoscope,
   Trash2,
@@ -40,46 +38,56 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
-import { updateLeadFollowUpDate } from "@/app/actions/leads";
 import {
-  clearFollowUp,
   createPersonalEvent,
   deletePersonalEvent,
   getMonthDays,
-  markFollowUpDone,
-  postponeFollowUp,
-  searchLeadsForCalendar,
   updatePersonalEvent,
   type CalendarDay,
-  type CalendarReminder,
-  type FollowUpKind,
-  type LeadSearchResult,
+  type CalendarAppointment,
+  type AppointmentKind,
   type PersonalEvent,
 } from "./actions";
 import { LeadTimelineDialog } from "./lead-timeline-dialog";
-import { toLocalIso } from "./month-grid";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const PERSONAL_KINDS = ["note", "call", "visit", "leave"] as const;
 
-function ReminderIcon({ kind }: { kind: FollowUpKind }) {
+function ReminderIcon({ kind }: { kind: AppointmentKind }) {
   const className = "size-4 text-blue-600";
-  if (kind === "dnp") return <PhoneCall className={className} aria-hidden="true" />;
-  if (kind === "consultation") return <Stethoscope className={className} aria-hidden="true" />;
+  if (kind === "ipdDone") return <Stethoscope className={className} aria-hidden="true" />;
+  if (kind === "opdDone") return <CircleCheck className={className} aria-hidden="true" />;
   return <CalendarDays className={className} aria-hidden="true" />;
 }
 
-function ReminderDot({ kind, overdue }: { kind: FollowUpKind; overdue: boolean }) {
+/**
+ * Appointment badge.
+ *
+ * Past dates stay MUTED, not red. A completed OPD or a finished surgery is
+ * history, not a missed call â€” colouring it red would train the team to
+ * ignore the colour that a genuine problem actually uses.
+ */
+function ReminderDot({ kind, past }: { kind: AppointmentKind; past: boolean }) {
   const className = "size-2.5";
   const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${
-    overdue ? "bg-rose-600" : "bg-blue-600"
+    kind === "ipdDone"
+      ? past
+        ? "bg-violet-300"
+        : "bg-violet-600"
+      : kind === "opdDone"
+        ? past
+          ? "bg-emerald-300"
+          : "bg-emerald-600"
+        : past
+          ? "bg-blue-300"
+          : "bg-blue-600"
   }`;
   return (
     <span className={dotClass}>
-      {kind === "dnp" ? (
-        <PhoneCall className={className} />
-      ) : kind === "consultation" ? (
+      {kind === "ipdDone" ? (
         <Stethoscope className={className} />
+      ) : kind === "opdDone" ? (
+        <CircleCheck className={className} />
       ) : (
         <BadgeCheck className={className} />
       )}
@@ -103,7 +111,7 @@ export function PlanCalendar({
 }: {
   /** Every rendered day cell (42 Monday-first cells from the server). */
   days: CalendarDay[];
-  /** The month the server already loaded (yyyy-mm) — the starting cursor. */
+  /** The month the server already loaded (yyyy-mm) â€” the starting cursor. */
   month: string;
   /** True for admins/managers: reminder chips show the owning agent. */
   isTeamView: boolean;
@@ -113,7 +121,7 @@ export function PlanCalendar({
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
   const [selectedIso, setSelectedIso] = useState(todayIso);
   // Month-key cache: `days` always belongs to `monthKey`, so "fetching another
-  // month" is a DERIVED flag — no setState needed inside the fetch effect.
+  // month" is a DERIVED flag â€” no setState needed inside the fetch effect.
   const [itemsFor, setItemsFor] = useState<{ monthKey: string; days: CalendarDay[] }>(() => ({
     monthKey: month || todayIso.slice(0, 7),
     days,
@@ -127,17 +135,11 @@ export function PlanCalendar({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [timelineLeadId, setTimelineLeadId] = useState<string | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
-  const [leadQuery, setLeadQuery] = useState("");
-  const [leadSearch, setLeadSearch] = useState<{ query: string; results: LeadSearchResult[] } | null>(null);
-  const [pickedLead, setPickedLead] = useState<LeadSearchResult | null>(null);
 
   const loadingMonth = monthCursor !== itemsFor.monthKey;
-  const trimmedLeadQuery = leadQuery.trim();
-  const leadSearching = trimmedLeadQuery.length >= 2 && leadSearch?.query !== trimmedLeadQuery;
-  const leadResults = leadSearch?.query === trimmedLeadQuery ? leadSearch.results : [];
 
   // Fetch a month the cache does not hold yet (arrow navigation) so every
-  // month — not just the current one — shows its full timeline lanes.
+  // month â€” not just the current one â€” shows its full timeline lanes.
   useEffect(() => {
     if (monthCursor === itemsFor.monthKey) return;
     let active = true;
@@ -149,25 +151,6 @@ export function PlanCalendar({
       active = false;
     };
   }, [monthCursor, itemsFor.monthKey]);
-
-  // Debounced composer search. All state updates happen inside the timer /
-  // promise callbacks, keeping the effect body itself render-neutral.
-  useEffect(() => {
-    if (!composerOpen) return;
-    const q = leadQuery.trim();
-    if (q.length < 2) return;
-    let active = true;
-    const handle = setTimeout(() => {
-      void searchLeadsForCalendar(q).then((response) => {
-        if (!active) return;
-        setLeadSearch({ query: q, results: response.success ? (response.data ?? []) : [] });
-      });
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(handle);
-    };
-  }, [leadQuery, composerOpen]);
 
   const visibleDays = useMemo(() => {
     const [year, month] = monthCursor.split("-").map(Number);
@@ -202,39 +185,14 @@ export function PlanCalendar({
     setKind(existing?.kind ?? "note");
     setNotes(existing?.notes ?? "");
     setSelectedIso(iso);
-    setPickedLead(null);
-    setLeadQuery("");
-    setLeadSearch(null);
     setComposerOpen(true);
   }
 
   async function handleSavePersonal() {
-    // When a lead is picked, the composer schedules a follow-up instead of
-    // writing a personal event — this is how you plan follow-ups from the grid.
-    if (pickedLead && !editing) {
-      setSaving(true);
-      const response = await updateLeadFollowUpDate(pickedLead.leadId, selectedIso);
-      setSaving(false);
-      if (!response.success) {
-        toast.add({ title: "Could not set the follow-up", description: response.error, type: "error" });
-        return;
-      }
-      moveReminderTo(selectedIso, {
-        leadId: pickedLead.leadId,
-        leadName: pickedLead.leadName,
-        phone: pickedLead.phone,
-        leadStatus: pickedLead.status,
-        date: selectedIso,
-        overdue: selectedIso < todayIso,
-        kind: "followup",
-        agent: pickedLead.agent,
-      });
-      setComposerOpen(false);
-      setPickedLead(null);
-      setLeadQuery("");
-      toast.add({ title: `${pickedLead.leadName} ka follow-up ${selectedIso} par set ho gaya` });
-      return;
-    }
+    // The composer now writes ONLY personal events. Appointment dates are facts
+    // about a patient, so they are entered from the Leads page by picking a
+    // status — never re-typed here, where a mistyped date would quietly rewrite
+    // the clinic's schedule of record.
     if (!title.trim()) {
       toast.add({ title: "Title missing", description: "Event ko ek naam do.", type: "error" });
       return;
@@ -288,63 +246,6 @@ export function PlanCalendar({
     setItemsFor((current) => ({ ...current, days: updater(current.days) }));
   }
 
-  function patchReminderDay(date: string, updater: (reminders: CalendarReminder[]) => CalendarReminder[]) {
-    patchDays((current) =>
-      current.map((day) => (day.iso === date ? { ...day, reminders: updater(day.reminders) } : day)),
-    );
-  }
-
-  /**
-   * A lead has exactly ONE follow-up date, so re-scheduling must pull the chip
-   * off every other day of the loaded month before dropping it on the new date.
-   */
-  function moveReminderTo(date: string, reminder: CalendarReminder) {
-    patchDays((current) =>
-      current.map((day) => {
-        const others = day.reminders.filter((item) => item.leadId !== reminder.leadId);
-        if (day.iso === date) return { ...day, reminders: [...others, reminder] };
-        return others.length === day.reminders.length ? day : { ...day, reminders: others };
-      }),
-    );
-  }
-
-  /** Tomorrow, as yyyy-mm-dd — mirrors the server's postpone behaviour. */
-  function tomorrowIso(iso: string): string {
-    const [year, month, day] = iso.split("-").map(Number);
-    return toLocalIso(new Date(year, month - 1, day + 1));
-  }
-
-  async function handleFollowUp(reminder: CalendarReminder, action: "done" | "postpone" | "clear") {
-    setBusyId(`reminder-${reminder.leadId}-${reminder.date}`);
-    const response =
-      action === "done"
-        ? await markFollowUpDone(reminder.leadId)
-        : action === "postpone"
-          ? await postponeFollowUp(reminder.leadId, reminder.date)
-          : await clearFollowUp(reminder.leadId);
-    setBusyId(null);
-    if (!response.success) {
-      toast.add({ title: "Could not update", description: response.error, type: "error" });
-      return;
-    }
-    if (action === "postpone") {
-      // The server pushes the follow-up to tomorrow — move the chip with it.
-      const nextIso = tomorrowIso(reminder.date);
-      moveReminderTo(nextIso, { ...reminder, date: nextIso, overdue: nextIso < todayIso });
-    } else {
-      patchReminderDay(reminder.date, (reminders) =>
-        reminders.filter((item) => item.leadId !== reminder.leadId),
-      );
-    }
-    toast.add({
-      title:
-        action === "done"
-          ? "Follow-up done ✓"
-          : action === "postpone"
-            ? "Kal ke liye postpone ho gaya"
-            : "Follow-up clear ho gaya",
-    });
-  }
 
 
   return (
@@ -353,7 +254,7 @@ export function PlanCalendar({
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-lg">
             {monthLabel}
-            {loadingMonth && <span className="ml-2 text-xs font-normal text-slate-400">loading…</span>}
+            {loadingMonth && <span className="ml-2 text-xs font-normal text-slate-400">loadingâ€¦</span>}
           </CardTitle>
           <div className="flex items-center gap-1">
             <Button type="button" variant="ghost" size="icon" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
@@ -393,7 +294,7 @@ export function PlanCalendar({
                   type="button"
                   onClick={() => setSelectedIso(day.iso)}
                   onDoubleClick={() => startComposer(null, day.iso)}
-                  title={`${day.iso} — double-click to add a personal event`}
+                  title={`${day.iso} â€” double-click to add a personal event`}
                   className={`flex min-h-[74px] flex-col items-stretch gap-1 rounded-xl border p-1.5 text-left transition-colors sm:min-h-[86px] ${
                     isSelected
                       ? "border-blue-500 bg-blue-50/70"
@@ -414,7 +315,7 @@ export function PlanCalendar({
                       <ReminderDot
                         key={`${reminder.leadId}-${reminder.kind}`}
                         kind={reminder.kind}
-                        overdue={reminder.overdue}
+                        past={reminder.past}
                       />
                     ))}
                     {day.reminders.length > 3 && (
@@ -453,7 +354,7 @@ export function PlanCalendar({
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Blue dot = lead follow-up or call, other colours = your personal events, <span className="font-semibold text-emerald-700">green</span> = a lead was created that day, grey dot = activity (note, status or call). Double-click a day to add a personal event, or use Follow-up on a selected day to schedule a lead&apos;s follow-up.
+            <span className="font-semibold text-blue-700">Blue</span> = OPD booked, <span className="font-semibold text-emerald-700">green</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery. Other colours are your personal events. Double-click a day to add one.
           </p>
         </CardContent>
       </Card>
@@ -471,22 +372,19 @@ export function PlanCalendar({
                 : selectedIso}
             </CardTitle>
             <div className="flex items-center gap-1.5">
-              <Button type="button" size="sm" variant="outline" onClick={() => startComposer(null, selectedIso)}>
-                <CalendarDays aria-hidden="true" /> Follow-up
-              </Button>
               <Button type="button" size="sm" onClick={() => startComposer(null, selectedIso)}>
                 <Plus aria-hidden="true" /> Event
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <section aria-label="Follow-ups" className="space-y-2">
+            <section aria-label="Appointments" className="space-y-2">
               <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                Follow-ups ({selected?.reminders.length ?? 0})
+                Appointments ({selected?.reminders.length ?? 0})
               </h3>
               {(selected?.reminders.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  No follow-up or call reminders on this day.
+                  No OPD or IPD appointments on this day.
                 </p>
               )}
               {selected?.reminders.map((reminder) => (
@@ -494,8 +392,6 @@ export function PlanCalendar({
                   key={`${reminder.leadId}-${reminder.kind}`}
                   reminder={reminder}
                   isTeamView={isTeamView}
-                  busy={busyId === `reminder-${reminder.leadId}-${reminder.date}`}
-                  onAction={(action) => void handleFollowUp(reminder, action)}
                 />
               ))}
             </section>
@@ -512,7 +408,7 @@ export function PlanCalendar({
                 <LeadChipButton
                   key={lead.leadId}
                   name={lead.leadName}
-                  meta={[lead.status, isTeamView && lead.agent !== "-" ? lead.agent : null].filter(Boolean).join(" · ")}
+                  meta={[lead.status, isTeamView && lead.agent !== "-" ? lead.agent : null].filter(Boolean).join(" Â· ")}
                   icon={<Sparkles className="size-3.5 text-emerald-600" aria-hidden="true" />}
                   onClick={() => openTimeline(lead.leadId)}
                 />
@@ -545,7 +441,7 @@ export function PlanCalendar({
               </h3>
               {(selected?.personal.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  No personal events — use Event to add leave, a visit or a note.
+                  No personal events â€” use Event to add leave, a visit or a note.
                 </p>
               )}
               {selected?.personal.map((event) => (
@@ -565,73 +461,9 @@ export function PlanCalendar({
       <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit event" : `${selectedIso} — naya event`}</DialogTitle>
+            <DialogTitle>{editing ? "Edit event" : `${selectedIso} â€” naya event`}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            {!editing && (
-              <div className="space-y-1">
-                <Label htmlFor="plan-lead-search">Schedule a follow-up for a lead (optional)</Label>
-                {pickedLead ? (
-                  <div className="flex items-center justify-between gap-2 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2">
-                    <p className="truncate text-sm font-semibold text-slate-900">
-                      {pickedLead.leadName}{" "}
-                      <span className="font-normal text-slate-500">· {pickedLead.phone}</span>
-                    </p>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => {
-                        setPickedLead(null);
-                        setLeadQuery("");
-                        setLeadSearch(null);
-                      }}
-                    >
-                      Change
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 size-4 text-slate-400" aria-hidden="true" />
-                    <Input
-                      id="plan-lead-search"
-                      value={leadQuery}
-                      onChange={(event) => setLeadQuery(event.target.value)}
-                      placeholder="Search by lead name or phone…"
-                      className="pl-8"
-                    />
-                    {leadQuery.trim().length >= 2 && (
-                      <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                        {leadSearching && <p className="px-3 py-2 text-xs text-slate-500">Search…</p>}
-                        {!leadSearching && leadResults.length === 0 && (
-                          <p className="px-3 py-2 text-xs text-slate-500">No leads found.</p>
-                        )}
-                        {!leadSearching &&
-                          leadResults.map((lead) => (
-                            <button
-                              key={lead.leadId}
-                              type="button"
-                              onClick={() => {
-                                setPickedLead(lead);
-                                setLeadSearch(null);
-                              }}
-                              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50"
-                            >
-                              <span className="font-medium text-slate-900">{lead.leadName}</span>
-                              <span className="text-xs text-slate-500">
-                                {lead.phone} · {lead.status}
-                              </span>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <p className="text-[11px] text-slate-400">
-                  Picking a lead turns {selectedIso} into that lead&apos;s follow-up — leave Title and Type blank.
-                </p>
-              </div>
-            )}
             <div className="space-y-1">
               <Label htmlFor="plan-event-title">Title</Label>
               <Input
@@ -663,7 +495,7 @@ export function PlanCalendar({
                 rows={3}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="kuch yaad rakhne layak…"
+                placeholder="kuch yaad rakhne layakâ€¦"
               />
             </div>
           </div>
@@ -672,7 +504,7 @@ export function PlanCalendar({
               Cancel
             </Button>
             <Button type="button" onClick={() => void handleSavePersonal()} disabled={saving}>
-              {saving ? "Saving…" : pickedLead && !editing ? "Set follow-up" : editing ? "Save changes" : "Add event"}
+              {saving ? "Savingâ€¦" : editing ? "Save changes" : "Add event"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -714,13 +546,9 @@ function LeadChipButton({
 function ReminderCard({
   reminder,
   isTeamView,
-  busy,
-  onAction,
 }: {
-  reminder: CalendarReminder;
+  reminder: CalendarAppointment;
   isTeamView: boolean;
-  busy: boolean;
-  onAction: (action: "done" | "postpone" | "clear") => void;
 }) {
   return (
     <article className="rounded-xl border border-slate-200 p-3">
@@ -729,29 +557,18 @@ function ReminderCard({
           <ReminderIcon kind={reminder.kind} />
           {reminder.leadName}
         </p>
-        {reminder.overdue && <Badge variant="destructive">Overdue</Badge>}
+        {reminder.past && <Badge variant="secondary">Past</Badge>}
       </div>
       <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-        <span className="capitalize">{reminder.kind === "dnp" ? "DNP — call back" : reminder.kind}</span>
-        {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
+        <span>{reminder.kindLabel}</span>
+        {reminder.leadStatus !== "-" && <span>Â· {reminder.leadStatus}</span>}
         {isTeamView && reminder.agent !== "-" && (
           <span className="inline-flex items-center gap-1">
-            · <UserRound className="size-3" aria-hidden="true" /> {reminder.agent}
+            Â· <UserRound className="size-3" aria-hidden="true" /> {reminder.agent}
           </span>
         )}
       </p>
       {reminder.phone !== "-" && <p className="mt-1 text-xs font-medium text-slate-700">{reminder.phone}</p>}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Button type="button" size="xs" disabled={busy} onClick={() => onAction("done")}>
-          <CircleCheck aria-hidden="true" /> Done
-        </Button>
-        <Button type="button" size="xs" variant="outline" disabled={busy} onClick={() => onAction("postpone")}>
-          Tomorrow
-        </Button>
-        <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={() => onAction("clear")}>
-          Clear
-        </Button>
-      </div>
     </article>
   );
 }

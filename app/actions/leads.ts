@@ -40,6 +40,9 @@ import {
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
+import {
+  normaliseAppointmentDate,
+} from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
 
 export type LeadStatus = string;
@@ -64,6 +67,14 @@ export interface Lead {
   assigned_to: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * OPD / IPD appointment dates — one per status (see lib/appointments.ts).
+   * Nullable rather than "-": these columns were added after the original
+   * schema, and NULL is what lets the calendar filter on "has an appointment".
+   */
+  opd_booked_date?: string | null;
+  opd_done_date?: string | null;
+  ipd_done_date?: string | null;
 }
 
 export interface LeadActivity {
@@ -196,6 +207,11 @@ const LEADS_INSERT_COLUMNS = [
   "status",
   "temperature",
   "assigned_to",
+  // Exported so a clinic can open the sheet and see which patients are
+  // booked for OPD/IPD and on what date, without opening the CRM.
+  "opd_booked_date",
+  "opd_done_date",
+  "ipd_done_date",
 ] as const;
 
 function pickLeadColumns(record: Record<string, unknown>): Record<string, string> {
@@ -1735,6 +1751,74 @@ export async function updateLeadStatus(
     return {
       success: false,
       error: getErrorMessage(error, "Unable to update lead status."),
+    };
+  }
+}
+
+/**
+ * Saves ONE OPD/IPD appointment date.
+ *
+ * The column is passed as a narrow union rather than a free string on
+ * purpose: a caller cannot name an arbitrary `leads` column, so this endpoint
+ * can only ever write one of the three appointment dates. That is the whole
+ * reason the date box is safe to render from a status.
+ *
+ * Empty is stored as SQL NULL (not "-"), so "no date yet" stays
+ * distinguishable from "cleared" and the calendar can filter on `is not null`.
+ */
+export async function updateLeadAppointment(input: {
+  id: string;
+  column: "opd_booked_date" | "opd_done_date" | "ipd_done_date";
+  value: string;
+}): Promise<ActionResult<Lead>> {
+  if (!input.id) return { success: false, error: "Lead ID is required." };
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const value = normaliseAppointmentDate(input.value);
+    const { data, error } = await supabase
+      .from("leads")
+      .update({ [input.column]: value || null })
+      .eq("id", input.id)
+      .select()
+      .single();
+
+    if (error) {
+      // Almost always a missing column — name the fix instead of a raw
+      // PostgREST message the clinic admin cannot act on.
+      if (/column|42703|pgrst204/i.test(error.message)) {
+        return {
+          success: false,
+          error:
+            "Appointment dates need the new columns — run supabase-master-data-migration.sql in the Supabase SQL editor.",
+        };
+      }
+      return { success: false, error: error.message };
+    }
+
+    if (user && value) {
+      const label = input.column.replace(/_/g, " ").replace(" date", "");
+      await recordLeadActivity(
+        supabase,
+        input.id,
+        user.id,
+        "note",
+        `Appointment date set — ${label}: ${value}`,
+      );
+    }
+
+    // The calendar reads these columns directly, so it must re-render too.
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/calendar");
+    return { success: true, data: data as Lead };
+  } catch (error) {
+    return {
+      success: false,
+      error: getErrorMessage(error, "Unable to save the appointment date."),
     };
   }
 }

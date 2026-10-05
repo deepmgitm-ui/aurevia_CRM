@@ -29,15 +29,19 @@ export const MASTER_DATA_SEED: Record<MasterDataListKey, string[]> = {
     "Consultation Booked",
     "Consultation Attended",
     "Surgery Completed",
-    // Legacy clinic vocabulary kept selectable: imported leads already carry
-    // these values and stageForStatus()/lead-score still count them
-    // (OPD Booked → booked, OPD Done → attended, IPD Done → surgery).
+    // Clinic vocabulary. Each of these OWNS A DATE (see lib/appointments.ts):
+    // OPD Booked → opd_booked_date, OPD Done → opd_done_date,
+    // IPD Done → ipd_done_date. Picking one reveals its date box.
     "OPD Booked",
     "OPD Done",
     "IPD Done",
     "Invalid Number",
-    "Lost",
-    "Won",
+    // "Won" is NOT here: it is a computed tag, shown whenever the status is
+    // OPD Done / IPD Done / Surgery Completed (see isWonStatus). Storing it as
+    // a status too would just be a second thing to keep in sync.
+    // "Lost" is gone from the picker — leads that had it were moved to
+    // "Dropped" by supabase-master-data-migration.sql, so nothing was lost.
+    "Dropped",
   ],
   treatments: ["LASIK", "Cataract", "ICL", "Retina", "Spectacles", "Other"],
   sources: ["Meta Ads", "Online Enquiry", "Agent Referral", "Doctor Referral", "Walk-in", "Corporate Tie-up", "Social Media", "Manual", "Excel/CSV"],
@@ -57,7 +61,10 @@ export const BOARD_FALLBACK_STATUSES = [
   "Consultation Booked",
   "Consultation Attended",
   "Surgery Completed",
-  "Lost",
+  // "Dropped" rather than "Lost": Lost left the picker (see MASTER_DATA_SEED),
+  // and Dropped is what those leads were converted to, so the column still
+  // reads every dead lead instead of quietly losing them.
+  "Dropped",
 ] as const;
 
 export interface MasterDataSnapshot {

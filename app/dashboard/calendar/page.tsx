@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
+import { CalendarCheck } from "lucide-react";
 
-import { getMonthDays, type PersonalEvent } from "./actions";
+import { getMonthDays } from "./actions";
 import { PlanCalendar } from "./plan-calendar";
 
 export default async function CalendarPage({
@@ -22,36 +23,79 @@ export default async function CalendarPage({
   const result = await getMonthDays(monthParam ?? undefined);
   if (!result.success) throw new Error(result.error);
 
-  const todayIso = new Date().toLocaleDateString("en-CA");
-  const personal = result.data.days.flatMap((day) =>
-    day.personal.map((event: PersonalEvent) => event),
-  );
-  const upcoming = personal
-    .filter((event) => event.date >= todayIso)
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    .slice(0, 5);
+  const todayIso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+  }).format(new Date());
+
+/** "05 Oct" — the clinic reads dates this way, not as an ISO string. */
+function formatShortDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+  });
+}
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Plan your calendar</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+          OPD &amp; IPD Schedule
+        </h1>
         <p className="mt-2 text-sm text-slate-500">
-          Lead follow-ups and DNP callbacks appear automatically. Use the Event button below
-          to plan your own leave, visits and notes.
+          Every OPD booking, completed OPD and IPD surgery, on the day it happens. Dates are
+          entered from the Leads page by picking a status.
         </p>
       </div>
-      {upcoming.length > 0 && (
-        <div className="flex flex-wrap gap-2" aria-label="Aane wale personal events">
-          {upcoming.map((event) => (
-            <span
-              key={event.id}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
-            >
-              <span className="font-semibold text-slate-900">{event.date.slice(8)}/{event.date.slice(5, 7)}</span>
-              <span className="capitalize text-slate-400">{event.kind}</span> {event.title}
+      {result.data.upcoming.length > 0 && (
+        // The "what is coming" list. It reads the SAME appointment data as the
+        // grid below, so it can never disagree with the calendar about who is
+        // coming on which day.
+        <section aria-label="Upcoming appointments" className="space-y-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <CalendarCheck className="size-4 text-indigo-600" aria-hidden="true" />
+            Upcoming Appointments
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+              {result.data.upcoming.length}
             </span>
-          ))}
-        </div>
+          </h2>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {result.data.upcoming.slice(0, 12).map((item) => (
+              <li
+                key={`${item.leadId}-${item.kind}`}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{item.leadName}</p>
+                  <p className="truncate text-xs text-slate-500">
+                    <span
+                      className={`font-medium ${
+                        item.kind === "ipdDone"
+                          ? "text-violet-700"
+                          : item.kind === "opdDone"
+                            ? "text-emerald-700"
+                            : "text-blue-700"
+                      }`}
+                    >
+                      {item.kindLabel}
+                    </span>
+                    {result.data.isTeamView && ` · ${item.agent}`}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 tabular-nums">
+                  {formatShortDate(item.date)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {result.data.upcoming.length > 12 && (
+            <p className="text-xs text-slate-500">
+              Showing the next 12 of {result.data.upcoming.length} appointments. Use the calendar
+              below to see the rest of this month.
+            </p>
+          )}
+        </section>
       )}
       <PlanCalendar
         days={result.data.days}

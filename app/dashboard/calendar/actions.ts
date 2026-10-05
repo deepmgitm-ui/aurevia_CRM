@@ -3,27 +3,71 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { stageForStatus } from "../overview/analytics";
+import {
+  appointmentForStatus,
+  normaliseAppointmentDate,
+  type AppointmentField,
+  type AppointmentKind,
+} from "@/lib/appointments";
+
+/**
+ * The three appointment columns, in the order a patient's journey happens:
+ * booked → OPD → surgery.
+ *
+ * Kept as a local (not exported) because a "use server" module may only export
+ * async functions. The ORDER and the COLUMN NAMES come from the pure module,
+ * so this list can never drift from what `appointmentForStatus` writes.
+ */
+const APPOINTMENT_FIELDS: readonly AppointmentField[] = [
+  appointmentForStatus("OPD Booked"),
+  appointmentForStatus("OPD Done"),
+  appointmentForStatus("IPD Done"),
+].filter((field): field is AppointmentField => field !== null);
 import { toLocalIso } from "./month-grid";
 
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
   | { success: false; data?: undefined; error: string };
 
-export type FollowUpKind = "followup" | "dnp" | "consultation";
+/**
+ * What an appointment on the calendar IS — a booked OPD, a done OPD, or an IPD.
+ * Re-exported so plan-calendar.tsx (a client component) can name the kind
+ * without importing from lib/appointments.ts directly; a "use server" module
+ * may only export async functions, but TYPE exports are erased at compile time
+ * and are allowed.
+ */
+export type { AppointmentKind } from "@/lib/appointments";
 
-export interface CalendarReminder {
+export interface CalendarAppointment {
   leadId: string;
   leadName: string;
   phone: string;
   leadStatus: string;
-  /** yyyy-mm-dd the agent must act. */
+  /** Which of the three dates this entry is for (see lib/appointments.ts). */
+  kind: AppointmentKind;
+  /** Human label for the day panel: "Booked", "OPD", "IPD / Surgery". */
+  kindLabel: string;
+  /** yyyy-mm-dd this appointment falls on. */
   date: string;
-  overdue: boolean;
-  kind: FollowUpKind;
+  /** Past dates are flagged so the day panel can sort them first. */
+  past: boolean;
   /** Owning agent (shown only in the admin/manager team view). */
   agent: string;
 }
+
+/**
+ * Short label shown on the calendar chip for each kind of appointment.
+ *
+ * The label map lives HERE rather than in lib/appointments.ts because this is a
+ * "use server" module: Next forbids it from exporting anything but async
+ * functions, so a plain constant has to stay out of it. The columns themselves
+ * are imported from the pure module instead.
+ */
+const APPOINTMENT_KIND_LABELS: Record<AppointmentKind, string> = {
+  opdBooked: "OPD Booked",
+  opdDone: "OPD Done",
+  ipdDone: "IPD / Surgery",
+};
 
 export interface PersonalEvent {
   id: string;
@@ -57,7 +101,7 @@ export interface CalendarDay {
   iso: string;
   day: number;
   isCurrentMonth: boolean;
-  reminders: CalendarReminder[];
+  reminders: CalendarAppointment[];
   personal: PersonalEvent[];
   created: CreatedLead[];
   activities: ActivityEntry[];
@@ -66,7 +110,8 @@ export interface CalendarDay {
 export interface MonthDays {
   month: string;
   days: CalendarDay[];
-  overdue: CalendarReminder[];
+  /** All appointments from today onwards, soonest first — the "upcoming" list. */
+upcoming: CalendarAppointment[];
   isTeamView: boolean;
 }
 
@@ -74,16 +119,6 @@ const PERSONAL_KINDS = ["note", "call", "visit", "leave"];
 
 const CALENDAR_TABLE_MISSING_ERROR =
   "The calendar_events table does not exist yet — run supabase-calendar-migration.sql in the Supabase SQL editor first.";
-
-interface LeadReminderRow {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  status: string | null;
-  temperature: string | null;
-  follow_up_date: string | null;
-  assigned_to: string | null;
-}
 
 interface CalendarEventRow {
   id: string;
@@ -129,41 +164,48 @@ function toIsoDate(date: Date): string {
   return toLocalIso(date);
 }
 
-function reachedConsultation(stage: string): boolean {
-  return stage === "booked" || stage === "attended" || stage === "surgery";
+interface LeadAppointmentRow {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  status: string | null;
+  assigned_to: string | null;
+  /** Nullable columns — added by supabase-master-data-migration.sql. */
+  opd_booked_date: string | null;
+  opd_done_date: string | null;
+  ipd_done_date: string | null;
 }
 
-// Maps the lead rows Supabase returns (subset projection) to the UI shape.
-function toCalendarReminder(
-  row: {
-    id: string;
-    name: string | null;
-    phone: string | null;
-    status: string | null;
-    temperature: string | null;
-    follow_up_date: string | null;
-    assigned_to: string | null;
-  },
-  today: string,
-): CalendarReminder {
-  const date = (row.follow_up_date ?? "").trim();
+/**
+ * Splits one lead into the calendar entries its dates produce.
+ *
+ * A lead that has both an OPD booking and an IPD surgery yields TWO entries —
+ * that is deliberate. Collapsing them onto one date would mean choosing which
+ * date "wins", and the clinic needs to see the patient on the day they are
+ * actually expected to arrive.
+ */
+function toCalendarAppointments(row: LeadAppointmentRow, today: string): CalendarAppointment[] {
+  const agent = (row.assigned_to ?? "").trim() || "-";
   const status = (row.status ?? "").trim() || "-";
-  const lowerStatus = status.toLowerCase();
-  const kind: FollowUpKind = /dnp|didn'?t pick|not pick|\brnr\b|no response/.test(lowerStatus)
-    ? "dnp"
-    : reachedConsultation(stageForStatus(status))
-      ? "consultation"
-      : "followup";
-  return {
-    leadId: row.id,
-    leadName: (row.name ?? "").trim() || "Unnamed lead",
-    phone: (row.phone ?? "").trim() || "-",
-    leadStatus: status,
-    date,
-    overdue: date < today,
-    kind,
-    agent: (row.assigned_to ?? "").trim() || "-",
-  };
+
+  const entries: CalendarAppointment[] = [];
+  for (const field of APPOINTMENT_FIELDS) {
+    const iso = toCalendarDate(normaliseAppointmentDate(row[field.column]));
+    if (!iso) continue;
+    entries.push({
+      leadId: row.id,
+      leadName: (row.name ?? "").trim() || "Unnamed lead",
+      phone: (row.phone ?? "").trim() || "-",
+      leadStatus: status,
+      kind: field.kind,
+      kindLabel: APPOINTMENT_KIND_LABELS[field.kind],
+      date: iso,
+      past: iso < today,
+      agent,
+    });
+  }
+  // Soonest first so a day panel reads booking → OPD → surgery.
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Signed-in viewer, or null. All calendar queries are scoped to this person. */
@@ -237,29 +279,52 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     const supabase = await createClient();
     const isTeamView = viewer.role === "admin" || viewer.role === "manager";
 
-    // Reminders read live off leads.follow_up_date — this query stays tiny on
-    // purpose: RLS already scopes rows to this viewer, so no extra filtering.
+    // Appointments read live off the three OPD/IPD columns on `leads` — NOT from
+    // leads.follow_up_date. Follow-up calls are handled by the Leads page
+    // filters; this calendar is specifically the clinic's OPD/IPD schedule.
+    //
+    // The three columns come back in ONE query and then spread into up to three
+    // calendar entries per lead: a patient booked for OPD and later admitted
+    // for IPD appears on BOTH days, which is the whole point of storing three
+    // dates instead of one.
     const { data: leadRows, error: leadsError } = await supabase
       .from("leads")
-      .select("id,name,phone,status,temperature,follow_up_date,assigned_to")
-      .not("follow_up_date", "is", null)
-      .neq("follow_up_date", "")
-      .neq("follow_up_date", "-")
-      .order("follow_up_date", { ascending: true })
+      .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
+      .or(
+        "opd_booked_date.not.is.null,and.opd_done_date.not.is.null,and.ipd_done_date.not.is.null",
+      )
       .limit(500);
-    if (leadsError) return { success: false, error: leadsError.message };
+    if (leadsError) {
+      // The columns only exist after the migration has run — name the fix
+      // instead of leaking a PostgREST error at the clinic admin.
+      if (/column|42703|pgrst204/i.test(leadsError.message)) {
+        return {
+          success: false,
+          error:
+            "Appointments need the new columns — run supabase-master-data-migration.sql in the Supabase SQL editor.",
+        };
+      }
+      return { success: false, error: leadsError.message };
+    }
 
-    const byDay = new Map<string, CalendarReminder[]>();
-    for (const row of (leadRows ?? []) as LeadReminderRow[]) {
+    const byDay = new Map<string, CalendarAppointment[]>();
+    const upcoming: CalendarAppointment[] = [];
+    for (const row of (leadRows ?? []) as LeadAppointmentRow[]) {
       if (!isTeamView && (row.assigned_to ?? "").trim().toLowerCase() !== viewer.name.toLowerCase()) {
         continue;
       }
-      const iso = toCalendarDate(row.follow_up_date);
-      if (!iso || iso < from || iso > to) continue;
-      const bucket = byDay.get(iso) ?? [];
-      bucket.push(toCalendarReminder(row, today));
-      byDay.set(iso, bucket);
+      for (const entry of toCalendarAppointments(row, today)) {
+        if (entry.date < from || entry.date > to) continue;
+        const bucket = byDay.get(entry.date) ?? [];
+        bucket.push(entry);
+        byDay.set(entry.date, bucket);
+        if (entry.date >= today) upcoming.push(entry);
+      }
     }
+    // Soonest first; same-day entries keep a stable, human (alphabetical) order.
+    upcoming.sort((a, b) =>
+      a.date === b.date ? a.leadName.localeCompare(b.leadName) : a.date.localeCompare(b.date),
+    );
 
     const { data: eventRows, error: eventsError } = await supabase
       .from("calendar_events")
@@ -361,9 +426,10 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
       created: createdByDay.get(cell.iso) ?? [],
       activities: activitiesByDay.get(cell.iso) ?? [],
     }));
-    const total = days.flatMap((day) => day.reminders);
-    const overdue = total.filter((item) => item.overdue);
-    return { success: true, data: { month: target, days, overdue, isTeamView } };
+    // `upcoming` is built in the query loop above and spans every day of the
+    // month from today forward, so it survives a month change without a second
+    // round trip.
+    return { success: true, data: { month: target, days, upcoming, isTeamView } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load the calendar.") };
   }

@@ -22,6 +22,7 @@ import {
   updateLeadAssignment,
   updateLeadTemperature,
   updateLeadFollowUpDate,
+  updateLeadAppointment,
   randomAssignLeads,
   type Lead,
   type LeadActivity,
@@ -33,6 +34,11 @@ import {
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
+import {
+  appointmentForStatus,
+  isWonStatus,
+  normaliseAppointmentDate,
+} from "@/lib/appointments";
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
 import { getMasterData } from "@/app/actions/master-data";
 import { Button } from "@/components/ui/button";
@@ -891,6 +897,63 @@ export function LeadsTable({
     setUpdatingLeadId(null);
   }
 
+  /**
+   * The date box that appears when a lead's status owns a date.
+   *
+   * Which column it writes to is NOT decided here — `appointmentForStatus` owns
+   * that, so the Leads row, the drawer and the calendar can never disagree
+   * about what "OPD Booked" means. This component only renders and saves.
+   *
+   * Renders nothing for a status with no date, which is what keeps the table
+   * tidy: only the three OPD/IPD statuses grow a date row.
+   */
+  function AppointmentDateInput({ lead }: { lead: Lead }) {
+    const [saving, setSaving] = useState(false);
+    // Captured into a non-null local: TypeScript cannot carry the `if (!field)`
+    // narrowing into the `save` closure below, so it would otherwise widen back
+    // to `AppointmentField | null` on every use.
+    const field = appointmentForStatus(lead.status);
+    if (!field) return null;
+    const column = field.column;
+    const fieldLabel = field.label;
+
+    const current = normaliseAppointmentDate((lead as unknown as Record<string, string>)[column]);
+
+    async function save(next: string) {
+      if (next === current) return;
+      setSaving(true);
+      const response = await updateLeadAppointment({ id: lead.id, column, value: next });
+      setSaving(false);
+      if (!response.success) {
+        toast.add({ title: "Date not saved", description: response.error, type: "error" });
+        return;
+      }
+      // Merge the saved lead back in so the Won badge and the calendar both see it.
+      setLeads((currentLeads) =>
+        currentLeads.map((item) => (item.id === lead.id ? response.data : item)),
+      );
+      if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+      toast.add({ title: `${fieldLabel} saved`, type: "success" });
+    }
+
+    return (
+      <div className="space-y-0.5">
+        <label className="block text-[10px] font-medium tracking-wide text-slate-500 uppercase">
+          {field.label}
+        </label>
+        <input
+          type="date"
+          value={current}
+          disabled={saving}
+          onChange={(event) => void save(event.target.value)}
+          aria-label={`${field.label} for ${lead.name}`}
+          title={field.hint}
+          className="h-7 w-full max-w-[170px] rounded-md border border-slate-200 px-2 text-[11px] text-slate-700 disabled:opacity-60"
+        />
+      </div>
+    );
+  }
+
   async function handleAssignmentChange(lead: Lead, employeeName: string | null) {
     if (!employeeName || employeeName === lead.assigned_to) return;
     trackLeadMutations(lead.id);
@@ -1615,10 +1678,23 @@ export function LeadsTable({
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="w-[180px] py-3"><Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
-                    <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`}><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, lead.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
-                  </Select></TableCell>
+                  <TableCell className="w-[180px] py-3">
+                    <div className="space-y-1.5">
+                      <Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
+                        <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, lead.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+                      </Select>
+                      {/* Won is derived, not stored — reaching an OPD or IPD IS
+                          the win, so this badge can never drift from the
+                          status sitting right above it. */}
+                      {isWonStatus(lead.status) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                          Won
+                        </span>
+                      )}
+                      <AppointmentDateInput lead={lead} />
+                    </div>
+                  </TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.temperature} onValueChange={(value) => handleTemperatureChange(lead, value)}>
                     <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
                     <SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperature === "Hot" ? "Hot 🔥" : temperature === "Warm" ? "Warm ☀️" : "Cold ❄️"}</SelectItem>)}</SelectContent>
