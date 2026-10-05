@@ -112,7 +112,6 @@ export interface MonthDays {
   days: CalendarDay[];
   /** All appointments from today onwards, soonest first — the "upcoming" list. */
 upcoming: CalendarAppointment[];
-  isTeamView: boolean;
 }
 
 const PERSONAL_KINDS = ["note", "call", "visit", "leave"];
@@ -277,7 +276,16 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     const today = toIsoDate(now);
 
     const supabase = await createClient();
-    const isTeamView = viewer.role === "admin" || viewer.role === "manager";
+
+    // EVERY viewer sees ONLY their own appointments — admin included.
+    //
+    // This used to be `if (!isTeamView && …)`, i.e. admins and managers saw
+    // every employee's patients on this screen. That was a genuine data leak:
+    // an OPD/IPD schedule is patient-identifying (name + phone + surgery date),
+    // so a clinic manager opening "my calendar" was reading colleagues'
+    // patients rather than their own work. The Leads table is where the team
+    // view belongs; this screen is personal, so it is personal for everyone.
+    const viewerName = viewer.name.trim().toLowerCase();
 
     // Appointments read live off the three OPD/IPD columns on `leads` — NOT from
     // leads.follow_up_date. Follow-up calls are handled by the Leads page
@@ -287,6 +295,12 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     // calendar entries per lead: a patient booked for OPD and later admitted
     // for IPD appears on BOTH days, which is the whole point of storing three
     // dates instead of one.
+    //
+    // The owner filter is applied HERE in JS rather than as a `.eq()` on the
+    // query: `assigned_to` stores a display NAME, not the auth uid, so the
+    // database cannot compare it to auth.uid() without a join. The row set is
+    // bounded by RLS and the limit, so filtering after the fetch costs nothing
+    // meaningful — but it MUST stay after the fetch, never before.
     const { data: leadRows, error: leadsError } = await supabase
       .from("leads")
       .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
@@ -310,9 +324,9 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     const byDay = new Map<string, CalendarAppointment[]>();
     const upcoming: CalendarAppointment[] = [];
     for (const row of (leadRows ?? []) as LeadAppointmentRow[]) {
-      if (!isTeamView && (row.assigned_to ?? "").trim().toLowerCase() !== viewer.name.toLowerCase()) {
-        continue;
-      }
+      // Unassigned patients belong to nobody, so no one sees them here — they
+      // surface on the Leads page instead, where an admin can assign them.
+      if ((row.assigned_to ?? "").trim().toLowerCase() !== viewerName) continue;
       for (const entry of toCalendarAppointments(row, today)) {
         if (entry.date < from || entry.date > to) continue;
         const bucket = byDay.get(entry.date) ?? [];
@@ -429,7 +443,7 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     // `upcoming` is built in the query loop above and spans every day of the
     // month from today forward, so it survives a month change without a second
     // round trip.
-    return { success: true, data: { month: target, days, upcoming, isTeamView } };
+    return { success: true, data: { month: target, days, upcoming } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load the calendar.") };
   }
@@ -725,7 +739,11 @@ export async function searchLeadsForCalendar(query: string): Promise<CalendarRes
   try {
     const viewer = await getCalendarViewer();
     if (!viewer) return { success: false, error: "Sign in required." };
-    const isTeamView = viewer.role === "admin" || viewer.role === "manager";
+    // Same rule as the calendar itself: every role sees only their own leads.
+    // An admin who can search every patient from a quick-pick box gets a phone
+    // number and name for colleagues' patients, which is exactly what the
+    // calendar's owner filter exists to prevent. Team-wide work belongs on the
+    // Leads page, which is role-gated separately and audited.
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("leads")
@@ -735,9 +753,9 @@ export async function searchLeadsForCalendar(query: string): Promise<CalendarRes
       .limit(8);
     if (error) return { success: false, error: error.message };
     let rows = (data ?? []) as LeadSearchRow[];
-    if (!isTeamView) {
-      rows = rows.filter((row) => (row.assigned_to ?? "").trim().toLowerCase() === viewer.name.toLowerCase());
-    }
+    // `isTeamView` used to skip this filter for admins/managers; now every role is
+    // scoped to their own leads.
+    rows = rows.filter((row) => (row.assigned_to ?? "").trim().toLowerCase() === viewer.name.toLowerCase());
     return {
       success: true,
       data: rows.map((row) => ({

@@ -26,7 +26,6 @@ import {
   Sparkles,
   Stethoscope,
   Trash2,
-  UserRound,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -106,16 +105,13 @@ function eventDotClass(kind: PersonalEvent["kind"]) {
 export function PlanCalendar({
   days,
   month,
-  isTeamView,
   todayIso,
 }: {
   /** Every rendered day cell (42 Monday-first cells from the server). */
   days: CalendarDay[];
-  /** The month the server already loaded (yyyy-mm) â€” the starting cursor. */
+  /** The month the server already loaded (yyyy-mm) — the starting cursor. */
   month: string;
-  /** True for admins/managers: reminder chips show the owning agent. */
-  isTeamView: boolean;
-  /** Today's yyyy-mm-dd in the viewer's locale. */
+  /** Today as yyyy-mm-dd in the clinic timezone. */
   todayIso: string;
 }) {
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
@@ -391,7 +387,6 @@ export function PlanCalendar({
                 <ReminderCard
                   key={`${reminder.leadId}-${reminder.kind}`}
                   reminder={reminder}
-                  isTeamView={isTeamView}
                 />
               ))}
             </section>
@@ -408,7 +403,7 @@ export function PlanCalendar({
                 <LeadChipButton
                   key={lead.leadId}
                   name={lead.leadName}
-                  meta={[lead.status, isTeamView && lead.agent !== "-" ? lead.agent : null].filter(Boolean).join(" Â· ")}
+                  meta={[lead.status, lead.agent !== "-" ? lead.agent : null].filter(Boolean).join(" · ")}
                   icon={<Sparkles className="size-3.5 text-emerald-600" aria-hidden="true" />}
                   onClick={() => openTimeline(lead.leadId)}
                 />
@@ -545,10 +540,8 @@ function LeadChipButton({
 
 function ReminderCard({
   reminder,
-  isTeamView,
 }: {
   reminder: CalendarAppointment;
-  isTeamView: boolean;
 }) {
   return (
     <article className="rounded-xl border border-slate-200 p-3">
@@ -561,12 +554,7 @@ function ReminderCard({
       </div>
       <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
         <span>{reminder.kindLabel}</span>
-        {reminder.leadStatus !== "-" && <span>Â· {reminder.leadStatus}</span>}
-        {isTeamView && reminder.agent !== "-" && (
-          <span className="inline-flex items-center gap-1">
-            Â· <UserRound className="size-3" aria-hidden="true" /> {reminder.agent}
-          </span>
-        )}
+        {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
       {reminder.phone !== "-" && <p className="mt-1 text-xs font-medium text-slate-700">{reminder.phone}</p>}
     </article>

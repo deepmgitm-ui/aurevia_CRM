@@ -80,7 +80,7 @@ function formatShortDate(iso: string): string {
                     >
                       {item.kindLabel}
                     </span>
-                    {result.data.isTeamView && ` · ${item.agent}`}
+                    {item.agent !== "-" && ` · ${item.agent}`}
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 tabular-nums">
@@ -100,7 +100,6 @@ function formatShortDate(iso: string): string {
       <PlanCalendar
         days={result.data.days}
         month={result.data.month}
-        isTeamView={result.data.isTeamView}
         todayIso={todayIso}
       />
     </div>
