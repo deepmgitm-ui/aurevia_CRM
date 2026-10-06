@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  attendanceMonthRange,
   clinicDate,
   formatClock,
   isAttendanceStatus,
@@ -105,7 +106,6 @@ const SELECT_COLUMNS =
 
 const SELECT_COLUMNS_TABLE = "attendance";
 
-const MONTH_PATTERN = /^\d{4}-\d{2}$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -194,16 +194,15 @@ export async function getMyAttendance(
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
-    if (!MONTH_PATTERN.test(month)) {
-      return { success: false, error: "Month must look like 2026-09." };
-    }
+    const range = attendanceMonthRange(month);
+    if (!range) return { success: false, error: "Month must be a valid YYYY-MM value, such as 2026-09." };
 
     const { data, error } = await viewer.supabase
       .from("attendance")
       .select(SELECT_COLUMNS)
       .eq("employee_id", viewer.id)
-      .gte("attendance_date", `${month}-01`)
-      .lte("attendance_date", `${month}-31`)
+      .gte("attendance_date", range.start)
+      .lt("attendance_date", range.endExclusive)
       .order("attendance_date", { ascending: false });
 
     if (error) {
@@ -236,15 +235,14 @@ export async function getTeamAttendance(
     if (!isManager(viewer.role)) {
       return { success: false, error: "Only an admin or manager can view team attendance." };
     }
-    if (!MONTH_PATTERN.test(month)) {
-      return { success: false, error: "Month must look like 2026-09." };
-    }
+    const range = attendanceMonthRange(month);
+    if (!range) return { success: false, error: "Month must be a valid YYYY-MM value, such as 2026-09." };
 
     const { data, error } = await viewer.supabase
       .from("attendance")
       .select(SELECT_COLUMNS)
-      .gte("attendance_date", `${month}-01`)
-      .lte("attendance_date", `${month}-31`)
+      .gte("attendance_date", range.start)
+      .lt("attendance_date", range.endExclusive)
       .order("attendance_date", { ascending: false })
       .order("check_in_at", { ascending: true, nullsFirst: false });
 

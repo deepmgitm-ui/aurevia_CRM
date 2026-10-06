@@ -1,9 +1,11 @@
 // Regression checks for the attendance rules (clinic timezone, midnight
 // sign-out, roster maths). Run with: npm run verify:attendance
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   ATTENDANCE_STATUSES,
+  attendanceMonthRange,
   attendanceRate,
   buildTeamCards,
   clinicDate,
@@ -21,6 +23,18 @@ import {
   type AttendanceRow,
 } from "../lib/attendance.ts";
 
+// Existing deployments need an executable SQL update as well as the canonical
+// migration change: employees must retain self-insert/read, but never UPDATE.
+const readOnlyMigration = readFileSync(
+  new URL("../supabase-attendance-readonly-migration.sql", import.meta.url),
+  "utf8",
+);
+assert.match(readOnlyMigration, /attendance_select_own_or_manage/);
+assert.match(readOnlyMigration, /employee_id = auth\.uid\(\)/);
+assert.match(readOnlyMigration, /current_user_role\(\) in \('admin', 'manager'\)/);
+assert.match(readOnlyMigration, /drop policy if exists attendance_self_update_check_in/);
+assert.doesNotMatch(readOnlyMigration, /create policy attendance_self_update_check_in/);
+
 // ---------------------------------------------------------------------------
 // 1. "Today" is Delhi's calendar day, not UTC's. 18:30 UTC is already the
 //    NEXT day in India, so a UTC-based check-in date would file the evening
@@ -30,6 +44,15 @@ assert.equal(clinicDate(new Date("2026-09-29T18:30:00Z")), "2026-09-30", "18:30 
 assert.equal(clinicDate(new Date("2026-09-29T15:00:00Z")), "2026-09-29", "20:30 IST stays on the 29th");
 assert.equal(clinicDate(new Date("2026-01-01T00:00:00+05:30")), "2026-01-01", "IST midnight belongs to the 1st");
 assert.equal(clinicDate(new Date("2026-12-31T19:00:00Z")), "2027-01-01", "year rolls over in IST");
+assert.deepEqual(attendanceMonthRange("2026-02"), {
+  start: "2026-02-01",
+  endExclusive: "2026-03-01",
+});
+assert.deepEqual(attendanceMonthRange("2026-12"), {
+  start: "2026-12-01",
+  endExclusive: "2027-01-01",
+});
+assert.equal(attendanceMonthRange("2026-13"), null, "an invalid month is rejected");
 
 // ---------------------------------------------------------------------------
 // 2. Check-in times print in the clinic's clock, not the server's.

@@ -196,15 +196,21 @@ export function LeadDetailDrawer({
   async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string) {
     if (!lead) return;
     setSaving(true);
+    const optimistic = { ...lead, ...patch, id: lead.id };
+    setLead(optimistic);
+    onMutated?.(optimistic);
     const update = await updateLeadDetails({ ...patch, id: lead.id });
-    setSaving(false);
     if (!update.success) {
+      setLead(lead);
+      onMutated?.(lead);
       toast.add({ title: "Could not save", description: update.error, type: "error" });
+      setSaving(false);
       return;
     }
     setLead(update.data);
     onMutated?.(update.data);
     toast.add({ title: successTitle });
+    setSaving(false);
   }
 
   async function handleInfoSave() {
@@ -230,7 +236,7 @@ export function LeadDetailDrawer({
             }
           : {}),
       },
-      "Patient update ho gaya",
+      "Patient updated",
     );
   }
 
@@ -245,7 +251,7 @@ export function LeadDetailDrawer({
     }
     setActivities((current) => [response.data, ...current]);
     setNote("");
-    toast.add({ title: "Note add ho gaya" });
+    toast.add({ title: "Note added" });
   }
 
   async function handleLogCall() {
@@ -334,7 +340,7 @@ export function LeadDetailDrawer({
           id="drawer-call-notes"
           rows={3}
           value={callDraft.notes}
-          placeholder="Patient ne kya bola…"
+          placeholder="What did the patient say?"
           onChange={(event) => setCallDraft((current) => ({ ...current, notes: event.target.value }))}
         />
       </div>
@@ -482,7 +488,7 @@ export function LeadDetailDrawer({
                     <Input
                       id="drawer-detail-treatment"
                       value={edits.treatment}
-                      placeholder="jaise: LASIK, Cataract"
+                      placeholder="For example: LASIK, Cataract"
                       onChange={(event) => setEdits((current) => ({ ...current, treatment: event.target.value }))}
                     />
                   </div>
@@ -548,5 +554,3 @@ export function LeadDetailDrawer({
     </Sheet>
   );
 }
-
-

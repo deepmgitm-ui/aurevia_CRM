@@ -72,12 +72,21 @@ for each row execute function public.set_updated_at();
 alter table public.attendance enable row level security;
 
 -- Role-based logic: employees can VIEW only their own attendance row; admins
--- and managers can view and EDIT everyone's.
+-- and managers can view and EDIT everyone's. Employees cannot update their
+-- own rows, including automatically recorded check-ins.
+drop policy if exists attendance_select_own_or_manage on public.attendance;
+create policy attendance_select_own_or_manage
+on public.attendance for select
+to authenticated
+using (
+  employee_id = auth.uid()
+  or public.current_user_role() in ('admin', 'manager')
+);
+
 --
 -- Signing in IS the check-in, so an employee needs write access to their OWN
--- row. The policy is deliberately narrow: today only, always 'Present', always
--- auto_marked. A self-service mark can therefore never write "Absent" over a
--- real day, nor back-fill yesterday, nor touch a colleague's row.
+-- row. This policy grants INSERT only: today, always 'Present', always
+-- auto_marked.
 drop policy if exists attendance_self_check_in on public.attendance;
 create policy attendance_self_check_in
 on public.attendance for insert
@@ -89,14 +98,7 @@ with check (
   and auto_marked
 );
 
--- Employees may correct their own check-in TIME on an auto-marked row (a
--- sign-in that happened at the wrong moment). Status and note stay admin-only.
 drop policy if exists attendance_self_update_check_in on public.attendance;
-create policy attendance_self_update_check_in
-on public.attendance for update
-to authenticated
-using (employee_id = auth.uid() and auto_marked)
-with check (employee_id = auth.uid() and auto_marked);
 
 -- CHANGE / MODIFY / DELETE: admin + manager only. The self-service policies
 -- above deliberately do not grant delete, so an employee can never erase their

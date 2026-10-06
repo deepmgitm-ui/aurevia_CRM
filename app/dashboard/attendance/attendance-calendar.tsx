@@ -2,10 +2,8 @@
 
 // Aurevia CRM — the attendance register, as its own month calendar.
 //
-// Deliberately NOT part of "My Calendar": that screen is a personal planning
-// tool every employee uses, and attendance is a management register. It lives
-// on its own page, behind an admin/manager check on the server, so an employee
-// can never reach it by typing the URL.
+// Attendance lives separately from the OPD/IPD appointments calendar. Managers
+// can edit the team register; employees can view their own read-only calendar.
 //
 // One dot per employee per day (green present / amber half-day / rose absent),
 // and the day panel is where a manager corrects or deletes a mark, or adds one
@@ -16,6 +14,8 @@ import { ChevronLeft, ChevronRight, CircleCheck, UserCheck } from "lucide-react"
 
 import {
   deleteAttendance,
+  getMyAttendance,
+  getTeamAttendance,
   markAttendance,
   updateAttendance,
 } from "@/app/actions/attendance";
@@ -98,6 +98,8 @@ export function AttendanceCalendar({
   const [monthCursor, setMonthCursor] = useState(month);
   const [selectedIso, setSelectedIso] = useState(todayIso);
   const [data, setData] = useState<Record<string, AttendanceRow[]>>(() => groupByDate(rows));
+  const [isLoadingMonth, setIsLoadingMonth] = useState(false);
+  const [monthError, setMonthError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [addEmployee, setAddEmployee] = useState("");
   const [addStatus, setAddStatus] = useState<AttendanceStatus>("Absent");
@@ -114,8 +116,13 @@ export function AttendanceCalendar({
    * without a refetch or a lost edit.
    */
   const focusRows = useMemo(
-    () => (focusEmployeeId ? rows.filter((row) => row.employeeId === focusEmployeeId) : rows),
-    [rows, focusEmployeeId],
+    () => {
+      const currentRows = Object.values(data).flat();
+      return focusEmployeeId
+        ? currentRows.filter((row) => row.employeeId === focusEmployeeId)
+        : currentRows;
+    },
+    [data, focusEmployeeId],
   );
 
   /** The focused person's own totals, so the header can show their rate. */
@@ -154,12 +161,34 @@ export function AttendanceCalendar({
     }));
   }
 
+  async function moveMonth(delta: number) {
+    if (isLoadingMonth) return;
+    const nextMonth = shiftMonth(monthCursor, delta);
+    setMonthCursor(nextMonth);
+    setSelectedIso(`${nextMonth}-01`);
+    setIsLoadingMonth(true);
+    setMonthError("");
+    setData({});
+
+    const response = canManage
+      ? await getTeamAttendance(nextMonth)
+      : await getMyAttendance(nextMonth);
+    if (!response.success) {
+      setMonthError(response.error);
+    } else {
+      setData(groupByDate(response.data.rows));
+    }
+    setIsLoadingMonth(false);
+  }
+
   async function changeStatus(row: AttendanceRow, status: AttendanceStatus) {
-    if (row.status === status) return;
+    if (row.status === status || busyKey === row.id) return;
     setBusyKey(row.id);
+    replaceRow({ ...row, status });
     const response = await updateAttendance({ id: row.id, status });
     setBusyKey(null);
     if (!response.success) {
+      replaceRow(row);
       toast.add({ title: "Could not update", description: response.error, type: "error" });
       return;
     }
@@ -168,15 +197,17 @@ export function AttendanceCalendar({
   }
 
   async function remove(row: AttendanceRow) {
+    if (busyKey === row.id) return;
     setBusyKey(row.id);
+    removeRow(row);
     const response = await deleteAttendance(row.id);
     setBusyKey(null);
     if (!response.success) {
+      replaceRow(row);
       toast.add({ title: "Could not delete", description: response.error, type: "error" });
       return;
     }
-    removeRow(row);
-    toast.add({ title: "Attendance hata diya" });
+    toast.add({ title: "Attendance record deleted", type: "success" });
   }
 
   /**
@@ -222,8 +253,9 @@ export function AttendanceCalendar({
                 type="button"
                 size="sm"
                 variant="outline"
-                aria-label="Pichhla mahina"
-                onClick={() => setMonthCursor(shiftMonth(monthCursor, -1))}
+                aria-label="Previous month"
+                disabled={isLoadingMonth}
+                onClick={() => void moveMonth(-1)}
               >
                 <ChevronLeft aria-hidden="true" />
               </Button>
@@ -231,8 +263,9 @@ export function AttendanceCalendar({
                 type="button"
                 size="sm"
                 variant="outline"
-                aria-label="Agla mahina"
-                onClick={() => setMonthCursor(shiftMonth(monthCursor, 1))}
+                aria-label="Next month"
+                disabled={isLoadingMonth}
+                onClick={() => void moveMonth(1)}
               >
                 <ChevronRight aria-hidden="true" />
               </Button>
@@ -247,7 +280,17 @@ export function AttendanceCalendar({
             ))}
           </div>
 
-          <div className="mt-1 grid grid-cols-7 gap-1">
+          {isLoadingMonth && (
+            <p className="mt-2 text-xs text-slate-500" role="status">
+              Loading attendance...
+            </p>
+          )}
+          {monthError && (
+            <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+              {monthError}
+            </p>
+          )}
+          <div className="mt-1 grid grid-cols-7 gap-1" aria-busy={isLoadingMonth}>
             {cells.map((cell) => {
               // Focus mode shows one dot per day, so the cell can be a proper
               // status tile instead of a row of tiny specks.
@@ -334,11 +377,11 @@ export function AttendanceCalendar({
           {canManage && unmarked.length > 0 ? (
             <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-3">
               <p className="text-xs font-semibold text-slate-600">
-                {selectedIso} — login na karne wale logo ka mark yahan se daalo
+                Mark attendance for an employee who did not sign in on {selectedIso}.
               </p>
               <Select value={addEmployee} onValueChange={(value) => setAddEmployee(value ?? "")}>
                 <SelectTrigger size="sm" className="w-full text-xs">
-                  <SelectValue placeholder="Employee chuno" />
+                  <SelectValue placeholder="Select an employee" />
                 </SelectTrigger>
                 <SelectContent>
                   {unmarked.map((person) => (
@@ -370,7 +413,7 @@ export function AttendanceCalendar({
                   disabled={!addEmployee || busyKey === `add-${selectedIso}`}
                   onClick={() => void addMark()}
                 >
-                  Mark
+                  {busyKey === `add-${selectedIso}` ? "Marking..." : "Mark"}
                 </Button>
               </div>
             </div>
@@ -391,11 +434,10 @@ export function AttendanceCalendar({
                   <span>No login time (entered by manager)</span>
                 ) : (
                   <span className="inline-flex items-center gap-1 font-medium text-slate-700">
-                    <CircleCheck className="size-3" aria-hidden="true" /> {row.checkInLabel} par
-                    login
+                    <CircleCheck className="size-3" aria-hidden="true" /> Signed in at {row.checkInLabel}
                   </span>
                 )}
-                {row.autoMarked && <span>· apne aap mark hua</span>}
+                {row.autoMarked && <span>· Automatically recorded</span>}
               </p>
               {row.note && <p className="mt-1 text-xs text-slate-500">{row.note}</p>}
 
@@ -403,6 +445,7 @@ export function AttendanceCalendar({
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Select
                     value={row.status}
+                    disabled={busyKey === row.id}
                     onValueChange={(value) =>
                       value ? void changeStatus(row, value as AttendanceStatus) : undefined
                     }

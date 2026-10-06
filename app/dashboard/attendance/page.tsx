@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { getTeamAttendance } from "@/app/actions/attendance";
+import { getMyAttendance, getTeamAttendance } from "@/app/actions/attendance";
 import { getEmployeeDirectory, getViewer } from "@/app/actions/leads";
 import { clinicDate } from "@/lib/attendance";
 
@@ -9,14 +9,9 @@ import { AttendanceBoard } from "./attendance-board";
 /**
  * /dashboard/attendance — the attendance register as its own month calendar.
  *
- * Admin/manager only. The check lives here on the server (not just in the nav),
- * so an employee who types the URL gets a 404 rather than the roster. The
- * underlying queries are role-guarded too, so this is defence in depth rather
- * than the only lock.
- *
- * Attendance used to be a lane inside "My Calendar"; it was moved out because
- * that screen is a personal tool every employee opens, and this is a
- * management register.
+ * Admins/managers get the editable team register; employees get only their own
+ * read-only calendar. The underlying queries and write actions enforce the
+ * same role boundaries on the server.
  */
 export default async function AttendancePage({
   searchParams,
@@ -32,35 +27,36 @@ export default async function AttendancePage({
 
   const viewerResult = await getViewer();
   const viewer = viewerResult.success ? viewerResult.data : null;
+  if (!viewer) notFound();
   const canManage = viewer?.role === "admin" || viewer?.role === "manager";
-  if (!canManage) notFound();
 
-  const result = await getTeamAttendance(month);
-  const rows = result.success ? result.data.rows : [];
-
-  // The roster drives the employee cards AND the "add a mark for someone who
-  // never signed in" control. getEmployeeDirectory is itself admin/manager-only
-  // and returns [] otherwise, so an employee can't leak the contact sheet.
-  const directoryResult = await getEmployeeDirectory();
-  const employees = directoryResult.success
-    ? directoryResult.data.map((person) => ({
-        id: person.id,
-        name: person.name,
-        role: person.role,
-        phone: person.phone,
-        photo_url: person.photo_url,
-      }))
-    : [];
+  const [attendanceResult, directoryResult] = await Promise.all([
+    canManage ? getTeamAttendance(month) : getMyAttendance(month),
+    canManage ? getEmployeeDirectory() : Promise.resolve(null),
+  ]);
+  const rows = attendanceResult.success ? attendanceResult.data.rows : [];
+  const employees =
+    directoryResult?.success
+      ? directoryResult.data.map((person) => ({
+          id: person.id,
+          name: person.name,
+          role: person.role,
+          phone: person.phone,
+          photo_url: person.photo_url,
+        }))
+      : [];
+  const resultError = attendanceResult.success ? undefined : attendanceResult.error;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-          Attendance
+          {canManage ? "Attendance" : "My Attendance"}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Attendance is marked automatically the moment an employee signs in. Tap any
-          employee&apos;s card to open that person&apos;s own calendar.
+          {canManage
+            ? "Attendance is recorded automatically when employees sign in. Select an employee to view their calendar."
+            : "Your attendance is recorded automatically when you sign in. This calendar is read-only."}
         </p>
       </div>
 
@@ -70,11 +66,13 @@ export default async function AttendancePage({
         todayIso={clinicDate()}
         canManage={canManage}
         employees={employees}
+        viewerEmployeeId={canManage ? null : viewer.id}
+        viewerEmployeeName={canManage ? null : viewer.name}
       />
 
-      {!result.success && (
+      {resultError && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {result.error}
+          {resultError}
         </p>
       )}
     </div>

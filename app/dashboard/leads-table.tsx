@@ -410,7 +410,7 @@ export function LeadsTable({
   const [isImporting, setIsImporting] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
-  const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
+  const [savingLeadIds, setSavingLeadIds] = useState<Set<string>>(() => new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadEdits, setLeadEdits] = useState({ city: "", disease: "", insurance_status: "", remarks: "" });
   const [isSavingEdits, setIsSavingEdits] = useState(false);
@@ -486,6 +486,29 @@ export function LeadsTable({
   // Guards against out-of-order responses when searches/pages change quickly —
   // only the most recently issued fetch is allowed to update the table.
   const fetchSequenceRef = useRef(0);
+
+  function setLeadSaving(id: string, saving: boolean) {
+    setSavingLeadIds((current) => {
+      const next = new Set(current);
+      if (saving) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function updateLeadLocally(lead: Lead) {
+    setLeads((current) => current.map((item) => (item.id === lead.id ? lead : item)));
+    setSelectedLead((current) => (current?.id === lead.id ? lead : current));
+  }
+
+  function patchLeadLocally(id: string, patch: Partial<Lead>) {
+    setLeads((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+    setSelectedLead((current) =>
+      current?.id === id ? { ...current, ...patch } : current,
+    );
+  }
 
   const sourceOptions = Array.from(new Set(leads.map((lead) => lead.source)));
   // Admin-editable picklists (master data) with the loaded page merged in, so a
@@ -878,15 +901,17 @@ export function LeadsTable({
   }
 
   async function handleStatusChange(lead: Lead, status: string | null) {
-    if (!status || status === lead.status) return;
+    if (!status || status === lead.status || savingLeadIds.has(lead.id)) return;
     trackLeadMutations(lead.id);
-    setUpdatingLeadId(lead.id);
+    setLeadSaving(lead.id, true);
+    patchLeadLocally(lead.id, { status });
     const response = await updateLeadStatus({ id: lead.id, status, temperature: lead.temperature });
     if (!response.success) {
+      updateLeadLocally(lead);
       toast.add({ title: "Status update failed", description: response.error, type: "error" });
     } else {
-      setLeads((currentLeads) => currentLeads.map((currentLead) => currentLead.id === lead.id ? response.data : currentLead));
-      if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+      updateLeadLocally(response.data);
+      toast.add({ title: "Status saved", type: "success" });
       // Gamification: the surgery stage ("Won", "IPD Done", "Surgery Completed")
       // fires confetti + a reward toast — but only on the way IN, so toggling
       // between two winning statuses doesn't spam the celebration.
@@ -894,7 +919,7 @@ export function LeadsTable({
         celebrateLeadWin({ name: response.data.name || lead.name, status });
       }
     }
-    setUpdatingLeadId(null);
+    setLeadSaving(lead.id, false);
   }
 
   /**
@@ -920,20 +945,21 @@ export function LeadsTable({
     const current = normaliseAppointmentDate((lead as unknown as Record<string, string>)[column]);
 
     async function save(next: string) {
-      if (next === current) return;
+      if (next === current || savingLeadIds.has(lead.id)) return;
       setSaving(true);
+      setLeadSaving(lead.id, true);
+      patchLeadLocally(lead.id, { [column]: next });
       const response = await updateLeadAppointment({ id: lead.id, column, value: next });
       setSaving(false);
       if (!response.success) {
+        patchLeadLocally(lead.id, { [column]: current });
         toast.add({ title: "Date not saved", description: response.error, type: "error" });
+        setLeadSaving(lead.id, false);
         return;
       }
-      // Merge the saved lead back in so the Won badge and the calendar both see it.
-      setLeads((currentLeads) =>
-        currentLeads.map((item) => (item.id === lead.id ? response.data : item)),
-      );
-      if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+      updateLeadLocally(response.data);
       toast.add({ title: `${fieldLabel} saved`, type: "success" });
+      setLeadSaving(lead.id, false);
     }
 
     return (
@@ -944,7 +970,8 @@ export function LeadsTable({
         <input
           type="date"
           value={current}
-          disabled={saving}
+          disabled={saving || savingLeadIds.has(lead.id)}
+          aria-busy={saving || savingLeadIds.has(lead.id)}
           onChange={(event) => void save(event.target.value)}
           aria-label={`${field.label} for ${lead.name}`}
           title={field.hint}
@@ -955,27 +982,35 @@ export function LeadsTable({
   }
 
   async function handleAssignmentChange(lead: Lead, employeeName: string | null) {
-    if (!employeeName || employeeName === lead.assigned_to) return;
+    if (!employeeName || employeeName === lead.assigned_to || savingLeadIds.has(lead.id)) return;
     trackLeadMutations(lead.id);
+    setLeadSaving(lead.id, true);
+    patchLeadLocally(lead.id, { assigned_to: employeeName });
     const response = await updateLeadAssignment(lead.id, employeeName);
     if (!response.success) {
+      updateLeadLocally(lead);
       toast.add({ title: "Assignment update failed", description: response.error, type: "error" });
-      return;
+    } else {
+      updateLeadLocally(response.data);
+      toast.add({ title: "Assignment saved", type: "success" });
     }
-    setLeads((currentLeads) => currentLeads.map((currentLead) => currentLead.id === lead.id ? response.data : currentLead));
-    if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+    setLeadSaving(lead.id, false);
   }
 
   async function handleTemperatureChange(lead: Lead, temperature: string | null) {
-    if (!temperature || temperature === lead.temperature) return;
+    if (!temperature || temperature === lead.temperature || savingLeadIds.has(lead.id)) return;
     trackLeadMutations(lead.id);
+    setLeadSaving(lead.id, true);
+    patchLeadLocally(lead.id, { temperature });
     const response = await updateLeadTemperature(lead.id, temperature);
     if (!response.success) {
+      updateLeadLocally(lead);
       toast.add({ title: "Temperature update failed", description: response.error, type: "error" });
-      return;
+    } else {
+      updateLeadLocally(response.data);
+      toast.add({ title: "Temperature saved", type: "success" });
     }
-    setLeads((currentLeads) => currentLeads.map((currentLead) => currentLead.id === lead.id ? response.data : currentLead));
-    if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+    setLeadSaving(lead.id, false);
   }
 
   function toggleLeadSelection(leadId: string, selected: boolean) {
@@ -1194,13 +1229,18 @@ export function LeadsTable({
     if (!selectedLead) return;
     trackLeadMutations(selectedLead.id);
     setIsSavingEdits(true);
+    const previousLead = selectedLead;
+    const optimisticLead: Lead = canEditCore
+      ? { ...selectedLead, ...leadEdits }
+      : { ...selectedLead, remarks: leadEdits.remarks || "-" };
+    updateLeadLocally(optimisticLead);
     const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits });
     if (!response.success) {
+      updateLeadLocally(previousLead);
       toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
     } else {
       const updated = response.data;
-      setLeads((currentLeads) => currentLeads.map((currentLead) => (currentLead.id === updated.id ? updated : currentLead)));
-      setSelectedLead(updated);
+      updateLeadLocally(updated);
       toast.add({ title: "Lead updated", description: "The lead details were saved.", type: "success" });
     }
     setIsSavingEdits(false);
@@ -1241,14 +1281,36 @@ export function LeadsTable({
           temperature: editForm.temperature,
           remarks: editForm.remarks,
         };
+    const optimisticLead: Lead = canEditCore
+      ? {
+          ...editingLead,
+          ...editForm,
+          phone: editForm.phone || "-",
+          email: editForm.email || "-",
+          gender: editForm.gender || "-",
+          city: editForm.city || "-",
+          disease: editForm.disease || "-",
+          insurance_status: editForm.insurance_status || "-",
+          assigned_to: editForm.assigned_to || "-",
+          lead_date: editForm.lead_date || "-",
+          follow_up_date: editForm.follow_up_date || "-",
+          source: editForm.source || "-",
+        }
+      : {
+          ...editingLead,
+          status: editForm.status,
+          temperature: editForm.temperature,
+          remarks: editForm.remarks || "-",
+        };
+    updateLeadLocally(optimisticLead);
     const response = await updateLeadDetails(payload);
     if (!response.success) {
+      updateLeadLocally(editingLead);
       toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
     } else {
       const updated = response.data;
       // Smooth refresh: swap the saved row into the table state — no page reload.
-      setLeads((currentLeads) => currentLeads.map((lead) => (lead.id === updated.id ? updated : lead)));
-      if (selectedLead?.id === updated.id) setSelectedLead(updated);
+      updateLeadLocally(updated);
       setEditingLead(null);
       toast.add({ title: "Lead updated", description: `${updated.name}'s details were saved.`, type: "success" });
       // Keep the server-rendered stat cards (New/Hot counts) in sync.
@@ -1272,14 +1334,19 @@ export function LeadsTable({
   }
 
   async function handleFollowUpChange(lead: Lead, followUpDate: string) {
+    if (savingLeadIds.has(lead.id)) return;
     trackLeadMutations(lead.id);
+    setLeadSaving(lead.id, true);
+    patchLeadLocally(lead.id, { follow_up_date: followUpDate || "-" });
     const response = await updateLeadFollowUpDate(lead.id, followUpDate);
     if (!response.success) {
+      updateLeadLocally(lead);
       toast.add({ title: "Unable to update follow-up", description: response.error, type: "error" });
-      return;
+    } else {
+      updateLeadLocally(response.data);
+      toast.add({ title: "Follow-up saved", type: "success" });
     }
-    setLeads((currentLeads) => currentLeads.map((currentLead) => currentLead.id === lead.id ? response.data : currentLead));
-    if (selectedLead?.id === lead.id) setSelectedLead(response.data);
+    setLeadSaving(lead.id, false);
   }
 
   return (
@@ -1382,7 +1449,7 @@ export function LeadsTable({
                 <button
                   type="button"
                   aria-pressed="true"
-                  title={`${monthFilterLabel(filters.month)} ke leads — hatane ke liye dabao`}
+                  title={`Leads from ${monthFilterLabel(filters.month)} — click to remove this filter`}
                   onClick={() => router.push(leadsHref({ ...filters, month: "" }))}
                   className="rounded-full border border-blue-600 bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors"
                 >
@@ -1471,7 +1538,7 @@ export function LeadsTable({
                       <Input id="date-filter-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500">Tip: From aur To mein same date rakh ke kisi ek specific din pe filter karein.</p>
+                  <p className="text-xs text-slate-500">Tip: Set From and To to the same date to filter for a specific day.</p>
                   <div className="flex justify-between gap-2">
                     <Button type="button" variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>
                       Clear dates
@@ -1680,10 +1747,15 @@ export function LeadsTable({
                   </TableCell>
                   <TableCell className="w-[180px] py-3">
                     <div className="space-y-1.5">
-                      <Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={updatingLeadId === lead.id}>
+                      <Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                         <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
                         <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, lead.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
                       </Select>
+                      {savingLeadIds.has(lead.id) && (
+                        <span className="text-[10px] text-blue-600" aria-live="polite">
+                          Saving...
+                        </span>
+                      )}
                       {/* Won is derived, not stored — reaching an OPD or IPD IS
                           the win, so this badge can never drift from the
                           status sitting right above it. */}
@@ -1695,11 +1767,11 @@ export function LeadsTable({
                       <AppointmentDateInput lead={lead} />
                     </div>
                   </TableCell>
-                  <TableCell className="w-[180px] py-3"><Select value={lead.temperature} onValueChange={(value) => handleTemperatureChange(lead, value)}>
+                  <TableCell className="w-[180px] py-3"><Select value={lead.temperature} onValueChange={(value) => handleTemperatureChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                     <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
                     <SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperature === "Hot" ? "Hot 🔥" : temperature === "Warm" ? "Warm ☀️" : "Cold ❄️"}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
-                  <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)}>
+                  <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                     <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
@@ -1967,7 +2039,7 @@ export function LeadsTable({
                   <span className="text-xs text-slate-400">City, Treatment, Insurance and Remarks can be edited here.</span>
                 </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
-                <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
+                <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
               <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
               <section className="space-y-3 border-t border-slate-200 pt-5"><Label htmlFor="lead-note">Add note</Label><Textarea id="lead-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Write a note about this lead..." rows={4} /><Button type="button" onClick={handleAddNote} disabled={isAddingNote || !note.trim()}>{isAddingNote ? "Adding note..." : "Add Note"}</Button></section>

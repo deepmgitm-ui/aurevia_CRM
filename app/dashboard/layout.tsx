@@ -40,18 +40,13 @@ export default async function DashboardLayout({
   // reads first and only writes when the day has no mark yet — and the profile
   // is handed in, because this function would otherwise look the SAME row up a
   // second time on every page load.
-  const attendance = await markMyAttendance({
-    id: user.id,
-    role: profileRole,
-  });
+  const [attendance, window] = await Promise.all([
+    markMyAttendance({ id: user.id, role: profileRole }),
+    getDashboardWindow(),
+  ]);
   if (!attendance.success) {
     console.warn("[attendance] Could not record the check-in:", attendance.error);
   }
-
-  // The header's date button must show the window the cards actually use. It
-  // lives in the layout while the data lives in the page, so both read the same
-  // cached resolution instead of the layout guessing "this quarter".
-  const window = await getDashboardWindow();
 
   return (
     <DashboardShell

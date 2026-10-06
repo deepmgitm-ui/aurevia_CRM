@@ -278,7 +278,7 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="Consultation patients"
-            description="Booked ya attended consultation wale patients"
+            description="Patients with a booked or attended consultation."
             rows={leadsInStages(rows, CONSULTATION_STAGES)}
             emptyMessage="No booked or attended consultations in this date range."
           />
@@ -303,7 +303,7 @@ function renderSection(
           </SectionCard>
           <LeadListCard
             title="Surgery records"
-            description="Completed surgery wale patients"
+            description="Patients with a completed surgery."
             rows={leadsInStages(rows, SURGERY_STAGES)}
             emptyMessage="No completed surgeries in this date range."
           />
@@ -486,5 +486,4 @@ export default async function SectionPage({
     </div>
   );
 }
-
 

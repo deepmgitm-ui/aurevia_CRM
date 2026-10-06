@@ -24,6 +24,25 @@ export const CLINIC_TIME_ZONE = "Asia/Kolkata";
  */
 export const SESSION_DAY_COOKIE = "aurevia-session-day";
 
+/** A calendar month represented as an inclusive start and exclusive end. */
+export function attendanceMonthRange(
+  month: string,
+): { start: string; endExclusive: string } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  if (year < 1 || monthNumber < 1 || monthNumber > 12) return null;
+
+  const nextYear = monthNumber === 12 ? year + 1 : year;
+  const nextMonth = monthNumber === 12 ? 1 : monthNumber + 1;
+  return {
+    start: `${match[1]}-${match[2]}-01`,
+    endExclusive: `${String(nextYear).padStart(4, "0")}-${String(nextMonth).padStart(2, "0")}-01`,
+  };
+}
+
 /** yyyy-mm-dd for the given instant, as seen in the clinic's timezone. */
 export function clinicDate(instant: Date = new Date()): string {
   // en-CA renders ISO-shaped dates (2026-09-30), which is what we store.

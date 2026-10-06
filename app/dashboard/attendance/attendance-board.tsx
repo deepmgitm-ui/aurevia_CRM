@@ -21,30 +21,36 @@ export function AttendanceBoard({
   todayIso,
   canManage,
   employees,
+  viewerEmployeeId,
+  viewerEmployeeName,
 }: {
   rows: AttendanceRow[];
   month: string;
   todayIso: string;
   canManage: boolean;
   employees: { id: string; name: string; role: string; phone: string | null; photo_url: string | null }[];
+  viewerEmployeeId: string | null;
+  viewerEmployeeName: string | null;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(viewerEmployeeId);
 
   // Resolved from the roster rather than passed down, so a card for somebody
   // with no marks at all still labels their calendar correctly.
-  const selectedName = selectedId
+  const selectedName = viewerEmployeeName ?? (selectedId
     ? (employees.find((person) => person.id === selectedId)?.name ?? null)
-    : null;
+    : null);
 
   return (
     <div className="space-y-4">
-      <AttendanceTeam
-        rows={rows}
-        roster={employees}
-        todayIso={todayIso}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-      />
+      {canManage && (
+        <AttendanceTeam
+          rows={rows}
+          roster={employees}
+          todayIso={todayIso}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+      )}
       <AttendanceCalendar
         rows={rows}
         month={month}

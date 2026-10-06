@@ -150,8 +150,11 @@ function toCalendarAppointments(row: LeadAppointmentRow, today: string): Calenda
   return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Signed-in viewer, or null. */
-async function getCalendarViewer(): Promise<{ name: string } | null> {
+/** Signed-in viewer and role, or null. */
+async function getCalendarViewer(): Promise<{
+  name: string;
+  role: "admin" | "manager" | "employee";
+} | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -159,12 +162,14 @@ async function getCalendarViewer(): Promise<{ name: string } | null> {
   if (!user) return null;
   const { data: profile } = await supabase
     .from("profiles")
-    .select("name")
+    .select("name,role")
     .eq("id", user.id)
     .single();
   const name =
     typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : "Agent";
-  return { name };
+  const role =
+    profile?.role === "admin" || profile?.role === "manager" ? profile.role : "employee";
+  return { name, role };
 }
 
 /** yyyy-mm-dd for a stored appointment date. */
@@ -197,8 +202,8 @@ async function monthCells(
 }
 
 /**
- * One month of the OPD/IPD appointment calendar. Each viewer sees only the
- * appointments assigned to their profile name.
+ * One month of the OPD/IPD appointment calendar. Admins and managers see the
+ * team schedule; employees see appointments assigned to their profile name.
  */
 export async function getMonthDays(month?: string): Promise<CalendarResult<MonthDays>> {
   try {
@@ -214,15 +219,8 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
 
     const supabase = await createClient();
 
-    // EVERY viewer sees ONLY their own appointments — admin included.
-    //
-    // This used to be `if (!isTeamView && …)`, i.e. admins and managers saw
-    // every employee's patients on this screen. That was a genuine data leak:
-    // an OPD/IPD schedule is patient-identifying (name + phone + surgery date),
-    // so a clinic manager opening "my calendar" was reading colleagues'
-    // patients rather than their own work. The Leads table is where the team
-    // view belongs; this screen is personal, so it is personal for everyone.
     const viewerName = viewer.name.trim().toLowerCase();
+    const isTeamView = viewer.role === "admin" || viewer.role === "manager";
 
     // Appointments read live off the three OPD/IPD columns on `leads` — NOT from
     // leads.follow_up_date. Follow-up calls are handled by the Leads page
@@ -233,8 +231,8 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     // for IPD appears on BOTH days, which is the whole point of storing three
     // dates instead of one.
     //
-    // `assigned_to` stores a display name rather than an auth uid, so filter
-    // against the signed-in profile after fetching the bounded result set.
+    // `assigned_to` stores a display name rather than an auth uid, so employee
+    // appointments are filtered against the signed-in profile after fetching.
     const { data: leadRows, error: leadsError } = await supabase
       .from("leads")
       .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
@@ -252,9 +250,7 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     const byDay = new Map<string, CalendarAppointment[]>();
     const upcoming: CalendarAppointment[] = [];
     for (const row of (leadRows ?? []) as LeadAppointmentRow[]) {
-      // Unassigned patients belong to nobody, so no one sees them here — they
-      // surface on the Leads page instead, where an admin can assign them.
-      if ((row.assigned_to ?? "").trim().toLowerCase() !== viewerName) continue;
+      if (!isTeamView && (row.assigned_to ?? "").trim().toLowerCase() !== viewerName) continue;
       for (const entry of toCalendarAppointments(row, today)) {
         if (entry.date < from || entry.date > to) continue;
         const bucket = byDay.get(entry.date) ?? [];

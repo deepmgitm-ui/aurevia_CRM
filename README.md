@@ -26,6 +26,9 @@ server after changing `.env.local`, and redeploy after changing Vercel variables
 Database migrations are run in Supabase, not by deploying to Vercel. If the OPD/IPD
 appointment-date columns have not been added yet, run `supabase-master-data-migration.sql`
 in the Supabase SQL Editor. The calendar no longer uses the personal-events table.
+To make employee attendance strictly read-only in an existing database, also run
+`supabase-attendance-readonly-migration.sql` in the Supabase SQL Editor. Admins and
+managers retain attendance editing, and employee sign-in still records attendance.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
