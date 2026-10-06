@@ -38,17 +38,38 @@ export async function login(
     return { error: "Email and password are required." };
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !password) {
+    return { error: "Email and password are required." };
+  }
+
   const redirectTo = resolveRedirectTarget(formData.get("redirectTo"));
 
   try {
     const supabase = await createClient();
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: normalizedEmail,
       password,
     });
 
     if (error) {
-      return { error: "Invalid credentials." };
+      if (error.code === "invalid_credentials") {
+        return { error: "Email or password is incorrect. Please check and try again." };
+      }
+
+      if (error.code === "email_not_confirmed") {
+        return { error: "Please confirm your email address before signing in." };
+      }
+
+      if (error.status === 429) {
+        return { error: "Too many sign-in attempts. Please wait a moment and try again." };
+      }
+
+      console.error("[auth] Sign in was rejected:", error.message, error.code);
+      return {
+        error:
+          "The authentication service could not sign you in. Please try again, and contact an admin if this continues.",
+      };
     }
 
     // Stamp the clinic day this session opened on. A Server Action CAN write

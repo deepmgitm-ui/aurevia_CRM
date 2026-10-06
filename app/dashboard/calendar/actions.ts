@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { createClient } from "@/lib/supabase/server";
 import {
   appointmentForStatus,
@@ -23,8 +21,6 @@ const APPOINTMENT_FIELDS: readonly AppointmentField[] = [
   appointmentForStatus("OPD Done"),
   appointmentForStatus("IPD Done"),
 ].filter((field): field is AppointmentField => field !== null);
-import { toLocalIso } from "./month-grid";
-
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
   | { success: false; data?: undefined; error: string };
@@ -51,7 +47,7 @@ export interface CalendarAppointment {
   date: string;
   /** Past dates are flagged so the day panel can sort them first. */
   past: boolean;
-  /** Owning agent (shown only in the admin/manager team view). */
+  /** Owning agent. */
   agent: string;
 }
 
@@ -69,98 +65,45 @@ const APPOINTMENT_KIND_LABELS: Record<AppointmentKind, string> = {
   ipdDone: "IPD / Surgery",
 };
 
-export interface PersonalEvent {
-  id: string;
-  /** yyyy-mm-dd. */
-  date: string;
-  title: string;
-  kind: string;
-  notes: string;
-}
-
-/** A lead that was CREATED on a given day — the anchor of its timeline. */
-export interface CreatedLead {
-  leadId: string;
-  leadName: string;
-  status: string;
-  source: string;
-  agent: string;
-}
-
-/** One `lead_activities` row placed on the day it happened. */
-export interface ActivityEntry {
-  id: string;
-  leadId: string;
-  leadName: string;
-  actionType: string;
-  description: string;
-  agent: string;
-}
-
 export interface CalendarDay {
   iso: string;
   day: number;
   isCurrentMonth: boolean;
   reminders: CalendarAppointment[];
-  personal: PersonalEvent[];
-  created: CreatedLead[];
-  activities: ActivityEntry[];
 }
 
 export interface MonthDays {
   month: string;
   days: CalendarDay[];
+  warning?: string;
   /** All appointments from today onwards, soonest first — the "upcoming" list. */
-upcoming: CalendarAppointment[];
+  upcoming: CalendarAppointment[];
 }
 
-const PERSONAL_KINDS = ["note", "call", "visit", "leave"];
-
-const CALENDAR_TABLE_MISSING_ERROR =
-  "The calendar_events table does not exist yet — run supabase-calendar-migration.sql in the Supabase SQL editor first.";
-
-interface CalendarEventRow {
-  id: string;
-  owner_id: string;
-  event_date: string;
-  title: string;
-  kind: string;
-  notes: string | null;
-}
-
-interface CreatedLeadRow {
-  id: string;
-  name: string | null;
-  status: string | null;
-  source: string | null;
-  assigned_to: string | null;
-  created_at: string | null;
-}
-
-interface ActivityRow {
-  id: string;
-  lead_id: string;
-  action_type: string | null;
-  description: string | null;
-  created_at: string | null;
-  // Many-to-one joins come back as objects at runtime, but Supabase's untyped
-  // client inference widens them to arrays — accept both and normalize.
-  leads:
-    | { name: string | null; assigned_to: string | null }
-    | { name: string | null; assigned_to: string | null }[]
-    | null;
-}
-
-function joinedLead(row: ActivityRow): { name: string | null; assigned_to: string | null } | null {
-  return Array.isArray(row.leads) ? (row.leads[0] ?? null) : row.leads;
-}
+const APPOINTMENT_COLUMNS_MISSING_WARNING =
+  "Appointment dates are unavailable — run supabase-master-data-migration.sql in the Supabase SQL editor.";
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function toIsoDate(date: Date): string {
-  return toLocalIso(date);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function isMissingAppointmentColumnsError(
+  error: { code?: string | null; message?: string | null },
+): boolean {
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    /opd_booked_date|opd_done_date|ipd_done_date/i.test(error.message ?? "")
+  );
 }
 
 interface LeadAppointmentRow {
@@ -207,11 +150,8 @@ function toCalendarAppointments(row: LeadAppointmentRow, today: string): Calenda
   return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Signed-in viewer, or null. All calendar queries are scoped to this person. */
-async function getCalendarViewer(): Promise<
-  | { userId: string; role: "admin" | "manager" | "employee"; name: string }
-  | null
-> {
+/** Signed-in viewer, or null. */
+async function getCalendarViewer(): Promise<{ name: string } | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -219,16 +159,15 @@ async function getCalendarViewer(): Promise<
   if (!user) return null;
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role,name")
+    .select("name")
     .eq("id", user.id)
     .single();
-  const role = profile?.role === "admin" || profile?.role === "manager" ? profile.role : "employee";
   const name =
     typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : "Agent";
-  return { userId: user.id, role, name };
+  return { name };
 }
 
-/** yyyy-mm-dd for one remindable lead row (follow_up_date may be dd/mm/yyyy). */
+/** yyyy-mm-dd for a stored appointment date. */
 function toCalendarDate(value: string | null): string {
   if (!value || value === "-") return "";
   const text = value.trim();
@@ -258,10 +197,8 @@ async function monthCells(
 }
 
 /**
- * One month of the plan calendar: follow-up dots from `leads.follow_up_date`
- * plus the viewer's own personal events. Employees see only their own leads;
- * admins/managers see the whole team. Personal events are ALWAYS the viewer's
- * own — the owner_id filter runs for every role.
+ * One month of the OPD/IPD appointment calendar. Each viewer sees only the
+ * appointments assigned to their profile name.
  */
 export async function getMonthDays(month?: string): Promise<CalendarResult<MonthDays>> {
   try {
@@ -296,29 +233,20 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     // for IPD appears on BOTH days, which is the whole point of storing three
     // dates instead of one.
     //
-    // The owner filter is applied HERE in JS rather than as a `.eq()` on the
-    // query: `assigned_to` stores a display NAME, not the auth uid, so the
-    // database cannot compare it to auth.uid() without a join. The row set is
-    // bounded by RLS and the limit, so filtering after the fetch costs nothing
-    // meaningful — but it MUST stay after the fetch, never before.
+    // `assigned_to` stores a display name rather than an auth uid, so filter
+    // against the signed-in profile after fetching the bounded result set.
     const { data: leadRows, error: leadsError } = await supabase
       .from("leads")
       .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
-      .or(
-        "opd_booked_date.not.is.null,and.opd_done_date.not.is.null,and.ipd_done_date.not.is.null",
-      )
+      .or("opd_booked_date.not.is.null,opd_done_date.not.is.null,ipd_done_date.not.is.null")
       .limit(500);
+    let warning: string | undefined;
     if (leadsError) {
-      // The columns only exist after the migration has run — name the fix
-      // instead of leaking a PostgREST error at the clinic admin.
-      if (/column|42703|pgrst204/i.test(leadsError.message)) {
-        return {
-          success: false,
-          error:
-            "Appointments need the new columns — run supabase-master-data-migration.sql in the Supabase SQL editor.",
-        };
+      if (isMissingAppointmentColumnsError(leadsError)) {
+        warning = APPOINTMENT_COLUMNS_MISSING_WARNING;
+      } else {
+        return { success: false, error: leadsError.message };
       }
-      return { success: false, error: leadsError.message };
     }
 
     const byDay = new Map<string, CalendarAppointment[]>();
@@ -340,433 +268,15 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
       a.date === b.date ? a.leadName.localeCompare(b.leadName) : a.date.localeCompare(b.date),
     );
 
-    const { data: eventRows, error: eventsError } = await supabase
-      .from("calendar_events")
-      .select("id,owner_id,event_date,title,kind,notes")
-      .eq("owner_id", viewer.userId)
-      .gte("event_date", from)
-      .lte("event_date", to)
-      .order("title", { ascending: true })
-      .limit(500);
-    if (eventsError) {
-      if (eventsError.message.includes("calendar_events")) {
-        return { success: false, error: CALENDAR_TABLE_MISSING_ERROR };
-      }
-      return { success: false, error: eventsError.message };
-    }
-
-    const personalByDay = new Map<string, PersonalEvent[]>();
-    for (const row of (eventRows ?? []) as CalendarEventRow[]) {
-      const bucket = personalByDay.get(row.event_date) ?? [];
-      bucket.push({
-        id: row.id,
-        date: row.event_date,
-        title: row.title,
-        kind: PERSONAL_KINDS.includes(row.kind) ? row.kind : "note",
-        notes: row.notes ?? "",
-      });
-      personalByDay.set(row.event_date, bucket);
-    }
-
-    // --- Timeline lanes: leads CREATED and lead ACTIVITIES in this month ---
-    // created_at/created are timestamptz (UTC) while the grid is local-day, so
-    // query a wide UTC window and bucket by the LOCAL calendar day to avoid
-    // entries landing on the wrong date near midnight/timezone edges.
-    const windowFrom = new Date(`${from}T00:00:00`).toISOString();
-    const windowTo = new Date(`${to}T23:59:59.999`);
-    windowTo.setUTCDate(windowTo.getUTCDate() + 2);
-    const windowToIso = windowTo.toISOString();
-
-    const createdByDay = new Map<string, CreatedLead[]>();
-    try {
-      const { data: createdRows } = await supabase
-        .from("leads")
-        .select("id, name, status, source, assigned_to, created_at")
-        .gte("created_at", windowFrom)
-        .lte("created_at", windowToIso)
-        .order("created_at", { ascending: false })
-        .limit(500);
-      for (const row of (createdRows ?? []) as CreatedLeadRow[]) {
-        if (!row.created_at) continue;
-        const local = toIsoDate(new Date(row.created_at));
-        if (local < from || local > to) continue;
-        const bucket = createdByDay.get(local) ?? [];
-        bucket.push({
-          leadId: row.id,
-          leadName: (row.name ?? "").trim() || "Unnamed lead",
-          status: (row.status ?? "").trim() || "-",
-          source: (row.source ?? "").trim() || "-",
-          agent: (row.assigned_to ?? "").trim() || "-",
-        });
-        createdByDay.set(local, bucket);
-      }
-    } catch {
-      // Non-fatal: the calendar still works without the creation lane.
-    }
-
-    const activitiesByDay = new Map<string, ActivityEntry[]>();
-    try {
-      const { data: activityRows } = await supabase
-        .from("lead_activities")
-        .select("id, lead_id, action_type, description, created_at, leads(name, assigned_to)")
-        .gte("created_at", windowFrom)
-        .lte("created_at", windowToIso)
-        .order("created_at", { ascending: false })
-        .limit(500);
-      for (const row of (activityRows ?? []) as ActivityRow[]) {
-        if (!row.created_at) continue;
-        const local = toIsoDate(new Date(row.created_at));
-        if (local < from || local > to) continue;
-        const lead = joinedLead(row);
-        const bucket = activitiesByDay.get(local) ?? [];
-        bucket.push({
-          id: row.id,
-          leadId: row.lead_id,
-          leadName: (lead?.name ?? "").trim() || "Lead",
-          actionType: (row.action_type ?? "").trim() || "update",
-          description: (row.description ?? "").trim(),
-          agent: (lead?.assigned_to ?? "").trim() || "-",
-        });
-        activitiesByDay.set(local, bucket);
-      }
-    } catch {
-      // Non-fatal: employees see this lane once the SELECT policy is deployed.
-    }
-
     const days: CalendarDay[] = cells.map((cell) => ({
       ...cell,
       reminders: byDay.get(cell.iso) ?? [],
-      personal: personalByDay.get(cell.iso) ?? [],
-      created: createdByDay.get(cell.iso) ?? [],
-      activities: activitiesByDay.get(cell.iso) ?? [],
     }));
     // `upcoming` is built in the query loop above and spans every day of the
     // month from today forward, so it survives a month change without a second
     // round trip.
-    return { success: true, data: { month: target, days, upcoming } };
+    return { success: true, data: { month: target, days, upcoming, warning } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load the calendar.") };
-  }
-}
-
-/** Move one follow-up to tomorrow (keeps the queue flowing, no typing). */
-export async function postponeFollowUp(leadId: string, fromIso: string): Promise<CalendarResult<true>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
-  try {
-    const [year, month, day] = fromIso.split("-").map(Number);
-    if (!year || !month || !day) return { success: false, error: "Could not read that date." };
-    const next = new Date(year, month - 1, day + 1);
-    const supabase = await createClient();
-    const { error } = await supabase
-      .from("leads")
-      .update({ follow_up_date: toIsoDate(next) })
-      .eq("id", leadId);
-    if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard/calendar");
-    return { success: true, data: true };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not postpone.") };
-  }
-}
-
-/** Clearing a follow-up only resets the date ("-" hides it from the page). */
-export async function clearFollowUp(leadId: string): Promise<CalendarResult<true>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
-  try {
-    const supabase = await createClient();
-    const { error } = await supabase.from("leads").update({ follow_up_date: "-" }).eq("id", leadId);
-    if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard/calendar");
-    return { success: true, data: true };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not clear.") };
-  }
-}
-
-/** Finishing a call: status → Contacted, follow-up date cleared, activity logged. */
-export async function markFollowUpDone(leadId: string): Promise<CalendarResult<true>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
-  try {
-    const supabase = await createClient();
-    const { error } = await supabase
-      .from("leads")
-      .update({ status: "Contacted", follow_up_date: "-" })
-      .eq("id", leadId);
-    if (error) return { success: false, error: error.message };
-    await supabase.from("lead_activities").insert({
-      lead_id: leadId,
-      action_type: "follow_up_done",
-      description: "Follow-up marked done from the calendar.",
-    });
-    revalidatePath("/dashboard/calendar");
-    return { success: true, data: true };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not mark as done.") };
-  }
-}
-
-
-function cleanPersonalInput(input: { title?: string; kind?: string; notes?: string; date?: string }):
-  | { error: string }
-  | { title: string; kind: string; notes: string; date: string } {
-  const title = (input.title ?? "").trim().slice(0, 120);
-  const kind = (input.kind ?? "note").trim().toLowerCase();
-  const notes = (input.notes ?? "").trim().slice(0, 1000);
-  const date = (input.date ?? "").trim();
-  if (!title) return { error: "Give the event a title." };
-  if (!PERSONAL_KINDS.includes(kind)) return { error: "Type must be one of note, call, visit or leave." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Could not read that date." };
-  return { title, kind, notes, date };
-}
-
-/** A personal event always belongs to the signed-in user — owner_id is server-set. */
-export async function createPersonalEvent(input: {
-  date: string;
-  title: string;
-  kind?: string;
-  notes?: string;
-}): Promise<CalendarResult<PersonalEvent>> {
-  try {
-    const viewer = await getCalendarViewer();
-    if (!viewer) return { success: false, error: "Sign in to add events." };
-    const cleaned = cleanPersonalInput(input);
-    if ("error" in cleaned) return { success: false, error: cleaned.error };
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("calendar_events")
-      .insert({
-        owner_id: viewer.userId,
-        event_date: cleaned.date,
-        title: cleaned.title,
-        kind: cleaned.kind,
-        notes: cleaned.notes || null,
-      })
-      .select("id,event_date,title,kind,notes")
-      .single();
-    if (error) {
-      if (error.message.includes("calendar_events")) return { success: false, error: CALENDAR_TABLE_MISSING_ERROR };
-      return { success: false, error: error.message };
-    }
-    revalidatePath("/dashboard/calendar");
-    const row = data as CalendarEventRow;
-    return {
-      success: true,
-      data: {
-        id: row.id,
-        date: row.event_date,
-        title: row.title,
-        kind: PERSONAL_KINDS.includes(row.kind) ? row.kind : "note",
-        notes: row.notes ?? "",
-      },
-    };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not add the event.") };
-  }
-}
-
-/** Only the owner can edit — the owner_id check runs in the query itself. */
-export async function updatePersonalEvent(
-  id: string,
-  input: { title?: string; kind?: string; notes?: string },
-): Promise<CalendarResult<PersonalEvent>> {
-  try {
-    const viewer = await getCalendarViewer();
-    if (!viewer) return { success: false, error: "Sign in to edit events." };
-    const cleaned = cleanPersonalInput(input);
-    if ("error" in cleaned) return { success: false, error: cleaned.error };
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("calendar_events")
-      .update({ title: cleaned.title, kind: cleaned.kind, notes: cleaned.notes || null })
-      .eq("id", id)
-      .eq("owner_id", viewer.userId)
-      .select("id,event_date,title,kind,notes")
-      .single();
-    if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard/calendar");
-    const row = data as CalendarEventRow;
-    return {
-      success: true,
-      data: {
-        id: row.id,
-        date: row.event_date,
-        title: row.title,
-        kind: PERSONAL_KINDS.includes(row.kind) ? row.kind : "note",
-        notes: row.notes ?? "",
-      },
-    };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not update the event.") };
-  }
-}
-
-/** Only the owner can delete — the owner_id check runs in the query itself. */
-export async function deletePersonalEvent(id: string): Promise<CalendarResult<true>> {
-  try {
-    const viewer = await getCalendarViewer();
-    if (!viewer) return { success: false, error: "Sign in to delete events." };
-    const supabase = await createClient();
-    const { error } = await supabase.from("calendar_events").delete().eq("id", id).eq("owner_id", viewer.userId);
-    if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard/calendar");
-    return { success: true, data: true };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not delete the event.") };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Lead timeline — the full journey of ONE lead, oldest first: creation anchor,
-// then every logged update (status changes, notes, follow-ups, calls). This is
-// what "ek lead, uske saare updates date ke saath" means on the calendar.
-// ---------------------------------------------------------------------------
-
-export interface TimelineItem {
-  id: string;
-  date: string;
-  actionType: string;
-  description: string;
-  agent: string;
-}
-
-export interface LeadTimeline {
-  leadId: string;
-  leadName: string;
-  phone: string;
-  status: string;
-  source: string;
-  city: string;
-  disease: string;
-  assignedTo: string;
-  createdAt: string;
-  followUpDate: string;
-  items: TimelineItem[];
-}
-
-interface TimelineActivityRow {
-  id: string;
-  action_type: string | null;
-  description: string | null;
-  created_at: string | null;
-}
-
-export async function getLeadTimeline(leadId: string): Promise<CalendarResult<LeadTimeline>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
-  try {
-    const supabase = await createClient();
-    const { data: lead, error } = await supabase
-      .from("leads")
-      .select("id,name,phone,status,source,city,disease,assigned_to,follow_up_date,created_at")
-      .eq("id", leadId)
-      .single();
-    if (error || !lead) {
-      return { success: false, error: error?.message ?? "Lead not found (it is outside your access)." };
-    }
-
-    const agent = (lead.assigned_to ?? "").trim() || "-";
-    const createdAt = lead.created_at ? toIsoDate(new Date(lead.created_at)) : "";
-    const rawFollowUp = (lead.follow_up_date ?? "").trim();
-    const followUpDate = /^\d{4}-\d{2}-\d{2}$/.test(rawFollowUp) ? rawFollowUp : "";
-
-    const { data: activityRows } = await supabase
-      .from("lead_activities")
-      .select("id, action_type, description, created_at")
-      .eq("lead_id", leadId)
-      .order("created_at", { ascending: true })
-      .limit(200);
-
-    const items: TimelineItem[] = [];
-    if (createdAt) {
-      items.push({ id: "created", date: createdAt, actionType: "created", description: "Lead add hua", agent });
-    }
-    for (const row of (activityRows ?? []) as TimelineActivityRow[]) {
-      if (!row.created_at) continue;
-      items.push({
-        id: row.id,
-        date: toIsoDate(new Date(row.created_at)),
-        actionType: (row.action_type ?? "").trim() || "update",
-        description: (row.description ?? "").trim(),
-        agent,
-      });
-    }
-    items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-    return {
-      success: true,
-      data: {
-        leadId: lead.id,
-        leadName: (lead.name ?? "").trim() || "Unnamed lead",
-        phone: (lead.phone ?? "").trim() || "-",
-        status: (lead.status ?? "").trim() || "-",
-        source: (lead.source ?? "").trim() || "-",
-        city: (lead.city ?? "").trim() || "-",
-        disease: (lead.disease ?? "").trim() || "-",
-        assignedTo: agent,
-        createdAt,
-        followUpDate,
-        items,
-      },
-    };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not load the timeline.") };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Composer search — find a lead by name/phone so a follow-up can be scheduled
-// straight from the calendar. RLS keeps employees scoped to their own leads.
-// ---------------------------------------------------------------------------
-
-export interface LeadSearchResult {
-  leadId: string;
-  leadName: string;
-  phone: string;
-  status: string;
-  agent: string;
-}
-
-interface LeadSearchRow {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  status: string | null;
-  assigned_to: string | null;
-}
-
-export async function searchLeadsForCalendar(query: string): Promise<CalendarResult<LeadSearchResult[]>> {
-  const q = (query ?? "").trim().replace(/[%_]/g, "");
-  if (q.length < 2) return { success: true, data: [] };
-  try {
-    const viewer = await getCalendarViewer();
-    if (!viewer) return { success: false, error: "Sign in required." };
-    // Same rule as the calendar itself: every role sees only their own leads.
-    // An admin who can search every patient from a quick-pick box gets a phone
-    // number and name for colleagues' patients, which is exactly what the
-    // calendar's owner filter exists to prevent. Team-wide work belongs on the
-    // Leads page, which is role-gated separately and audited.
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("leads")
-      .select("id,name,phone,status,assigned_to")
-      .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
-      .order("created_at", { ascending: false })
-      .limit(8);
-    if (error) return { success: false, error: error.message };
-    let rows = (data ?? []) as LeadSearchRow[];
-    // `isTeamView` used to skip this filter for admins/managers; now every role is
-    // scoped to their own leads.
-    rows = rows.filter((row) => (row.assigned_to ?? "").trim().toLowerCase() === viewer.name.toLowerCase());
-    return {
-      success: true,
-      data: rows.map((row) => ({
-        leadId: row.id,
-        leadName: (row.name ?? "").trim() || "Unnamed lead",
-        phone: (row.phone ?? "").trim() || "-",
-        status: (row.status ?? "").trim() || "-",
-        agent: (row.assigned_to ?? "").trim() || "-",
-      })),
-    };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Could not search leads.") };
   }
 }

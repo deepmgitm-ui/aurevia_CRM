@@ -1,5 +1,3 @@
-import { createClient } from "@/lib/supabase/server";
-import { notFound } from "next/navigation";
 import { CalendarCheck } from "lucide-react";
 
 import { getMonthDays } from "./actions";
@@ -12,13 +10,6 @@ export default async function CalendarPage({
 }) {
   const params = await searchParams;
   const monthParam = Array.isArray(params.month) ? params.month[0] : params.month;
-
-  // Auth gate: without a signed-in user there is no "my calendar".
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) notFound();
 
   const result = await getMonthDays(monthParam ?? undefined);
   if (!result.success) throw new Error(result.error);
@@ -101,6 +92,7 @@ function formatShortDate(iso: string): string {
         days={result.data.days}
         month={result.data.month}
         todayIso={todayIso}
+        warning={result.data.warning}
       />
     </div>
   );

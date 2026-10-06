@@ -1,17 +1,9 @@
-// Aurevia CRM â€” "Plan your calendar": month view mixing lead follow-up / call
-// reminders (read from each lead's `follow_up_date`) with the signed-in user's
-// own personal events (stored in the `calendar_events` table, one row each).
+// Aurevia CRM — monthly OPD/IPD appointment calendar.
 //
-// RULES (short version, full version in ./actions.ts):
-//   - leads.* is NEVER written here except `follow_up_date` itself.
-//   - Calendar rows always belong to one auth user (owner_id); nobody ever sees
-//     another person's personal events.
-//   - Admins/managers see the whole team's reminder dots; employees see only
-//     their own leads + their own personal events.
-//   - A day cell shows at most 3 dots per lane (reminders / personal) + "+N".
+// Appointment dates are read-only here and are set from the Leads page.
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   BadgeCheck,
@@ -19,38 +11,15 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
-  History,
-  MessageSquareText,
-  NotebookPen,
-  Plus,
-  Sparkles,
   Stethoscope,
-  Trash2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/components/ui/toast";
-import {
-  createPersonalEvent,
-  deletePersonalEvent,
-  getMonthDays,
-  updatePersonalEvent,
-  type CalendarDay,
-  type CalendarAppointment,
-  type AppointmentKind,
-  type PersonalEvent,
-} from "./actions";
-import { LeadTimelineDialog } from "./lead-timeline-dialog";
+import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const PERSONAL_KINDS = ["note", "call", "visit", "leave"] as const;
 
 function ReminderIcon({ kind }: { kind: AppointmentKind }) {
   const className = "size-4 text-blue-600";
@@ -94,18 +63,11 @@ function ReminderDot({ kind, past }: { kind: AppointmentKind; past: boolean }) {
   );
 }
 
-function eventDotClass(kind: PersonalEvent["kind"]) {
-  if (kind === "leave") return "bg-violet-500";
-  if (kind === "visit") return "bg-teal-500";
-  if (kind === "call") return "bg-amber-500";
-  return "bg-sky-500";
-}
-
-
 export function PlanCalendar({
   days,
   month,
   todayIso,
+  warning,
 }: {
   /** Every rendered day cell (42 Monday-first cells from the server). */
   days: CalendarDay[];
@@ -113,6 +75,8 @@ export function PlanCalendar({
   month: string;
   /** Today as yyyy-mm-dd in the clinic timezone. */
   todayIso: string;
+  /** Database migration needed to show appointment dates, if any. */
+  warning?: string;
 }) {
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
   const [selectedIso, setSelectedIso] = useState(todayIso);
@@ -122,20 +86,10 @@ export function PlanCalendar({
     monthKey: month || todayIso.slice(0, 7),
     days,
   }));
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [editing, setEditing] = useState<PersonalEvent | null>(null);
-  const [title, setTitle] = useState("");
-  const [kind, setKind] = useState<string>("note");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [timelineLeadId, setTimelineLeadId] = useState<string | null>(null);
-  const [timelineOpen, setTimelineOpen] = useState(false);
-
   const loadingMonth = monthCursor !== itemsFor.monthKey;
 
   // Fetch a month the cache does not hold yet (arrow navigation) so every
-  // month â€” not just the current one â€” shows its full timeline lanes.
+  // month â€” not just the current one â€” shows its appointments.
   useEffect(() => {
     if (monthCursor === itemsFor.monthKey) return;
     let active = true;
@@ -170,109 +124,44 @@ export function PlanCalendar({
     setSelectedIso(nextCursor === todayIso.slice(0, 7) ? todayIso : `${nextCursor}-01`);
   }
 
-  function openTimeline(leadId: string) {
-    setTimelineLeadId(leadId);
-    setTimelineOpen(true);
-  }
-
-  function startComposer(existing: PersonalEvent | null, iso: string) {
-    setEditing(existing);
-    setTitle(existing?.title ?? "");
-    setKind(existing?.kind ?? "note");
-    setNotes(existing?.notes ?? "");
-    setSelectedIso(iso);
-    setComposerOpen(true);
-  }
-
-  async function handleSavePersonal() {
-    // The composer now writes ONLY personal events. Appointment dates are facts
-    // about a patient, so they are entered from the Leads page by picking a
-    // status — never re-typed here, where a mistyped date would quietly rewrite
-    // the clinic's schedule of record.
-    if (!title.trim()) {
-      toast.add({ title: "Title missing", description: "Event ko ek naam do.", type: "error" });
-      return;
-    }
-    setSaving(true);
-    const response = editing
-      ? await updatePersonalEvent(editing.id, { title: title.trim(), kind, notes: notes.trim() })
-      : await createPersonalEvent({ date: selectedIso, title: title.trim(), kind, notes: notes.trim() });
-    setSaving(false);
-    if (!response.success) {
-      toast.add({ title: "Could not save", description: response.error, type: "error" });
-      return;
-    }
-    const saved = response.data;
-    patchDays((current) =>
-      current.map((day) => {
-        if (day.iso !== saved.date) {
-          return editing && day.iso === editing.date
-            ? { ...day, personal: day.personal.filter((event) => event.id !== editing.id) }
-            : day;
-        }
-        const personal = editing
-          ? day.personal.map((event) => (event.id === editing.id ? saved : event))
-          : [...day.personal, saved].sort((a, b) => a.title.localeCompare(b.title));
-        return { ...day, personal };
-      }),
-    );
-    setComposerOpen(false);
-    toast.add({ title: editing ? "Event update ho gaya" : "Event add ho gaya" });
-  }
-
-  async function handleDeletePersonal(event: PersonalEvent) {
-    setBusyId(`event-${event.id}`);
-    const response = await deletePersonalEvent(event.id);
-    setBusyId(null);
-    if (!response.success) {
-      toast.add({ title: "Could not delete", description: response.error, type: "error" });
-      return;
-    }
-    patchDays((current) =>
-      current.map((day) =>
-        day.iso === event.date
-          ? { ...day, personal: day.personal.filter((item) => item.id !== event.id) }
-          : day,
-      ),
-    );
-    toast.add({ title: "Event hata diya" });
-  }
-
-  function patchDays(updater: (days: CalendarDay[]) => CalendarDay[]) {
-    setItemsFor((current) => ({ ...current, days: updater(current.days) }));
-  }
-
-
-
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-          <CardTitle className="text-lg">
-            {monthLabel}
-            {loadingMonth && <span className="ml-2 text-xs font-normal text-slate-400">loadingâ€¦</span>}
-          </CardTitle>
-          <div className="flex items-center gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
-              <ChevronLeft aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setMonthCursor(todayIso.slice(0, 7));
-                setSelectedIso(todayIso);
-              }}
-            >
-              Today
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label="Next month" onClick={() => shiftMonth(1)}>
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
+    <div className="space-y-4">
+      {warning ? (
+        <p
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          {warning}
+        </p>
+      ) : null}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-lg">
+              {monthLabel}
+              {loadingMonth && <span className="ml-2 text-xs font-normal text-slate-400">loadingâ€¦</span>}
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="ghost" size="icon" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+                <ChevronLeft aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMonthCursor(todayIso.slice(0, 7));
+                  setSelectedIso(todayIso);
+                }}
+              >
+                Today
+              </Button>
+              <Button type="button" variant="ghost" size="icon" aria-label="Next month" onClick={() => shiftMonth(1)}>
+                <ChevronRight aria-hidden="true" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
           <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
             {WEEKDAY_LABELS.map((label) => (
               <div key={label} className="py-1">
@@ -289,8 +178,7 @@ export function PlanCalendar({
                   key={day.iso}
                   type="button"
                   onClick={() => setSelectedIso(day.iso)}
-                  onDoubleClick={() => startComposer(null, day.iso)}
-                  title={`${day.iso} â€” double-click to add a personal event`}
+                  title={day.iso}
                   className={`flex min-h-[74px] flex-col items-stretch gap-1 rounded-xl border p-1.5 text-left transition-colors sm:min-h-[86px] ${
                     isSelected
                       ? "border-blue-500 bg-blue-50/70"
@@ -318,45 +206,18 @@ export function PlanCalendar({
                       <span className="text-[10px] font-semibold text-slate-500">+{day.reminders.length - 3}</span>
                     )}
                   </span>
-                  <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
-                    {day.personal.slice(0, 3).map((event) => (
-                      <span key={event.id} className={`size-2.5 rounded-full ${eventDotClass(event.kind)}`} />
-                    ))}
-                    {day.personal.length > 3 && (
-                      <span className="text-[10px] font-semibold text-slate-500">+{day.personal.length - 3}</span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
-                    {day.created.slice(0, 2).map((lead) => (
-                      <span
-                        key={lead.leadId}
-                        className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1 text-[9px] font-semibold text-emerald-700"
-                      >
-                        <Sparkles className="size-2.5" /> new
-                      </span>
-                    ))}
-                    {day.created.length > 2 && (
-                      <span className="text-[10px] font-semibold text-emerald-600">+{day.created.length - 2}</span>
-                    )}
-                    {day.activities.slice(0, 3).map((activity) => (
-                      <span key={activity.id} className="size-1.5 rounded-full bg-slate-400" />
-                    ))}
-                    {day.activities.length > 3 && (
-                      <span className="text-[10px] font-semibold text-slate-500">+{day.activities.length - 3}</span>
-                    )}
-                  </span>
                 </button>
               );
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            <span className="font-semibold text-blue-700">Blue</span> = OPD booked, <span className="font-semibold text-emerald-700">green</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery. Other colours are your personal events. Double-click a day to add one.
+            <span className="font-semibold text-blue-700">Blue</span> = OPD booked, <span className="font-semibold text-emerald-700">green</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
           </p>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <div className="space-y-4">
-        <Card className="border-0 shadow-sm">
+        <div className="space-y-4">
+          <Card className="border-0 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="text-base">
               {selected
@@ -367,11 +228,6 @@ export function PlanCalendar({
                   })
                 : selectedIso}
             </CardTitle>
-            <div className="flex items-center gap-1.5">
-              <Button type="button" size="sm" onClick={() => startComposer(null, selectedIso)}>
-                <Plus aria-hidden="true" /> Event
-              </Button>
-            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <section aria-label="Appointments" className="space-y-2">
@@ -391,150 +247,12 @@ export function PlanCalendar({
               ))}
             </section>
 
-            <section aria-label="New leads" className="space-y-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                <Sparkles className="size-3.5 text-emerald-600" aria-hidden="true" /> Naye leads (
-                {selected?.created.length ?? 0})
-              </h3>
-              {(selected?.created.length ?? 0) === 0 && (
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">No new leads were added on this day.</p>
-              )}
-              {selected?.created.map((lead) => (
-                <LeadChipButton
-                  key={lead.leadId}
-                  name={lead.leadName}
-                  meta={[lead.status, lead.agent !== "-" ? lead.agent : null].filter(Boolean).join(" · ")}
-                  icon={<Sparkles className="size-3.5 text-emerald-600" aria-hidden="true" />}
-                  onClick={() => openTimeline(lead.leadId)}
-                />
-              ))}
-            </section>
-
-            <section aria-label="Timeline activity" className="space-y-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                <History className="size-3.5" aria-hidden="true" /> Activity ({selected?.activities.length ?? 0})
-              </h3>
-              {(selected?.activities.length ?? 0) === 0 && (
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  No notes, status changes or calls on this day.
-                </p>
-              )}
-              {selected?.activities.map((activity) => (
-                <LeadChipButton
-                  key={activity.id}
-                  name={activity.leadName}
-                  meta={activity.description || activity.actionType}
-                  icon={<MessageSquareText className="size-3.5 text-sky-600" aria-hidden="true" />}
-                  onClick={() => openTimeline(activity.leadId)}
-                />
-              ))}
-            </section>
-
-            <section aria-label="Personal events" className="space-y-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                <NotebookPen className="size-3.5" aria-hidden="true" /> Tumhare events ({selected?.personal.length ?? 0})
-              </h3>
-              {(selected?.personal.length ?? 0) === 0 && (
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  No personal events â€” use Event to add leave, a visit or a note.
-                </p>
-              )}
-              {selected?.personal.map((event) => (
-                <PersonalCard
-                  key={event.id}
-                  event={event}
-                  busy={busyId === `event-${event.id}`}
-                  onEdit={() => startComposer(event, event.date)}
-                  onDelete={() => void handleDeletePersonal(event)}
-                />
-              ))}
-            </section>
           </CardContent>
-        </Card>
+          </Card>
+        </div>
+
       </div>
-
-      <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editing ? "Edit event" : `${selectedIso} â€” naya event`}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="plan-event-title">Title</Label>
-              <Input
-                id="plan-event-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="jaise: Doctor visit, Chhutti, Call list"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="plan-event-kind">Type</Label>
-              <Select value={kind} onValueChange={(value) => setKind(value ?? "note")}>
-                <SelectTrigger id="plan-event-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PERSONAL_KINDS.map((option) => (
-                    <SelectItem key={option} value={option} className="capitalize">
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="plan-event-notes">Notes (optional)</Label>
-              <Textarea
-                id="plan-event-notes"
-                rows={3}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="kuch yaad rakhne layakâ€¦"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setComposerOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void handleSavePersonal()} disabled={saving}>
-              {saving ? "Savingâ€¦" : editing ? "Save changes" : "Add event"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <LeadTimelineDialog leadId={timelineLeadId} open={timelineOpen} onOpenChange={setTimelineOpen} />
     </div>
-  );
-}
-
-/** Compact clickable row in the day panel that opens the lead's full timeline. */
-function LeadChipButton({
-  name,
-  meta,
-  icon,
-  onClick,
-}: {
-  name: string;
-  meta: string;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title="View this lead's full timeline"
-      className="flex w-full items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/50"
-    >
-      <span className="mt-0.5">{icon}</span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-slate-900">{name}</span>
-        <span className="block truncate text-xs text-slate-500">{meta}</span>
-      </span>
-    </button>
   );
 }
 
@@ -557,41 +275,6 @@ function ReminderCard({
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
       {reminder.phone !== "-" && <p className="mt-1 text-xs font-medium text-slate-700">{reminder.phone}</p>}
-    </article>
-  );
-}
-
-function PersonalCard({
-  event,
-  busy,
-  onEdit,
-  onDelete,
-}: {
-  event: PersonalEvent;
-  busy: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <article className="rounded-xl border border-slate-200 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-          <span className={`size-2.5 rounded-full ${eventDotClass(event.kind)}`} aria-hidden="true" />
-          {event.title}
-        </p>
-        <Badge variant="secondary" className="capitalize">
-          {event.kind}
-        </Badge>
-      </div>
-      {event.notes && <p className="mt-1 text-xs text-slate-500">{event.notes}</p>}
-      <div className="mt-2 flex gap-1.5">
-        <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onEdit}>
-          Edit
-        </Button>
-        <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={onDelete}>
-          <Trash2 aria-hidden="true" /> Delete
-        </Button>
-      </div>
     </article>
   );
 }

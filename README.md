@@ -16,6 +16,17 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Supabase setup and Vercel
+
+Set `NEXT_PUBLIC_SUPABASE_URL` and either `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+or `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` for local development and in
+Vercel's Environment Variables for each deployment environment. Restart the local
+server after changing `.env.local`, and redeploy after changing Vercel variables.
+
+Database migrations are run in Supabase, not by deploying to Vercel. If the OPD/IPD
+appointment-date columns have not been added yet, run `supabase-master-data-migration.sql`
+in the Supabase SQL Editor. The calendar no longer uses the personal-events table.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
