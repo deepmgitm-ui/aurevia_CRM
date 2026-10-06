@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
+import { buildMonthCells } from "./month-grid";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -86,7 +87,10 @@ export function PlanCalendar({
     monthKey: month || todayIso.slice(0, 7),
     days,
   }));
-  const loadingMonth = monthCursor !== itemsFor.monthKey;
+  const [calendarError, setCalendarError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const monthNeedsFetch = monthCursor !== itemsFor.monthKey;
+  const loadingMonth = monthNeedsFetch && !calendarError;
 
   // Fetch a month the cache does not hold yet (arrow navigation) so every
   // month â€” not just the current one â€” shows its appointments.
@@ -94,23 +98,35 @@ export function PlanCalendar({
     if (monthCursor === itemsFor.monthKey) return;
     let active = true;
     void getMonthDays(monthCursor).then((response) => {
-      if (!active || !response.success || !response.data) return;
+      if (!active) return;
+      if (!response.success || !response.data) {
+        setCalendarError(response.success ? "No calendar data was returned." : response.error);
+        return;
+      }
       setItemsFor({ monthKey: monthCursor, days: response.data.days });
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setCalendarError(
+        error instanceof Error ? error.message : "Could not load appointments for this month.",
+      );
     });
     return () => {
       active = false;
     };
-  }, [monthCursor, itemsFor.monthKey]);
+  }, [monthCursor, itemsFor.monthKey, reloadToken]);
 
   const visibleDays = useMemo(() => {
+    if (monthNeedsFetch) {
+      return buildMonthCells(monthCursor).map((day) => ({ ...day, reminders: [] }));
+    }
     const [year, month] = monthCursor.split("-").map(Number);
     return itemsFor.days.filter((day) => {
       const [dayYear, dayMonth] = day.iso.split("-").map(Number);
       return dayYear === year && dayMonth === month;
     });
-  }, [itemsFor.days, monthCursor]);
+  }, [itemsFor.days, monthNeedsFetch, monthCursor]);
 
-  const selected = itemsFor.days.find((day) => day.iso === selectedIso);
+  const selected = visibleDays.find((day) => day.iso === selectedIso);
   const [cursorYear, cursorMonth] = monthCursor.split("-").map(Number);
   const monthLabel = new Date(cursorYear, cursorMonth - 1, 1).toLocaleDateString("en-IN", {
     month: "long",
@@ -120,8 +136,14 @@ export function PlanCalendar({
   function shiftMonth(delta: number) {
     const next = new Date(cursorYear, cursorMonth - 1 + delta, 1);
     const nextCursor = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+    setCalendarError("");
     setMonthCursor(nextCursor);
     setSelectedIso(nextCursor === todayIso.slice(0, 7) ? todayIso : `${nextCursor}-01`);
+  }
+
+  function retryMonth() {
+    setCalendarError("");
+    setReloadToken((current) => current + 1);
   }
 
   return (
@@ -139,24 +161,33 @@ export function PlanCalendar({
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-lg">
               {monthLabel}
-              {loadingMonth && <span className="ml-2 text-xs font-normal text-slate-400">loadingâ€¦</span>}
+              {loadingMonth && (
+                <span className="ml-2 text-xs font-normal text-slate-400" role="status">
+                  Loading appointments...
+                </span>
+              )}
             </CardTitle>
             <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+              <Button type="button" variant="ghost" size="icon" aria-label="Previous month" disabled={loadingMonth} onClick={() => shiftMonth(-1)}>
                 <ChevronLeft aria-hidden="true" />
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={loadingMonth}
                 onClick={() => {
-                  setMonthCursor(todayIso.slice(0, 7));
+                  const todayMonth = todayIso.slice(0, 7);
+                  const shouldRetry = monthCursor === todayMonth && monthNeedsFetch;
+                  setCalendarError("");
+                  setMonthCursor(todayMonth);
                   setSelectedIso(todayIso);
+                  if (shouldRetry) setReloadToken((current) => current + 1);
                 }}
               >
                 Today
               </Button>
-              <Button type="button" variant="ghost" size="icon" aria-label="Next month" onClick={() => shiftMonth(1)}>
+              <Button type="button" variant="ghost" size="icon" aria-label="Next month" disabled={loadingMonth} onClick={() => shiftMonth(1)}>
                 <ChevronRight aria-hidden="true" />
               </Button>
             </div>
@@ -169,7 +200,7 @@ export function PlanCalendar({
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1" aria-busy={loadingMonth}>
             {visibleDays.map((day) => {
               const isSelected = day.iso === selectedIso;
               const isToday = day.iso === todayIso;
@@ -234,7 +265,21 @@ export function PlanCalendar({
               <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
                 Appointments ({selected?.reminders.length ?? 0})
               </h3>
-              {(selected?.reminders.length ?? 0) === 0 && (
+              {calendarError && (
+                <div>
+                  <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    {calendarError}
+                  </p>
+                  <Button type="button" variant="outline" size="sm" className="mt-2" onClick={retryMonth}>
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {loadingMonth ? (
+                <p role="status" className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  Loading appointments...
+                </p>
+              ) : !calendarError && (selected?.reminders.length ?? 0) === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
                   No OPD or IPD appointments on this day.
                 </p>

@@ -98,12 +98,20 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
   }, [leads, bucket, query, today]);
 
   async function handleComplete(lead: TaskLead) {
+    if (busyId) return;
+    const originalIndex = leads.findIndex((entry) => entry.id === lead.id);
     setBusyId(lead.id);
+    setLeads((current) => current.filter((entry) => entry.id !== lead.id));
     const result = await completeFollowUp(lead.id);
     if (!result.success) {
+      setLeads((current) => {
+        if (current.some((entry) => entry.id === lead.id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(originalIndex, restored.length), 0, lead);
+        return restored;
+      });
       toast.add({ title: "Unable to complete follow-up", description: result.error, type: "error" });
     } else {
-      setLeads((current) => current.filter((entry) => entry.id !== lead.id));
       toast.add({ title: "Follow-up completed", description: lead.name, type: "success" });
     }
     setBusyId(null);
@@ -117,24 +125,33 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
   }
 
   async function handleLogCall() {
-    if (!callLead) return;
+    if (!callLead || busyId) return;
+    const lead = callLead;
+    const previousDate = lead.follow_up_date;
     setBusyId(callLead.id);
+    if (nextDate) {
+      setLeads((current) =>
+        current.map((entry) =>
+          entry.id === lead.id ? { ...entry, follow_up_date: nextDate } : entry,
+        ),
+      );
+    }
     const result = await logLeadCall({
-      lead_id: callLead.id,
+      lead_id: lead.id,
       outcome: callOutcome,
       notes: callNotes,
       next_follow_up_date: nextDate || null,
     });
     if (!result.success) {
-      toast.add({ title: "Unable to log call", description: result.error, type: "error" });
-    } else {
       if (nextDate) {
         setLeads((current) =>
           current.map((entry) =>
-            entry.id === callLead.id ? { ...entry, follow_up_date: nextDate } : entry,
+            entry.id === lead.id ? { ...entry, follow_up_date: previousDate } : entry,
           ),
         );
       }
+      toast.add({ title: "Unable to log call", description: result.error, type: "error" });
+    } else {
       toast.add({
         title: "Call logged",
         description: nextDate ? `Next follow-up set for ${displayDate(nextDate)}.` : "Call added to the activity timeline.",
@@ -146,15 +163,24 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
   }
 
   async function handleReschedule(lead: TaskLead, value: string) {
-    if (!value) return;
+    if (!value || busyId) return;
     setBusyId(lead.id);
+    setLeads((current) =>
+      current.map((entry) =>
+        entry.id === lead.id ? { ...entry, follow_up_date: value } : entry,
+      ),
+    );
     const result = await rescheduleFollowUp(lead.id, value);
     if (!result.success) {
+      setLeads((current) =>
+        current.map((entry) =>
+          entry.id === lead.id
+            ? { ...entry, follow_up_date: lead.follow_up_date }
+            : entry,
+        ),
+      );
       toast.add({ title: "Unable to reschedule", description: result.error, type: "error" });
     } else {
-      setLeads((current) =>
-        current.map((entry) => entry.id === lead.id ? { ...entry, follow_up_date: value } : entry),
-      );
       toast.add({ title: "Follow-up rescheduled", description: `${lead.name} → ${displayDate(value)}`, type: "success" });
     }
     setBusyId(null);
@@ -245,7 +271,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
                           className="h-8 w-36 text-xs"
                           value={/^\d{4}-\d{2}-\d{2}$/.test(key) ? key : ""}
                           onChange={(event) => void handleReschedule(lead, event.target.value)}
-                          disabled={busyId === lead.id}
+                          disabled={busyId !== null}
                         />
                       </div>
                     </td>
@@ -256,11 +282,11 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
                     <td className="px-4 py-3 align-top text-slate-600">{lead.assigned_to || "-"}</td>
                     <td className="px-4 py-3 align-top">
                       <div className="flex justify-end gap-2">
-                        <Button type="button" size="sm" variant="outline" onClick={() => openCall(lead)} disabled={busyId === lead.id}>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openCall(lead)} disabled={busyId !== null}>
                           Log Call
                         </Button>
-                        <Button type="button" size="sm" onClick={() => void handleComplete(lead)} disabled={busyId === lead.id}>
-                          <CheckCircle2 aria-hidden="true" /> Done
+                        <Button type="button" size="sm" onClick={() => void handleComplete(lead)} disabled={busyId !== null}>
+                          <CheckCircle2 aria-hidden="true" /> {busyId === lead.id ? "Saving..." : "Done"}
                         </Button>
                       </div>
                     </td>
@@ -305,7 +331,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCallLead(null)}>Cancel</Button>
             <Button type="button" disabled={!callLead || busyId === callLead.id} onClick={() => void handleLogCall()}>
-              Save Call
+              {busyId === callLead?.id ? "Saving..." : "Save Call"}
             </Button>
           </DialogFooter>
         </DialogContent>
