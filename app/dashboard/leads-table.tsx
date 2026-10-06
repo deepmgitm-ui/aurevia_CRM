@@ -57,6 +57,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
 import {
   AGE_CHIP_BUCKETS,
@@ -967,15 +968,12 @@ export function LeadsTable({
         <label className="block text-[10px] font-medium tracking-wide text-slate-500 uppercase">
           {field.label}
         </label>
-        <input
-          type="date"
+        <AppointmentDatePicker
           value={current}
+          label={field.label}
+          hint={field.hint}
           disabled={saving || savingLeadIds.has(lead.id)}
-          aria-busy={saving || savingLeadIds.has(lead.id)}
-          onChange={(event) => void save(event.target.value)}
-          aria-label={`${field.label} for ${lead.name}`}
-          title={field.hint}
-          className="h-7 w-full max-w-[170px] rounded-md border border-slate-200 px-2 text-[11px] text-slate-700 disabled:opacity-60"
+          onChange={(value) => void save(value)}
         />
       </div>
     );
