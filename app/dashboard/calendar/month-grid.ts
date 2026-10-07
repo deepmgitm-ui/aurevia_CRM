@@ -21,6 +21,11 @@ export function buildMonthCells(month: string): { iso: string; day: number; isCu
   });
 }
 
+/** Treat optional calendar lists as empty rather than crashing while rendering. */
+export function ensureArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 /** Local-calender yyyy-mm-dd (no UTC shift — the grid must match wall dates). */
 export function toLocalIso(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");

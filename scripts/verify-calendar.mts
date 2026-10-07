@@ -1,6 +1,7 @@
 // Regression checks for the "Plan your calendar" month math + clean-input rules.
 // Run with: npm run verify:calendar
 import assert from "node:assert/strict";
+import { ensureArray } from "../app/dashboard/calendar/month-grid.ts";
 
 // NOTE: actions.ts is a "use server" module (imports next/cache + the supabase
 // server client), so plain node cannot import it. The pure month-grid math is
@@ -65,6 +66,13 @@ assert.ok(specMonthCells("2026-06")[0]!.isCurrentMonth);
 // 4. Bad input throws a readable error (the action guards ?month= with this).
 assert.throws(() => specMonthCells("september"), /Month must look like/);
 assert.throws(() => specMonthCells("2026-13"), /Month must look like/);
+
+// 5. Missing reminder lists from malformed/stale calendar payloads must not
+//    crash day-cell rendering.
+assert.deepEqual(ensureArray(undefined), []);
+assert.deepEqual(ensureArray(null), []);
+const reminders = [{ leadId: "lead-1" }];
+assert.equal(ensureArray(reminders), reminders);
 
 console.log("✓ all calendar assertions passed");
 console.log("  sep 2026 grid:", `${september[0]!.iso} → ${september.at(-1)!.iso}`);

@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
-import { buildMonthCells } from "./month-grid";
+import { buildMonthCells, ensureArray } from "./month-grid";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -85,7 +85,7 @@ export function PlanCalendar({
   // month" is a DERIVED flag â€” no setState needed inside the fetch effect.
   const [itemsFor, setItemsFor] = useState<{ monthKey: string; days: CalendarDay[] }>(() => ({
     monthKey: month || todayIso.slice(0, 7),
-    days,
+    days: days.map((day) => ({ ...day, reminders: ensureArray(day.reminders) })),
   }));
   const [calendarError, setCalendarError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
@@ -103,7 +103,13 @@ export function PlanCalendar({
         setCalendarError(response.success ? "No calendar data was returned." : response.error);
         return;
       }
-      setItemsFor({ monthKey: monthCursor, days: response.data.days });
+      setItemsFor({
+        monthKey: monthCursor,
+        days: response.data.days.map((day) => ({
+          ...day,
+          reminders: ensureArray(day.reminders),
+        })),
+      });
     }).catch((error: unknown) => {
       if (!active) return;
       setCalendarError(
@@ -117,13 +123,16 @@ export function PlanCalendar({
 
   const visibleDays = useMemo(() => {
     if (monthNeedsFetch) {
-      return buildMonthCells(monthCursor).map((day) => ({ ...day, reminders: [] }));
+      return buildMonthCells(monthCursor).map((day) => ({
+        ...day,
+        reminders: ensureArray<CalendarAppointment>([]),
+      }));
     }
     const [year, month] = monthCursor.split("-").map(Number);
     return itemsFor.days.filter((day) => {
       const [dayYear, dayMonth] = day.iso.split("-").map(Number);
       return dayYear === year && dayMonth === month;
-    });
+    }).map((day) => ({ ...day, reminders: ensureArray(day.reminders) }));
   }, [itemsFor.days, monthNeedsFetch, monthCursor]);
 
   const selected = visibleDays.find((day) => day.iso === selectedIso);
@@ -226,15 +235,15 @@ export function PlanCalendar({
                     {day.day}
                   </span>
                   <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
-                    {day.reminders.slice(0, 3).map((reminder) => (
+                    {ensureArray(day.reminders).slice(0, 3).map((reminder) => (
                       <ReminderDot
                         key={`${reminder.leadId}-${reminder.kind}`}
                         kind={reminder.kind}
                         past={reminder.past}
                       />
                     ))}
-                    {day.reminders.length > 3 && (
-                      <span className="text-[10px] font-semibold text-slate-500">+{day.reminders.length - 3}</span>
+                    {ensureArray(day.reminders).length > 3 && (
+                      <span className="text-[10px] font-semibold text-slate-500">+{ensureArray(day.reminders).length - 3}</span>
                     )}
                   </span>
                 </button>
@@ -263,7 +272,7 @@ export function PlanCalendar({
           <CardContent className="space-y-4">
             <section aria-label="Appointments" className="space-y-2">
               <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                Appointments ({selected?.reminders.length ?? 0})
+                Appointments ({ensureArray(selected?.reminders).length})
               </h3>
               {calendarError && (
                 <div>
@@ -279,12 +288,12 @@ export function PlanCalendar({
                 <p role="status" className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
                   Loading appointments...
                 </p>
-              ) : !calendarError && (selected?.reminders.length ?? 0) === 0 && (
+              ) : !calendarError && ensureArray(selected?.reminders).length === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
                   No OPD or IPD appointments on this day.
                 </p>
               )}
-              {selected?.reminders.map((reminder) => (
+              {ensureArray(selected?.reminders).map((reminder) => (
                 <ReminderCard
                   key={`${reminder.leadId}-${reminder.kind}`}
                   reminder={reminder}
