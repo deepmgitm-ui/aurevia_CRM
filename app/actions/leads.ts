@@ -2160,6 +2160,43 @@ export async function getLeadDeletionBackups(): Promise<ActionResult<LeadDeletio
   }
 }
 
+/** Permanently removes one saved deletion snapshot without touching active leads. */
+export async function permanentlyDeleteLeadDeletionBackup(
+  backupId: string,
+): Promise<ActionResult<{ deleted: true }>> {
+  if (typeof backupId !== "string" || !backupId.trim()) {
+    return { success: false, error: "No deletion selected." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can delete deletion history (403 Forbidden)." };
+    }
+
+    const { data, error } = await supabase
+      .from("lead_deletion_backups")
+      .delete()
+      .eq("id", backupId)
+      .select("id");
+    if (error) {
+      return {
+        success: false,
+        error: isMissingBackupTableError(error)
+          ? `Deletion history is not set up yet. ${LEAD_DELETION_BACKUP_SETUP_HINT}`
+          : error.message,
+      };
+    }
+    if (!data?.length) return { success: false, error: "That deletion no longer exists." };
+
+    revalidatePath("/dashboard");
+    return { success: true, data: { deleted: true } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to permanently delete the snapshot.") };
+  }
+}
+
 /**
  * Re-inserts a snapshot. Ids are preserved and conflicts ignored, so restoring
  * twice — or restoring after some leads were re-imported — can never duplicate

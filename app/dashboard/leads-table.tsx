@@ -14,6 +14,7 @@ import {
   getEmployees,
   getLeadActivities,
   getLeadDeletionBackups,
+  permanentlyDeleteLeadDeletionBackup,
   restoreLeadDeletionBackup,
   getLeadsForExport,
   getLeadsPage,
@@ -408,6 +409,8 @@ export function LeadsTable({
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
   const [backupErrorText, setBackupErrorText] = useState("");
   const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
+  const [backupPendingDeletion, setBackupPendingDeletion] = useState<LeadDeletionBackup | null>(null);
+  const [deletingBackupId, setDeletingBackupId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isCreatingLead, setIsCreatingLead] = useState(false);
@@ -1185,6 +1188,34 @@ export function LeadsTable({
     setRestoringBackupId(null);
   }
 
+  async function handleDeleteBackup() {
+    if (!backupPendingDeletion) return;
+    const backupId = backupPendingDeletion.id;
+    setDeletingBackupId(backupId);
+    try {
+      const response = await permanentlyDeleteLeadDeletionBackup(backupId);
+      if (!response.success) {
+        toast.add({ title: "Snapshot deletion failed", description: response.error, type: "error" });
+      } else {
+        setDeletionBackups((current) => current.filter((backup) => backup.id !== backupId));
+        setBackupPendingDeletion(null);
+        toast.add({
+          title: "Snapshot permanently deleted",
+          description: "Its recovery copy was removed. Active leads were not changed.",
+          type: "success",
+        });
+      }
+    } catch (error) {
+      toast.add({
+        title: "Snapshot deletion failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setDeletingBackupId(null);
+    }
+  }
+
   async function handleQuickNote() {
     if (!quickNoteLead || !quickNote.trim()) return;
     trackLeadMutations(quickNoteLead.id);
@@ -1928,26 +1959,83 @@ export function LeadsTable({
                       {backup.search ? ` · search "${backup.search}"` : ""} · by {backup.deleted_by_name}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={Boolean(backup.restored_at) || restoringBackupId === backup.id}
-                    onClick={() => void handleRestoreBackup(backup.id)}
-                  >
-                    {restoringBackupId === backup.id ? (
-                      <Loader2 className="animate-spin" aria-hidden="true" />
-                    ) : (
-                      <RotateCcw aria-hidden="true" />
-                    )}
-                    {backup.restored_at ? "Restored" : "Restore"}
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={Boolean(backup.restored_at) || restoringBackupId === backup.id || deletingBackupId === backup.id}
+                      onClick={() => void handleRestoreBackup(backup.id)}
+                    >
+                      {restoringBackupId === backup.id ? (
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <RotateCcw aria-hidden="true" />
+                      )}
+                      {backup.restored_at ? "Restored" : "Restore"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      aria-label={`Permanently delete snapshot from ${new Date(backup.created_at).toLocaleString()}`}
+                      title="Permanently delete this recovery snapshot"
+                      disabled={restoringBackupId === backup.id || deletingBackupId === backup.id}
+                      onClick={() => setBackupPendingDeletion(backup)}
+                    >
+                      {deletingBackupId === backup.id ? (
+                        <Loader2 className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Trash2 aria-hidden="true" />
+                      )}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setIsRestoreOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(backupPendingDeletion)}
+        onOpenChange={(open) => {
+          if (!open && deletingBackupId === null) setBackupPendingDeletion(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Permanently delete this snapshot?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the recovery copy for {backupPendingDeletion?.row_count.toLocaleString() ?? 0} leads
+              and cannot be undone. Any leads that have not been restored will no longer be recoverable from this snapshot.
+              Active leads are not affected.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletingBackupId !== null}
+              onClick={() => setBackupPendingDeletion(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!backupPendingDeletion || deletingBackupId !== null}
+              onClick={() => void handleDeleteBackup()}
+            >
+              {deletingBackupId === backupPendingDeletion?.id ? (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Trash2 aria-hidden="true" />
+              )}
+              Delete permanently
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
