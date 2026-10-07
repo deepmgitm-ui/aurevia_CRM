@@ -176,7 +176,11 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
         </div>
       </div>
       <div className="border-t border-slate-200 p-3">
-        <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+        <Link
+          href="/dashboard/agents?editProfile=1"
+          aria-label="Open and edit your profile"
+          className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-blue-50"
+        >
           <Avatar size="sm">
             <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
           </Avatar>
@@ -184,7 +188,7 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
             <p className="truncate text-sm font-medium text-slate-900">{profile.name}</p>
             <p className="truncate text-xs capitalize text-slate-500">{profile.role}</p>
           </div>
-        </div>
+        </Link>
       </div>
     </aside>
   );
@@ -211,15 +215,21 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
             Workspace
           </p>
           <Navigation mobile />
-          <div className="mt-auto flex items-center gap-3 border-t border-slate-200 px-3 pt-5">
+          <Link
+            href="/dashboard/agents?editProfile=1"
+            aria-label="Open and edit your profile"
+            className="mt-auto flex items-center gap-3 border-t border-slate-200 px-3 pt-5"
+          >
             <Avatar size="sm">
               <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-900">{profile.name}</p>
+              <p className="truncate text-sm font-medium text-slate-900">
+                {profile.name} <span className="text-xs font-normal text-blue-600">· Edit profile</span>
+              </p>
               <p className="truncate text-xs capitalize text-slate-500">{profile.role}</p>
             </div>
-          </div>
+          </Link>
         </div>
       </SheetContent>
     </Sheet>
@@ -339,8 +349,14 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
                 <span className="hidden xl:inline">Tasks</span>
               </Link>
               <div className="hidden text-right lg:block">
-                <p className="text-sm font-medium text-slate-900">{profile.name}</p>
-                <p className="text-xs capitalize text-slate-500">{profile.role}</p>
+                <Link
+                  href="/dashboard/agents?editProfile=1"
+                  aria-label="Open and edit your profile"
+                  className="group"
+                >
+                  <p className="text-sm font-medium text-slate-900 group-hover:text-blue-700">{profile.name}</p>
+                  <p className="text-xs capitalize text-slate-500">{profile.role} · Edit profile</p>
+                </Link>
               </div>
               <Avatar>
                 <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>

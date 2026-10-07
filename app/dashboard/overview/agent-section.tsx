@@ -267,16 +267,22 @@ export function AgentSection({
   employees,
   agents,
   editableProfileId,
+  openOwnProfile = false,
 }: {
   employees: EmployeeDirectoryEntry[];
   agents: AgentStat[];
   editableProfileId: string | null;
+  openOwnProfile?: boolean;
 }) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<AgentCard | null>(null);
   const [directory, setDirectory] = useState(employees);
+  const [selected, setSelected] = useState<AgentCard | null>(() => {
+    if (!openOwnProfile || !editableProfileId) return null;
+    return buildAgentCards(employees, agents).find((card) => card.id === editableProfileId) ?? null;
+  });
 
   const cards = useMemo(() => buildAgentCards(directory, agents), [directory, agents]);
+
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return cards;
@@ -310,18 +316,33 @@ export function AgentSection({
             </span>
           )}
         </div>
-        <div className="relative min-w-56 flex-1 sm:max-w-xs">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400"
-            aria-hidden="true"
-          />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search agent name"
-            aria-label="Search agents by name"
-            className="pl-9"
-          />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+          {editableProfileId && cards.some((card) => card.id === editableProfileId) && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const ownCard = cards.find((card) => card.id === editableProfileId);
+                if (ownCard) setSelected(ownCard);
+              }}
+            >
+              <Pencil aria-hidden="true" />
+              Edit my profile
+            </Button>
+          )}
+          <div className="relative min-w-56 flex-1 sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search agent name"
+              aria-label="Search agents by name"
+              className="pl-9"
+            />
+          </div>
         </div>
       </div>
 

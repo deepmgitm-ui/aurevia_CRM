@@ -228,6 +228,7 @@ function renderSection(
   viewerId: string | null,
   viewerName: string | null,
   profileMessage: string | null,
+  openOwnProfile: boolean,
 ) {
   switch (section) {
     case "lead-analysis":
@@ -346,6 +347,7 @@ function renderSection(
             employees={employees}
             agents={agentMetrics}
             editableProfileId={viewerId}
+            openOwnProfile={openOwnProfile}
           />
           <LeadListCard
             title={isTeamLead ? "Team leads" : "My leads"}
@@ -469,7 +471,7 @@ export default async function SectionPage({
   searchParams,
 }: {
   params: Promise<{ section: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; editProfile?: string }>;
 }) {
   const [{ section }, query] = await Promise.all([params, searchParams]);
   if (!isSection(section)) notFound();
@@ -517,6 +519,7 @@ export default async function SectionPage({
         viewer?.id ?? null,
         viewer?.name ?? null,
         profileMessage,
+        section === "agents" && query.editProfile === "1",
       )}
     </div>
   );
