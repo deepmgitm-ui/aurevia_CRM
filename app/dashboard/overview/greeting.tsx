@@ -9,12 +9,12 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
+import { DashboardDateRangeControl } from "../dashboard-date-range";
 import {
   GREETING_THEMES,
   cheerFor,
-  formatGreetingDate,
   greetingHeadline,
   partOfDay,
   type PartOfDay,
@@ -22,13 +22,11 @@ import {
 
 export function DashboardGreeting({ name, role }: { name?: string; role?: string }) {
   const [part, setPart] = useState<PartOfDay | null>(null);
-  const [today, setToday] = useState("");
 
   useEffect(() => {
     const apply = () => {
       const now = new Date();
       setPart(partOfDay(now.getHours()));
-      setToday(formatGreetingDate(now));
     };
     apply();
     // A dashboard left open all day still flips morning → afternoon → evening.
@@ -70,10 +68,7 @@ export function DashboardGreeting({ name, role }: { name?: string; role?: string
         </div>
       </div>
 
-      <span className="flex items-center gap-2 rounded-xl border border-white/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
-        <CalendarDays className="size-3.5 text-slate-400" aria-hidden="true" />
-        {today}
-      </span>
+      <DashboardDateRangeControl />
     </section>
   );
 }

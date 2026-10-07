@@ -57,11 +57,6 @@ export function cheerFor(role: string | undefined, part: PartOfDay): string {
   return part === "evening" ? "Great day of work — let's finish strong! ✨" : "Let's close some deals today! 🚀";
 }
 
-/** e.g. "Friday, 26 Sep" for the banner's date chip. */
-export function formatGreetingDate(date: Date): string {
-  return date.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "short" });
-}
-
 /** Full first line, e.g. "Good Morning, Admin!". */
 export function greetingHeadline(part: PartOfDay, name: string | undefined): string {
   const displayName = (name ?? "").trim() || "there";

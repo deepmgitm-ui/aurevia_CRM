@@ -8,7 +8,6 @@ import {
   BarChart3,
   CalendarDays,
   CheckSquare,
-  ChevronDown,
   CircleCheck,
   Kanban,
   LayoutDashboard,
@@ -25,9 +24,6 @@ import {
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Sheet,
   SheetClose,
@@ -38,7 +34,8 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/login/actions";
-import { currentQuarterRange, formatRangeLabel, type DateRange } from "./overview/analytics";
+import { currentQuarterRange, type DateRange } from "./overview/analytics";
+import { DashboardDateRangeProvider } from "./dashboard-date-range";
 import { RealtimeNotifications } from "./realtime-notifications";
 
 interface DashboardProfile {
@@ -266,85 +263,6 @@ function TopTabs({ mobile = false }: { mobile?: boolean }) {
   );
 }
 
-// Date-range button on the right of the header ("01 Jul 2026 - 30 Sep 2026").
-function HeaderRangeButton({ range, onChange }: { range: DateRange; onChange: (range: DateRange) => void }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [draft, setDraft] = useState<DateRange>(range);
-  // Re-sync the draft whenever the parent range changes (header picker, URL
-  // window). Adjusted during render — React's "adjust state when props change"
-  // pattern — so it never costs an extra cascading render.
-  const [draftSource, setDraftSource] = useState<DateRange>(range);
-  if (draftSource.from !== range.from || draftSource.to !== range.to) {
-    setDraftSource(range);
-    setDraft(range);
-  }
-
-  return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger
-        render={
-          <button
-            type="button"
-            className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-            aria-label="Select dashboard date range"
-          >
-            <CalendarDays className="size-4 text-slate-500" aria-hidden="true" />
-            <span className="hidden whitespace-nowrap min-[480px]:inline">{formatRangeLabel(range)}</span>
-            <ChevronDown className="size-4 text-slate-400" aria-hidden="true" />
-          </button>
-        }
-      />
-      <PopoverContent className="w-72 space-y-3" align="end">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="header-range-from">From</Label>
-            <Input
-              id="header-range-from"
-              type="date"
-              value={draft.from}
-              onChange={(event) => setDraft((current) => ({ ...current, from: event.target.value }))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="header-range-to">To</Label>
-            <Input
-              id="header-range-to"
-              type="date"
-              value={draft.to}
-              onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))}
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              const quarter = currentQuarterRange();
-              setDraft(quarter);
-              onChange(quarter);
-              setIsOpen(false);
-            }}
-          >
-            This quarter
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              onChange(draft);
-              setIsOpen(false);
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 /** "Aaj: Present · 09:42" — proof that signing in marked the day. */
 function AttendanceChip({
   attendance,
@@ -411,7 +329,6 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             </div>
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
-              <HeaderRangeButton range={range} onChange={handleRangeChange} />
               <RealtimeNotifications />
               <Link
                 href="/dashboard/tasks"
@@ -440,7 +357,9 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             <TopTabs mobile />
           </div>
         </header>
-        <main className="flex-1 bg-slate-50 p-4 sm:p-6 lg:p-8">{children}</main>
+        <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>
+          <main className="flex-1 bg-slate-50 p-4 sm:p-6 lg:p-8">{children}</main>
+        </DashboardDateRangeProvider>
       </div>
     </div>
   );

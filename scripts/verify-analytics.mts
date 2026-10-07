@@ -372,9 +372,8 @@ const foldedTotal = manyMetrics.pipeline.reduce(
 assert.equal(foldedTotal, 3 + 2 + 1, "Other holds exactly the three smallest written treatments");
 
 // ---------------------------------------------------------------------------
-// 18. The opening window must never hide a full pipeline: the quarter wins
-//     whenever it has leads, otherwise it snaps onto the months the data is in
-//     (the March 2026 import against a Jul-Sep window).
+// 18. The opening window spans every dated lead, from the oldest lead through
+//     today (or a future-dated lead if one exists).
 // ---------------------------------------------------------------------------
 const TODAY = new Date(2026, 7, 15); // 15 Aug 2026 → Q3 = Jul-Sep
 const dated = (leadDate: string): AnalyticsLead => ({ ...lead("d", "LASIK", "New"), lead_date: leadDate });
@@ -384,26 +383,26 @@ assert.deepEqual(quarter, { from: "2026-07-01", to: "2026-09-30" }, "Q3 window f
 
 assert.deepEqual(
   defaultDashboardRange([dated("15/08/2026"), dated("02/09/2026")], TODAY),
-  quarter,
-  "leads inside the quarter keep the quarter window",
+  { from: "2026-08-15", to: "2026-09-02" },
+  "the default range starts at the earliest lead date and includes future-dated leads",
 );
 
 assert.deepEqual(
   defaultDashboardRange([dated("05/03/2026"), dated("27/03/2026")], TODAY),
-  { from: "2026-03-01", to: "2026-03-31" },
-  "an empty quarter snaps onto the single month the data covers",
+  { from: "2026-03-05", to: "2026-08-15" },
+  "older leads are included through today",
 );
 
 assert.deepEqual(
   defaultDashboardRange([dated("05/01/2026"), dated("27/05/2026")], TODAY),
-  { from: "2026-01-01", to: "2026-05-31" },
-  "a multi-month import opens on the full span, month start to month end",
+  { from: "2026-01-05", to: "2026-08-15" },
+  "the date window starts on the exact oldest lead date and includes the current date",
 );
 
 assert.deepEqual(
   defaultDashboardRange([dated("05/03/2026"), dated("15/08/2026")], TODAY),
-  quarter,
-  "one lead inside the quarter is enough to keep the quarter window",
+  { from: "2026-03-05", to: "2026-08-15" },
+  "a lead in the current quarter does not hide older leads",
 );
 
 assert.deepEqual(
@@ -422,7 +421,7 @@ const snapped = defaultDashboardRange([dated("05/03/2026")], TODAY);
 const nonEmpty = buildDashboardMetrics([dated("05/03/2026"), dated("09/03/2026")], [], snapped);
 assert.ok(
   nonEmpty.kpis.length > 0 && nonEmpty.pipeline.reduce((sum, row) => sum + row.total, 0) === 2,
-  "the snapped window really does show the imported leads instead of zeroes",
+  "the full-history window includes the older leads instead of showing zeroes",
 );
 
 console.log("✓ all analytics assertions passed");

@@ -353,7 +353,7 @@ export function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Quarter containing `today` — the dashboard default range (01 Jul - 30 Sep 2026 today). */
+/** Quarter containing `today`, available as a quick-select range. */
 export function currentQuarterRange(today = new Date()): DateRange {
   const startMonth = Math.floor(today.getMonth() / 3) * 3;
   return {
@@ -362,14 +362,7 @@ export function currentQuarterRange(today = new Date()): DateRange {
   };
 }
 
-/**
- * Dashboard default window that can never look empty by accident.
- *
- * The current quarter wins whenever it holds leads. When it does not (an
- * imported sheet can sit months in the past — the 97-lead March 2026 import
- * against a Jul-Sep window), the window snaps to the months the data actually
- * covers, otherwise every KPI would read 0 while the pipeline is full.
- */
+/** Dashboard's default window spans every dated lead through today. */
 export function defaultDashboardRange(rows: AnalyticsLead[], today = new Date()): DateRange {
   const quarter = currentQuarterRange(today);
   if (rows.length === 0) return quarter;
@@ -379,21 +372,16 @@ export function defaultDashboardRange(rows: AnalyticsLead[], today = new Date())
     .filter((date): date is Date => date !== null)
     .sort((a, b) => a.getTime() - b.getTime());
 
-  // No usable dates: those leads are counted by every range, keep the quarter.
+  // Undated leads are counted by every range, so retain the quarter fallback.
   if (dated.length === 0) return quarter;
-
-  const quarterFrom = parseIsoDate(quarter.from);
-  const quarterTo = parseIsoDate(quarter.to);
-  const inQuarter = dated.filter(
-    (date) => (!quarterFrom || date >= quarterFrom) && (!quarterTo || date <= quarterTo),
-  );
-  if (inQuarter.length > 0) return quarter;
 
   const first = dated[0];
   const last = dated[dated.length - 1];
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const latestDate = last > todayDate ? last : todayDate;
   return {
-    from: toIsoDate(new Date(first.getFullYear(), first.getMonth(), 1)),
-    to: toIsoDate(new Date(last.getFullYear(), last.getMonth() + 1, 0)),
+    from: toIsoDate(first),
+    to: toIsoDate(latestDate),
   };
 }
 
@@ -402,10 +390,7 @@ export function defaultDashboardRange(rows: AnalyticsLead[], today = new Date())
  * it had to move.
  *
  * Both the Overview page and each analysis tab (Consultations, Surgeries,
- * Patients, …) call this, which is the point: when the two disagreed, the
- * Overview snapped onto the March 2026 import while the tabs stayed on the
- * empty Jul-Sep quarter and every lead table rendered 0 rows. One function,
- * one window, no drift.
+ * Patients, …) call this, so the same full-history default applies everywhere.
  */
 export function resolveDashboardWindow(
   params: { from?: string; to?: string },
@@ -423,12 +408,12 @@ export function resolveDashboardWindow(
   const range = defaultDashboardRange(rows, today);
   const note =
     formatRangeLabel(range) !== formatRangeLabel(currentQuarterRange(today))
-      ? `Your leads fall between ${range.from} and ${range.to}, so this screen opened on that window instead of the current quarter. Pick any dates in the filter bar to change it.`
+      ? `Showing leads from the earliest lead date (${range.from}) through ${range.to}. Use the date selector in the greeting to choose another range.`
       : undefined;
   return { range, note };
 }
 
-/** "01 Jul 2026 - 30 Sep 2026" — the label used by the header range button. */
+/** Format an inclusive dashboard range for the greeting's date selector. */
 export function formatRangeLabel(range: DateRange): string {
   const format = (date: Date | null) =>
     date ? `${String(date.getDate()).padStart(2, "0")} ${MONTHS_SHORT[date.getMonth()]} ${date.getFullYear()}` : "—";
