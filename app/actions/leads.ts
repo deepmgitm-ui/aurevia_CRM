@@ -1233,6 +1233,54 @@ export async function getEmployeeDirectory(): Promise<ActionResult<EmployeeDirec
   }
 }
 
+/** The signed-in employee's own HR profile; never returns another user's data. */
+export async function getMyEmployeeProfile(): Promise<ActionResult<EmployeeDirectoryEntry | null>> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError) return { success: false, error: authError.message };
+    if (!user) return { success: false, error: "Sign in to open your profile." };
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(HR_PROFILE_COLUMNS)
+      .eq("id", user.id)
+      .maybeSingle();
+    if (error) {
+      if (/blood_group|emergency_contact|manager_name|photo_url|column .* does not exist/i.test(error.message)) {
+        return {
+          success: false,
+          error: "Profile details are not available yet. Run supabase-hr-migration.sql in the Supabase SQL Editor.",
+        };
+      }
+      return { success: false, error: error.message };
+    }
+    if (!data) return { success: true, data: null };
+
+    const row = data as Record<string, unknown>;
+    return {
+      success: true,
+      data: {
+        id: String(row.id ?? ""),
+        name: String(row.name ?? "").trim(),
+        role: row.role === "admin" || row.role === "manager" ? row.role : "employee",
+        phone: textOrNull(row.phone),
+        email: textOrNull(row.email),
+        gender: textOrNull(row.gender),
+        blood_group: textOrNull(row.blood_group),
+        emergency_contact: textOrNull(row.emergency_contact),
+        manager_name: textOrNull(row.manager_name),
+        photo_url: textOrNull(row.photo_url),
+      },
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load your profile.") };
+  }
+}
+
 
 export type ViewerRole = "admin" | "manager" | "employee";
 

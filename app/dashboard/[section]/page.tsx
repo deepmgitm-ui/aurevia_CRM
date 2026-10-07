@@ -1,10 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Info, Lock } from "lucide-react";
+import { Info } from "lucide-react";
 
-import { getAnalyticsLeads, getEmployeeDirectory, getViewer, type EmployeeDirectoryEntry } from "@/app/actions/leads";
-import { buttonVariants } from "@/components/ui/button";
-
+import {
+  getAnalyticsLeads,
+  getEmployeeDirectory,
+  getMyEmployeeProfile,
+  getViewer,
+  type EmployeeDirectoryEntry,
+} from "@/app/actions/leads";
 import { AgentSection } from "../overview/agent-section";
 import { LeadListTable } from "../overview/lead-list-table";
 import { PipelineDetail } from "../overview/pipeline-detail";
@@ -215,33 +219,15 @@ function LeadListCard({
   );
 }
 
-function AdminOnlyNotice() {
-  return (
-    <section className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-      <span className="flex size-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-        <Lock className="size-5" aria-hidden="true" />
-      </span>
-      <h1 className="text-lg font-semibold text-slate-900">Agent directory is restricted</h1>
-      <p className="max-w-md text-sm text-slate-500">
-        Performance and HR details are visible to admins and managers only. Your own leads stay available in the
-        Leads module.
-      </p>
-      <Link
-        href="/dashboard/leads"
-        className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-lg" })}
-      >
-        Go to my leads
-      </Link>
-    </section>
-  );
-}
-
 function renderSection(
   section: SectionSlug,
   metrics: DashboardMetrics,
   rows: AnalyticsLead[],
   employees: EmployeeDirectoryEntry[],
   isTeamLead: boolean,
+  viewerId: string | null,
+  viewerName: string | null,
+  profileMessage: string | null,
 ) {
   switch (section) {
     case "lead-analysis":
@@ -328,17 +314,46 @@ function renderSection(
       );
 
     case "agents":
-      if (!isTeamLead) return <AdminOnlyNotice />;
+      if (!isTeamLead && employees.length === 0) {
+        return (
+          <>
+            <SectionHeader
+              title="My Agent Profile"
+              description="View and update your own profile. Other employees' private HR details are not shown."
+            />
+            <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {profileMessage ?? "Your profile could not be loaded. Please contact an administrator."}
+            </p>
+          </>
+        );
+      }
+      const agentMetrics = isTeamLead
+        ? metrics.agents
+        : metrics.agents.filter(
+            (agent) => agent.name.trim().toLowerCase() === viewerName?.trim().toLowerCase(),
+          );
       return (
         <>
           <SectionHeader
-            title="Agents Performance"
-            description="Names only on the roster — open a card for the secure performance and HR panel."
+            title={isTeamLead ? "Agents Performance" : "My Agent Profile"}
+            description={
+              isTeamLead
+                ? "Open an agent card to review performance and secure HR details. Edit your own profile from your card."
+                : "View and update your own profile. Other employees' private HR details are not shown."
+            }
           />
-          <AgentSection employees={employees} agents={metrics.agents} />
+          <AgentSection
+            employees={employees}
+            agents={agentMetrics}
+            editableProfileId={viewerId}
+          />
           <LeadListCard
-            title="Team leads"
-            description="Every agent's assigned leads — use the Assigned To column to see who owns which"
+            title={isTeamLead ? "Team leads" : "My leads"}
+            description={
+              isTeamLead
+                ? "Every agent's assigned leads — use the Assigned To column to see who owns which"
+                : "Leads assigned to your account."
+            }
             rows={rows}
             limit={100}
             emptyMessage="No leads in this date range."
@@ -469,7 +484,18 @@ export default async function SectionPage({
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
   const allRows = (leadsResult.success ? leadsResult.data : []).map(toAnalyticsLead);
-  const employees = directoryResult.success ? directoryResult.data : [];
+  let employees = directoryResult.success ? directoryResult.data : [];
+  let profileMessage: string | null = null;
+  if (section === "agents" && viewer?.role === "employee") {
+    const ownProfileResult = await getMyEmployeeProfile();
+    employees =
+      ownProfileResult.success && ownProfileResult.data ? [ownProfileResult.data] : [];
+    if (!ownProfileResult.success) {
+      profileMessage = ownProfileResult.error;
+    } else if (!ownProfileResult.data) {
+      profileMessage = "Your employee profile could not be found. Please contact an administrator.";
+    }
+  }
   // Same window the Overview dashboard opens on, so a tab can never disagree
   // with the home page (that drift is what made every lead table read 0).
   const { range, note: rangeNote } = resolveDashboardWindow(query, allRows);
@@ -482,8 +508,16 @@ export default async function SectionPage({
     <div className="mx-auto w-full max-w-[1600px] space-y-4">
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
       <RangeNote note={rangeNote} />
-      {renderSection(section, metrics, rows, employees, isTeamLead)}
+      {renderSection(
+        section,
+        metrics,
+        rows,
+        employees,
+        isTeamLead,
+        viewer?.id ?? null,
+        viewer?.name ?? null,
+        profileMessage,
+      )}
     </div>
   );
 }
-

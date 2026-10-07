@@ -8,13 +8,17 @@
 // to open deliberately (so a quick screenshot of the dashboard leaks nothing).
 // ---------------------------------------------------------------------------
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Crown, Lock, Search, ShieldCheck } from "lucide-react";
+import { Crown, ImagePlus, Lock, Pencil, Search, ShieldCheck, Upload, X } from "lucide-react";
 
-import { buttonVariants } from "@/components/ui/button";
+import { updateMyEmployeeProfile } from "@/app/actions/profile";
+import { createClient } from "@/lib/supabase/client";
+import { buttonVariants, Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toast";
 import type { EmployeeDirectoryEntry } from "@/app/actions/leads";
 
 import {
@@ -54,11 +58,225 @@ function PerformanceChip({ label, value, tone }: { label: string; value: number;
   );
 }
 
-export function AgentSection({ employees, agents }: { employees: EmployeeDirectoryEntry[]; agents: AgentStat[] }) {
+function SelfProfileEditor({
+  profile,
+  onSaved,
+}: {
+  profile: EmployeeDirectoryEntry;
+  onSaved: (profile: EmployeeDirectoryEntry) => void;
+}) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [name, setName] = useState(profile.name);
+  const [phone, setPhone] = useState(profile.phone ?? "");
+  const [email, setEmail] = useState(profile.email ?? "");
+  const [gender, setGender] = useState(profile.gender ?? "");
+  const [bloodGroup, setBloodGroup] = useState(profile.blood_group ?? "");
+  const [emergencyContact, setEmergencyContact] = useState(profile.emergency_contact ?? "");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState(profile.photo_url);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    }
+  }, [photoPreview]);
+
+  function choosePhoto(file: File | undefined) {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.add({ title: "Unsupported image", description: "Choose a JPG, PNG or WebP image.", type: "error" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.add({ title: "Image is too large", description: "Choose an image smaller than 5 MB.", type: "error" });
+      return;
+    }
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  async function handleSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+
+    const supabase = createClient();
+    let uploadedPath: string | null = null;
+    let photoUrl = profile.photo_url;
+    try {
+      if (photoFile) {
+        const extension = photoFile.type === "image/jpeg" ? "jpg" : photoFile.type.split("/")[1];
+        uploadedPath = `${profile.id}/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from("employee-avatars")
+          .upload(uploadedPath, photoFile, {
+            cacheControl: "3600",
+            contentType: photoFile.type,
+            upsert: false,
+          });
+        if (uploadError) {
+          toast.add({ title: "Unable to upload photo", description: uploadError.message, type: "error" });
+          setIsSaving(false);
+          return;
+        }
+        photoUrl = supabase.storage.from("employee-avatars").getPublicUrl(uploadedPath).data.publicUrl;
+      }
+
+      const response = await updateMyEmployeeProfile({
+        name,
+        phone,
+        email,
+        gender,
+        blood_group: bloodGroup,
+        emergency_contact: emergencyContact,
+        photo_url: photoUrl,
+      });
+      if (!response.success) {
+        if (uploadedPath) {
+          const { error: cleanupError } = await supabase.storage
+            .from("employee-avatars")
+            .remove([uploadedPath]);
+          if (cleanupError) {
+            console.error("[profile] Could not remove an unused uploaded avatar:", cleanupError.message);
+          }
+        }
+        toast.add({ title: "Unable to save profile", description: response.error, type: "error" });
+        setIsSaving(false);
+        return;
+      }
+
+      setPhotoFile(null);
+      setName(response.profile.name);
+      setPhone(response.profile.phone ?? "");
+      setEmail(response.profile.email ?? "");
+      setGender(response.profile.gender ?? "");
+      setBloodGroup(response.profile.blood_group ?? "");
+      setEmergencyContact(response.profile.emergency_contact ?? "");
+      setPhotoPreview(response.profile.photo_url);
+      onSaved(response.profile);
+      toast.add({ title: "Profile updated", description: "Your profile details were saved.", type: "success" });
+    } catch (error) {
+      if (uploadedPath) {
+        const { error: cleanupError } = await supabase.storage
+          .from("employee-avatars")
+          .remove([uploadedPath]);
+        if (cleanupError) {
+          console.error("[profile] Could not remove an unused uploaded avatar:", cleanupError.message);
+        }
+      }
+      toast.add({
+        title: "Unable to save profile",
+        description: error instanceof Error ? error.message : "Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void handleSave(event)} className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">Your profile details</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Only you and authorized admins/managers can view these HR details.
+        </p>
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
+          {photoPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoPreview} alt="Your profile" className="size-full object-cover" />
+          ) : (
+            <ImagePlus className="size-6 text-slate-400" aria-hidden="true" />
+          )}
+        </span>
+        <div className="space-y-2">
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(event) => {
+              choosePhoto(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+          <Button type="button" size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={isSaving}>
+            <Upload aria-hidden="true" /> Upload photo
+          </Button>
+          <p className="text-[11px] text-slate-500">JPG, PNG or WebP. Maximum 5 MB.</p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-name">Full name</Label>
+          <Input id="agent-profile-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-phone">Contact number</Label>
+          <Input id="agent-profile-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} maxLength={40} disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-email">Email ID</Label>
+          <Input id="agent-profile-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-gender">Gender</Label>
+          <Input id="agent-profile-gender" value={gender} onChange={(event) => setGender(event.target.value)} maxLength={40} disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-blood-group">Blood group</Label>
+          <Input id="agent-profile-blood-group" value={bloodGroup} onChange={(event) => setBloodGroup(event.target.value)} maxLength={10} placeholder="For example, O+" disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-profile-emergency">Emergency contact</Label>
+          <Input id="agent-profile-emergency" type="tel" value={emergencyContact} onChange={(event) => setEmergencyContact(event.target.value)} maxLength={40} disabled={isSaving} />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="agent-profile-manager">Assigned manager</Label>
+          <Input id="agent-profile-manager" value={profile.manager_name ?? ""} placeholder="Not assigned" readOnly />
+          <p className="text-[11px] text-slate-500">Assigned by an admin or manager.</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        {photoFile && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setPhotoFile(null);
+              setPhotoPreview(profile.photo_url);
+            }}
+            disabled={isSaving}
+          >
+            <X aria-hidden="true" /> Remove selected photo
+          </Button>
+        )}
+        <Button type="submit" className="ml-auto" disabled={isSaving || !name.trim()}>
+          {isSaving ? "Saving..." : "Save profile"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export function AgentSection({
+  employees,
+  agents,
+  editableProfileId,
+}: {
+  employees: EmployeeDirectoryEntry[];
+  agents: AgentStat[];
+  editableProfileId: string | null;
+}) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AgentCard | null>(null);
+  const [directory, setDirectory] = useState(employees);
 
-  const cards = useMemo(() => buildAgentCards(employees, agents), [employees, agents]);
+  const cards = useMemo(() => buildAgentCards(directory, agents), [directory, agents]);
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return cards;
@@ -71,6 +289,11 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
   const topPerformer = useMemo(() => findTopPerformer(agents), [agents]);
   const crownedName = topPerformer ? topPerformer.name.trim().toLowerCase() : null;
   const isCrowned = (name: string) => crownedName !== null && name.trim().toLowerCase() === crownedName;
+  const editableProfile = selected
+    ? directory.find((employee) => employee.id === selected.id) ??
+      employees.find((employee) => employee.id === selected.id) ??
+      null
+    : null;
 
   return (
     <div className="space-y-4">
@@ -78,7 +301,7 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <p className="flex items-center gap-2 text-xs text-slate-500">
             <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
-            The roster shows faces and names only. Open a card to reveal performance and HR details.
+            Open an agent card to view available details. Employees can edit only their own profile.
           </p>
           {topPerformer && (
             <span className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -108,7 +331,9 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
             key={card.id}
             type="button"
             onClick={() => setSelected(card)}
-            aria-label={`Open secure details for ${card.name}`}
+            aria-label={
+              card.id === editableProfileId ? "Open and edit your agent profile" : `Open secure details for ${card.name}`
+            }
             className={`group flex flex-col items-center gap-3 rounded-2xl border bg-white p-4 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
               isCrowned(card.name) ? "border-amber-200 ring-1 ring-amber-200" : "border-slate-200 hover:border-blue-200"
             }`}
@@ -123,7 +348,12 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
               )}
             </span>
             <span className="text-sm font-semibold text-slate-800 group-hover:underline">{card.name}</span>
-            {isCrowned(card.name) ? (
+            {card.id === editableProfileId ? (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-blue-600">
+                <Pencil className="size-3" aria-hidden="true" />
+                Edit your profile
+              </span>
+            ) : isCrowned(card.name) ? (
               <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 <Crown className="size-3" aria-hidden="true" />
                 Star of the Month
@@ -165,9 +395,38 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
                 </DialogTitle>
                 <DialogDescription className="flex items-center gap-2 text-xs">
                   <ShieldCheck className="size-3.5 text-emerald-600" aria-hidden="true" />
-                  Secure panel — details are visible only while this dialog is open.
+                  {selected.id === editableProfileId
+                    ? "Your profile and performance details are visible only while this dialog is open."
+                    : "Secure panel — details are visible only while this dialog is open."}
                 </DialogDescription>
               </DialogHeader>
+
+              {selected.id === editableProfileId && editableProfile && (
+                <SelfProfileEditor
+                  key={selected.id}
+                  profile={editableProfile}
+                  onSaved={(updated) => {
+                    setDirectory((current) =>
+                      current.map((employee) => employee.id === updated.id ? updated : employee),
+                    );
+                    setSelected((current) =>
+                      current?.id === updated.id
+                        ? {
+                            ...current,
+                            name: updated.name,
+                            photoUrl: updated.photo_url,
+                            phone: updated.phone,
+                            email: updated.email,
+                            gender: updated.gender,
+                            bloodGroup: updated.blood_group,
+                            emergencyContact: updated.emergency_contact,
+                            managerName: updated.manager_name,
+                          }
+                        : current,
+                    );
+                  }}
+                />
+              )}
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Performance stats</p>
@@ -207,7 +466,7 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
                 </div>
               </div>
 
-              <div>
+              {selected.id !== editableProfileId && <div>
                 <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">HR details</p>
                 <DetailRow label="Photo" value={selected.photoUrl ? "Uploaded photo" : "Emoji avatar"} />
                 <DetailRow label="Full Name" value={selected.name} />
@@ -217,7 +476,7 @@ export function AgentSection({ employees, agents }: { employees: EmployeeDirecto
                 <DetailRow label="Blood Group" value={selected.bloodGroup} />
                 <DetailRow label="Emergency Contact" value={selected.emergencyContact} />
                 <DetailRow label="Assigned Manager" value={selected.managerName} />
-              </div>
+              </div>}
 
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="max-w-xs text-[11px] text-slate-400">
