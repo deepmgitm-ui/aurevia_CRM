@@ -10,9 +10,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Crown, ImagePlus, Lock, Pencil, Search, ShieldCheck, Upload, X } from "lucide-react";
 
-import { updateMyEmployeeProfile } from "@/app/actions/profile";
+import { updateEmployeeProfile } from "@/app/actions/profile";
 import { createClient } from "@/lib/supabase/client";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -58,20 +59,24 @@ function PerformanceChip({ label, value, tone }: { label: string; value: number;
   );
 }
 
-function SelfProfileEditor({
+function EmployeeProfileEditor({
   profile,
+  canManageProfiles,
   onSaved,
 }: {
   profile: EmployeeDirectoryEntry;
+  canManageProfiles: boolean;
   onSaved: (profile: EmployeeDirectoryEntry) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const router = useRouter();
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [email, setEmail] = useState(profile.email ?? "");
   const [gender, setGender] = useState(profile.gender ?? "");
   const [bloodGroup, setBloodGroup] = useState(profile.blood_group ?? "");
   const [emergencyContact, setEmergencyContact] = useState(profile.emergency_contact ?? "");
+  const [managerName, setManagerName] = useState(profile.manager_name ?? "");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState(profile.photo_url);
   const [isSaving, setIsSaving] = useState(false);
@@ -123,13 +128,14 @@ function SelfProfileEditor({
         photoUrl = supabase.storage.from("employee-avatars").getPublicUrl(uploadedPath).data.publicUrl;
       }
 
-      const response = await updateMyEmployeeProfile({
+      const response = await updateEmployeeProfile(profile.id, {
         name,
         phone,
         email,
         gender,
         blood_group: bloodGroup,
         emergency_contact: emergencyContact,
+        manager_name: managerName,
         photo_url: photoUrl,
       });
       if (!response.success) {
@@ -153,8 +159,10 @@ function SelfProfileEditor({
       setGender(response.profile.gender ?? "");
       setBloodGroup(response.profile.blood_group ?? "");
       setEmergencyContact(response.profile.emergency_contact ?? "");
+      setManagerName(response.profile.manager_name ?? "");
       setPhotoPreview(response.profile.photo_url);
       onSaved(response.profile);
+      router.refresh();
       toast.add({ title: "Profile updated", description: "Your profile details were saved.", type: "success" });
     } catch (error) {
       if (uploadedPath) {
@@ -178,16 +186,18 @@ function SelfProfileEditor({
   return (
     <form onSubmit={(event) => void handleSave(event)} className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-900">Your profile details</h3>
+        <h3 className="text-sm font-semibold text-slate-900">Profile details</h3>
         <p className="mt-1 text-xs text-slate-500">
-          Only you and authorized admins/managers can view these HR details.
+          {canManageProfiles
+            ? "Changes are limited to profile information; access roles cannot be changed here."
+            : "Only you and authorized admins/managers can view these HR details."}
         </p>
       </div>
       <div className="flex items-center gap-4">
         <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
           {photoPreview ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={photoPreview} alt="Your profile" className="size-full object-cover" />
+            <img src={photoPreview} alt={`${profile.name} profile`} className="size-full object-cover" />
           ) : (
             <ImagePlus className="size-6 text-slate-400" aria-hidden="true" />
           )}
@@ -236,8 +246,16 @@ function SelfProfileEditor({
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="agent-profile-manager">Assigned manager</Label>
-          <Input id="agent-profile-manager" value={profile.manager_name ?? ""} placeholder="Not assigned" readOnly />
-          <p className="text-[11px] text-slate-500">Assigned by an admin or manager.</p>
+          <Input
+            id="agent-profile-manager"
+            value={managerName}
+            onChange={(event) => setManagerName(event.target.value)}
+            placeholder="Not assigned"
+            maxLength={100}
+            readOnly={!canManageProfiles}
+            disabled={isSaving}
+          />
+          {!canManageProfiles && <p className="text-[11px] text-slate-500">Assigned by an admin or manager.</p>}
         </div>
       </div>
       <div className="flex items-center justify-between gap-3">
@@ -268,11 +286,13 @@ export function AgentSection({
   agents,
   editableProfileId,
   openOwnProfile = false,
+  canManageProfiles = false,
 }: {
   employees: EmployeeDirectoryEntry[];
   agents: AgentStat[];
   editableProfileId: string | null;
   openOwnProfile?: boolean;
+  canManageProfiles?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [directory, setDirectory] = useState(employees);
@@ -300,6 +320,9 @@ export function AgentSection({
       employees.find((employee) => employee.id === selected.id) ??
       null
     : null;
+  const canEditSelected = Boolean(
+    selected && (selected.id === editableProfileId || canManageProfiles),
+  );
 
   return (
     <div className="space-y-4">
@@ -307,7 +330,7 @@ export function AgentSection({
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <p className="flex items-center gap-2 text-xs text-slate-500">
             <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
-            Open an agent card to view available details. Employees can edit only their own profile.
+            Tap your own profile to edit it. Admins and managers can update any agent&apos;s profile details.
           </p>
           {topPerformer && (
             <span className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -374,6 +397,11 @@ export function AgentSection({
                 <Pencil className="size-3" aria-hidden="true" />
                 Edit your profile
               </span>
+            ) : canManageProfiles ? (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-blue-600">
+                <Pencil className="size-3" aria-hidden="true" />
+                Edit profile
+              </span>
             ) : isCrowned(card.name) ? (
               <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 <Crown className="size-3" aria-hidden="true" />
@@ -416,16 +444,17 @@ export function AgentSection({
                 </DialogTitle>
                 <DialogDescription className="flex items-center gap-2 text-xs">
                   <ShieldCheck className="size-3.5 text-emerald-600" aria-hidden="true" />
-                  {selected.id === editableProfileId
-                    ? "Your profile and performance details are visible only while this dialog is open."
+                  {canEditSelected
+                    ? "Profile details are editable by you and authorized admins/managers."
                     : "Secure panel — details are visible only while this dialog is open."}
                 </DialogDescription>
               </DialogHeader>
 
-              {selected.id === editableProfileId && editableProfile && (
-                <SelfProfileEditor
+              {canEditSelected && editableProfile && (
+                <EmployeeProfileEditor
                   key={selected.id}
                   profile={editableProfile}
+                  canManageProfiles={canManageProfiles}
                   onSaved={(updated) => {
                     setDirectory((current) =>
                       current.map((employee) => employee.id === updated.id ? updated : employee),
@@ -487,7 +516,7 @@ export function AgentSection({
                 </div>
               </div>
 
-              {selected.id !== editableProfileId && <div>
+              {!canEditSelected && <div>
                 <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">HR details</p>
                 <DetailRow label="Photo" value={selected.photoUrl ? "Uploaded photo" : "Emoji avatar"} />
                 <DetailRow label="Full Name" value={selected.name} />

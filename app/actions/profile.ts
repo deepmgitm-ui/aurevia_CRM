@@ -16,6 +16,7 @@ export type EmployeeProfileInput = {
   gender: string;
   blood_group: string;
   emergency_contact: string;
+  manager_name?: string;
   photo_url: string | null;
 };
 
@@ -32,8 +33,10 @@ function optionalText(value: string, label: string, maxLength: number): string |
   return trimmed;
 }
 
-function isMissingSelfProfileMigration(message: string): boolean {
-  return /update_my_employee_profile|function .* does not exist|could not find the function/i.test(message);
+function isMissingProfileMigration(message: string): boolean {
+  return /update_my_employee_profile|admin_update_employee_profile|function .* does not exist|could not find the function/i.test(
+    message,
+  );
 }
 
 export async function updateProfileName(newName: string): Promise<ProfileActionResult> {
@@ -65,8 +68,9 @@ export async function updateProfileName(newName: string): Promise<ProfileActionR
   }
 }
 
-/** Update only the signed-in user's approved, non-role profile fields. */
-export async function updateMyEmployeeProfile(
+/** Update the signed-in user's profile or another profile as an admin/manager. */
+export async function updateEmployeeProfile(
+  targetProfileId: string,
   input: EmployeeProfileInput,
 ): Promise<EmployeeProfileActionResult> {
   try {
@@ -101,20 +105,47 @@ export async function updateMyEmployeeProfile(
       return { success: false, error: "Sign in before updating your profile." };
     }
 
-    const { error: updateError } = await supabase.rpc("update_my_employee_profile", {
-      p_name: name,
-      p_phone: phone,
-      p_email: email,
-      p_gender: gender,
-      p_blood_group: bloodGroup,
-      p_emergency_contact: emergencyContact,
-      p_photo_url: photoUrl,
-    });
+    const { data: viewer, error: viewerError } = await supabase
+      .from("profiles")
+      .select("id,role")
+      .eq("id", user.id)
+      .single();
+    if (viewerError || !viewer) {
+      return { success: false, error: viewerError?.message ?? "Unable to verify your profile permissions." };
+    }
+
+    const isSelf = targetProfileId === user.id;
+    const canManageProfiles = viewer.role === "admin" || viewer.role === "manager";
+    if (!isSelf && !canManageProfiles) {
+      return { success: false, error: "You can only update your own profile." };
+    }
+
+    const { error: updateError } = isSelf && !canManageProfiles
+      ? await supabase.rpc("update_my_employee_profile", {
+          p_name: name,
+          p_phone: phone,
+          p_email: email,
+          p_gender: gender,
+          p_blood_group: bloodGroup,
+          p_emergency_contact: emergencyContact,
+          p_photo_url: photoUrl,
+        })
+      : await supabase.rpc("admin_update_employee_profile", {
+          p_profile_id: targetProfileId,
+          p_name: name,
+          p_phone: phone,
+          p_email: email,
+          p_gender: gender,
+          p_blood_group: bloodGroup,
+          p_emergency_contact: emergencyContact,
+          p_manager_name: optionalText(input.manager_name ?? "", "Assigned manager", 100),
+          p_photo_url: photoUrl,
+        });
     if (updateError) {
-      if (isMissingSelfProfileMigration(updateError.message)) {
+      if (isMissingProfileMigration(updateError.message)) {
         return {
           success: false,
-          error: "Self-service profile editing is not enabled yet. Run supabase-self-profile-migration.sql in the Supabase SQL Editor.",
+          error: "Profile editing is not enabled yet. Run the latest supabase-self-profile-migration.sql in the Supabase SQL Editor.",
         };
       }
       return { success: false, error: updateError.message };
@@ -123,7 +154,7 @@ export async function updateMyEmployeeProfile(
     const { data: row, error: readError } = await supabase
       .from("profiles")
       .select("id,name,role,phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
-      .eq("id", user.id)
+      .eq("id", targetProfileId)
       .single();
     if (readError) return { success: false, error: readError.message };
 
@@ -152,7 +183,7 @@ export async function updateMyEmployeeProfile(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unable to update your profile.",
+      error: error instanceof Error ? error.message : "Unable to update the profile.",
     };
   }
 }

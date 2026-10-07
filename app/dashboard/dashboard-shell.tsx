@@ -22,7 +22,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -41,6 +41,7 @@ import { RealtimeNotifications } from "./realtime-notifications";
 interface DashboardProfile {
   name: string;
   role: "admin" | "manager" | "employee";
+  photo_url: string | null;
 }
 
 interface DashboardShellProps {
@@ -182,6 +183,7 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
           className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-blue-50"
         >
           <Avatar size="sm">
+            {profile.photo_url && <AvatarImage src={profile.photo_url} alt="" />}
             <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
@@ -215,21 +217,26 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
             Workspace
           </p>
           <Navigation mobile />
-          <Link
-            href="/dashboard/agents?editProfile=1"
-            aria-label="Open and edit your profile"
-            className="mt-auto flex items-center gap-3 border-t border-slate-200 px-3 pt-5"
-          >
-            <Avatar size="sm">
-              <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-900">
-                {profile.name} <span className="text-xs font-normal text-blue-600">· Edit profile</span>
-              </p>
-              <p className="truncate text-xs capitalize text-slate-500">{profile.role}</p>
-            </div>
-          </Link>
+          <SheetClose
+            render={
+              <Link
+                href="/dashboard/agents?editProfile=1"
+                aria-label="Open and edit your profile"
+                className="mt-auto flex items-center gap-3 border-t border-slate-200 px-3 pt-5"
+              >
+                <Avatar size="sm">
+                  {profile.photo_url && <AvatarImage src={profile.photo_url} alt="" />}
+                  <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-900">
+                    {profile.name} <span className="text-xs font-normal text-blue-600">· Edit profile</span>
+                  </p>
+                  <p className="truncate text-xs capitalize text-slate-500">{profile.role}</p>
+                </div>
+              </Link>
+            }
+          />
         </div>
       </SheetContent>
     </Sheet>
@@ -358,9 +365,12 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
                   <p className="text-xs capitalize text-slate-500">{profile.role} · Edit profile</p>
                 </Link>
               </div>
-              <Avatar>
-                <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
-              </Avatar>
+              <Link href="/dashboard/agents?editProfile=1" aria-label="Open and edit your profile">
+                <Avatar>
+                  {profile.photo_url && <AvatarImage src={profile.photo_url} alt="" />}
+                  <AvatarFallback>{getInitials(profile.name)}</AvatarFallback>
+                </Avatar>
+              </Link>
               <form action={logout}>
                 <Button type="submit" variant="ghost" size="icon" aria-label="Log out">
                   <LogOut aria-hidden="true" />

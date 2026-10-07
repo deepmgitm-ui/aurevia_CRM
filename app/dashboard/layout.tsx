@@ -56,14 +56,28 @@ async function DashboardShellData({
   children: ReactNode;
 }) {
   const supabase = await createClient();
-  const { data: profile } = await supabase
+  const { data: profileWithPhoto, error: profileError } = await supabase
     .from("profiles")
-    .select("name, role")
+    .select("name, role, photo_url")
     .eq("id", userId)
     .single();
+  let profileNameValue = profileWithPhoto?.name;
+  let profileRoleValue = profileWithPhoto?.role;
+  if (profileError) {
+    const baseProfile = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("id", userId)
+      .single();
+    profileNameValue = baseProfile.data?.name;
+    profileRoleValue = baseProfile.data?.role;
+    if (baseProfile.error) {
+      console.error("[dashboard] Unable to load the signed-in profile:", baseProfile.error.message);
+    }
+  }
 
-  const profileName = profile?.name?.trim() || email?.split("@")[0] || "User";
-  const profileRole = profile?.role && isUserRole(profile.role) ? profile.role : "employee";
+  const profileName = profileNameValue?.trim() || email?.split("@")[0] || "User";
+  const profileRole = profileRoleValue && isUserRole(profileRoleValue) ? profileRoleValue : "employee";
 
   // Keep sign-in marking idempotent, but do not block the loading shell while
   // the check-in and date-window data resolve.
@@ -77,7 +91,11 @@ async function DashboardShellData({
 
   return (
     <DashboardShell
-      profile={{ name: profileName, role: profileRole }}
+      profile={{
+        name: profileName,
+        role: profileRole,
+        photo_url: typeof profileWithPhoto?.photo_url === "string" ? profileWithPhoto.photo_url : null,
+      }}
       attendanceToday={attendance.success ? attendance.data : null}
       initialRange={window.range}
     >

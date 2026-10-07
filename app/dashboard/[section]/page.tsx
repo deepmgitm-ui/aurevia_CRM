@@ -348,6 +348,7 @@ function renderSection(
             agents={agentMetrics}
             editableProfileId={viewerId}
             openOwnProfile={openOwnProfile}
+            canManageProfiles={isTeamLead}
           />
           <LeadListCard
             title={isTeamLead ? "Team leads" : "My leads"}
