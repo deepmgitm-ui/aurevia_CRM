@@ -230,7 +230,7 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
                 </Avatar>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-900">
-                    {profile.name} <span className="text-xs font-normal text-blue-600">· Edit profile</span>
+                    {profile.name}
                   </p>
                   <p className="truncate text-xs capitalize text-slate-500">{profile.role}</p>
                 </div>
@@ -362,7 +362,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
                   className="group"
                 >
                   <p className="text-sm font-medium text-slate-900 group-hover:text-blue-700">{profile.name}</p>
-                  <p className="text-xs capitalize text-slate-500">{profile.role} · Edit profile</p>
+                  <p className="text-xs capitalize text-slate-500">{profile.role}</p>
                 </Link>
               </div>
               <Link href="/dashboard/agents?editProfile=1" aria-label="Open and edit your profile">

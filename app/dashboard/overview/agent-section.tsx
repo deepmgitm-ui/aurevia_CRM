@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Crown, ImagePlus, Lock, Pencil, Search, ShieldCheck, Upload, X } from "lucide-react";
+import { Crown, ImagePlus, Lock, Search, ShieldCheck, Upload, X } from "lucide-react";
 
 import { updateEmployeeProfile } from "@/app/actions/profile";
 import { createClient } from "@/lib/supabase/client";
@@ -339,21 +339,7 @@ export function AgentSection({
             </span>
           )}
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-          {editableProfileId && cards.some((card) => card.id === editableProfileId) && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                const ownCard = cards.find((card) => card.id === editableProfileId);
-                if (ownCard) setSelected(ownCard);
-              }}
-            >
-              <Pencil aria-hidden="true" />
-              Edit my profile
-            </Button>
-          )}
-          <div className="relative min-w-56 flex-1 sm:max-w-xs">
+        <div className="relative min-w-56 w-full sm:w-auto sm:max-w-xs">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400"
               aria-hidden="true"
@@ -365,7 +351,6 @@ export function AgentSection({
               aria-label="Search agents by name"
               className="pl-9"
             />
-          </div>
         </div>
       </div>
 
@@ -392,17 +377,7 @@ export function AgentSection({
               )}
             </span>
             <span className="text-sm font-semibold text-slate-800 group-hover:underline">{card.name}</span>
-            {card.id === editableProfileId ? (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-blue-600">
-                <Pencil className="size-3" aria-hidden="true" />
-                Edit your profile
-              </span>
-            ) : canManageProfiles ? (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-blue-600">
-                <Pencil className="size-3" aria-hidden="true" />
-                Edit profile
-              </span>
-            ) : isCrowned(card.name) ? (
+            {isCrowned(card.name) ? (
               <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 <Crown className="size-3" aria-hidden="true" />
                 Star of the Month
