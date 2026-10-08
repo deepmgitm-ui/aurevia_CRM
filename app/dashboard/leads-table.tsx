@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, X } from "lucide-react";
 
 import {
   addLeadActivity,
@@ -14,6 +14,8 @@ import {
   getEmployees,
   getLeadActivities,
   getLeadDeletionBackups,
+  getLeadAssignmentPreview,
+  getLeadSourceDeletePreview,
   permanentlyDeleteLeadDeletionBackup,
   restoreLeadDeletionBackup,
   getLeadsForExport,
@@ -25,6 +27,9 @@ import {
   updateLeadFollowUpDate,
   updateLeadAppointment,
   randomAssignLeads,
+  assignLeadsToEmployees,
+  type LeadAssignmentCriteria,
+  type LeadSourceDeletePreview,
   type Lead,
   type LeadActivity,
   type Employee,
@@ -467,6 +472,21 @@ export function LeadsTable({
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [isBulkActionPending, setIsBulkActionPending] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
+  const [assignmentMode, setAssignmentMode] = useState<"selected" | "filters">("filters");
+  const [assignmentEmployeeNames, setAssignmentEmployeeNames] = useState<string[]>([]);
+  const [assignmentCriteria, setAssignmentCriteria] = useState<LeadAssignmentCriteria>({
+    search: "",
+    treatment: "",
+    city: "",
+  });
+  const [assignmentPreviewCount, setAssignmentPreviewCount] = useState<number | null>(null);
+  const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false);
+  const [isSourceDeleteOpen, setIsSourceDeleteOpen] = useState(false);
+  const [deleteSourceInput, setDeleteSourceInput] = useState("");
+  const [sourceDeletePreview, setSourceDeletePreview] = useState<LeadSourceDeletePreview | null>(null);
+  const [isPreviewingSourceDelete, setIsPreviewingSourceDelete] = useState(false);
+  const [isDeletingSource, setIsDeletingSource] = useState(false);
   const [selectedSource, setSelectedSource] = useState("all");
   // Search/status seeded from the URL drill-down so paging and debounced typing
   // never drop the filter the admin arrived with.
@@ -1050,6 +1070,145 @@ export function LeadsTable({
     setIsBulkActionPending(false);
   }
 
+  function openAssignment(mode: "selected" | "filters") {
+    setAssignmentMode(mode);
+    setAssignmentEmployeeNames([]);
+    setAssignmentCriteria({ search: "", treatment: "", city: "" });
+    setAssignmentPreviewCount(null);
+    setIsAssignmentOpen(true);
+  }
+
+  function toggleAssignmentEmployee(name: string, checked: boolean) {
+    setAssignmentEmployeeNames((current) =>
+      checked ? [...new Set([...current, name])] : current.filter((entry) => entry !== name),
+    );
+  }
+
+  function updateAssignmentCriteria(patch: Partial<LeadAssignmentCriteria>) {
+    setAssignmentCriteria((current) => ({ ...current, ...patch }));
+    setAssignmentPreviewCount(null);
+  }
+
+  async function previewFilteredAssignment() {
+    setIsPreviewingAssignment(true);
+    try {
+      const response = await getLeadAssignmentPreview(assignmentCriteria);
+      if (!response.success) {
+        setAssignmentPreviewCount(null);
+        toast.add({ title: "Could not find matching leads", description: response.error, type: "error" });
+      } else {
+        setAssignmentPreviewCount(response.data.count);
+      }
+    } catch (error) {
+      setAssignmentPreviewCount(null);
+      toast.add({
+        title: "Could not find matching leads",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsPreviewingAssignment(false);
+    }
+  }
+
+  async function handleAssignAmongSelectedEmployees() {
+    if (assignmentEmployeeNames.length === 0 || isBulkActionPending) return;
+    setIsBulkActionPending(true);
+    try {
+      const response = await assignLeadsToEmployees(
+        assignmentMode === "selected"
+          ? { leadIds: selectedLeads, employeeNames: assignmentEmployeeNames }
+          : { criteria: assignmentCriteria, employeeNames: assignmentEmployeeNames },
+      );
+      if (!response.success) {
+        toast.add({ title: "Assignment failed", description: response.error, type: "error" });
+      } else {
+        if (assignmentMode === "selected") {
+          setSelectedLeads([]);
+          setIsSelectAllChecked(false);
+        }
+        setIsAssignmentOpen(false);
+        router.refresh();
+        toast.add({
+          title: `${response.data.assigned.toLocaleString()} leads assigned`,
+          description: response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · "),
+          type: "success",
+        });
+      }
+    } catch (error) {
+      toast.add({
+        title: "Assignment failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsBulkActionPending(false);
+    }
+  }
+
+  async function previewSourceDeletion() {
+    setIsPreviewingSourceDelete(true);
+    setSourceDeletePreview(null);
+    try {
+      const response = await getLeadSourceDeletePreview(deleteSourceInput);
+      if (!response.success) {
+        toast.add({ title: "Could not preview source", description: response.error, type: "error" });
+      } else {
+        setSourceDeletePreview(response.data);
+      }
+    } catch (error) {
+      toast.add({
+        title: "Could not preview source",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsPreviewingSourceDelete(false);
+    }
+  }
+
+  async function handleDeleteSource() {
+    if (!sourceDeletePreview || sourceDeletePreview.count === 0 || isDeletingSource) return;
+    setIsDeletingSource(true);
+    try {
+      const backup = await getLeadsForExport("", "", "", { source: sourceDeletePreview.source });
+      if (!backup.success) {
+        toast.add({
+          title: "Source deletion cancelled",
+          description: `A CSV safety copy could not be prepared. ${backup.error}`,
+          type: "error",
+        });
+        return;
+      }
+      downloadLeadsCsv(
+        backup.data,
+        `leads-source-backup-${sourceDeletePreview.source.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`,
+      );
+      const response = await bulkDeleteLeads([], true, "", "", "", sourceDeletePreview.source);
+      if (!response.success) {
+        toast.add({ title: "Source deletion failed", description: response.error, type: "error" });
+        return;
+      }
+      setIsSourceDeleteOpen(false);
+      setDeleteSourceInput("");
+      setSourceDeletePreview(null);
+      router.refresh();
+      toast.add({
+        title: "Source leads deleted",
+        description: `${response.data.deleted.toLocaleString()} leads with source "${sourceDeletePreview.source}" were deleted. A CSV and recovery snapshot were saved.`,
+        type: "success",
+      });
+    } catch (error) {
+      toast.add({
+        title: "Source deletion failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsDeletingSource(false);
+    }
+  }
+
   // A scoped delete (one employee / one search) already can't touch more than
   // what is on screen, so only the true whole-table wipe needs typing.
   const requiresTypedConfirm = isSelectAllChecked && !assignedTo.trim() && !activeSearch.trim();
@@ -1416,6 +1575,26 @@ export function LeadsTable({
                 Recent Deletions
               </Button>
             )}
+            {canDelete && (
+              <Button type="button" variant="outline" onClick={() => openAssignment("filters")}>
+                <UserRoundPlus aria-hidden="true" />
+                Assign by Filters
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDeleteSourceInput("");
+                  setSourceDeletePreview(null);
+                  setIsSourceDeleteOpen(true);
+                }}
+              >
+                <Trash2 aria-hidden="true" />
+                Delete by Source
+              </Button>
+            )}
             <Button type="button" onClick={() => setIsAddLeadOpen(true)}><Plus aria-hidden="true" />Add Lead</Button>
           </div>
           <div className="space-y-3 border-t border-slate-100 pt-4">
@@ -1623,6 +1802,9 @@ export function LeadsTable({
               <SelectTrigger size="sm" className="w-40"><SelectValue placeholder="Assign Selected" /></SelectTrigger>
               <SelectContent>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
             </Select>
+            <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("selected")}>
+              <UserRoundPlus aria-hidden="true" />Split among employees
+            </Button>
             <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => void handleRandomAssign()}><Dices aria-hidden="true" />Distribute Equally</Button>
             <Button type="button" variant="destructive" size="sm" disabled={isBulkActionPending} onClick={() => setIsDeleteConfirmOpen(true)}><Trash2 aria-hidden="true" />Delete Selected</Button>
           </div>
@@ -1920,6 +2102,230 @@ export function LeadsTable({
           <DialogFooter><Button type="button" variant="outline" onClick={() => { setIsDeleteConfirmOpen(false); setDeleteConfirmText(""); }}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION)} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : isSelectAllChecked ? (activeSearch ? "Delete All Matching" : "Delete All Leads") : "Delete Leads"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={isAssignmentOpen}
+        onOpenChange={(open) => {
+          if (!isBulkActionPending) setIsAssignmentOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {assignmentMode === "selected" ? "Split selected leads among employees" : "Assign leads by filters"}
+            </DialogTitle>
+            <DialogDescription>
+              {assignmentMode === "selected"
+                ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose.`
+                : "Search by lead name/phone/disease, treatment, or city. Matching leads are reassigned and split equally among the employees you choose."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {assignmentMode === "filters" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="assign-lead-search">Lead name, phone or disease</Label>
+                  <Input
+                    id="assign-lead-search"
+                    value={assignmentCriteria.search}
+                    placeholder="Search matching leads"
+                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    onChange={(event) => updateAssignmentCriteria({ search: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="assign-treatment">Treatment / disease</Label>
+                  <Input
+                    id="assign-treatment"
+                    value={assignmentCriteria.treatment}
+                    placeholder="e.g. Cataract"
+                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    onChange={(event) => updateAssignmentCriteria({ treatment: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="assign-city">City</Label>
+                  <Input
+                    id="assign-city"
+                    value={assignmentCriteria.city}
+                    placeholder="e.g. Delhi"
+                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    onChange={(event) => updateAssignmentCriteria({ city: event.target.value })}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      isPreviewingAssignment ||
+                      (!assignmentCriteria.search.trim() && !assignmentCriteria.treatment.trim() && !assignmentCriteria.city.trim())
+                    }
+                    onClick={() => void previewFilteredAssignment()}
+                  >
+                    {isPreviewingAssignment && <Loader2 className="animate-spin" aria-hidden="true" />}
+                    Preview matches
+                  </Button>
+                  {assignmentPreviewCount !== null && (
+                    <span className={`text-sm ${assignmentPreviewCount > 10000 ? "text-rose-700" : "text-slate-600"}`}>
+                      {assignmentPreviewCount.toLocaleString()} matching leads
+                      {assignmentPreviewCount > 10000 ? " — narrow your filters to 10,000 or fewer." : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Assign to employees</Label>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isBulkActionPending}
+                  onClick={() =>
+                    setAssignmentEmployeeNames((current) =>
+                      current.length === employees.filter((employee) => employee.role === "employee").length
+                        ? []
+                        : employees.filter((employee) => employee.role === "employee").map((employee) => employee.name),
+                    )
+                  }
+                >
+                  Select / clear all
+                </button>
+              </div>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                {employees.filter((employee) => employee.role === "employee").map((employee) => (
+                  <label
+                    key={employee.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Assign leads to ${employee.name}`}
+                      checked={assignmentEmployeeNames.includes(employee.name)}
+                      disabled={isBulkActionPending}
+                      onChange={(event) => toggleAssignmentEmployee(employee.name, event.target.checked)}
+                    />
+                    {employee.name}
+                  </label>
+                ))}
+                {employees.every((employee) => employee.role !== "employee") && (
+                  <p className="px-2 py-2 text-xs text-slate-500">No employees are available to assign leads to.</p>
+                )}
+              </div>
+              {assignmentEmployeeNames.length > 0 && (
+                <p className="text-xs text-slate-500">
+                  {assignmentEmployeeNames.length} employee{assignmentEmployeeNames.length === 1 ? "" : "s"} selected.
+                  Leads are split as evenly as possible; the first selected employees get any remainder.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isBulkActionPending} onClick={() => setIsAssignmentOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                isBulkActionPending ||
+                assignmentEmployeeNames.length === 0 ||
+                (assignmentMode === "selected"
+                  ? selectedLeads.length === 0
+                  : assignmentPreviewCount === null || assignmentPreviewCount === 0 || assignmentPreviewCount > 10000)
+              }
+              onClick={() => void handleAssignAmongSelectedEmployees()}
+            >
+              {isBulkActionPending && <Loader2 className="animate-spin" aria-hidden="true" />}
+              Assign equally
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={isSourceDeleteOpen}
+        onOpenChange={(open) => {
+          if (!isDeletingSource) setIsSourceDeleteOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete leads by source</DialogTitle>
+            <DialogDescription>
+              Enter one exact source name to review the matching leads before deleting. The deletion also saves a CSV and a Recent Deletions recovery snapshot.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="delete-lead-source">Lead source</Label>
+              <Input
+                id="delete-lead-source"
+                list="lead-source-options"
+                value={deleteSourceInput}
+                placeholder="e.g. Meta Ads"
+                disabled={isDeletingSource || isPreviewingSourceDelete}
+                onChange={(event) => {
+                  setDeleteSourceInput(event.target.value);
+                  setSourceDeletePreview(null);
+                }}
+              />
+              <datalist id="lead-source-options">
+                {masterSourceOptions.map((source) => <option key={source} value={source} />)}
+              </datalist>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!deleteSourceInput.trim() || isPreviewingSourceDelete || isDeletingSource}
+              onClick={() => void previewSourceDeletion()}
+            >
+              {isPreviewingSourceDelete && <Loader2 className="animate-spin" aria-hidden="true" />}
+              Preview source
+            </Button>
+            {sourceDeletePreview && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="font-semibold">
+                  {sourceDeletePreview.count.toLocaleString()} leads have source “{sourceDeletePreview.source}”.
+                </p>
+                {sourceDeletePreview.count > 0 && (
+                  <p className="mt-1 text-xs text-amber-900">
+                    CRM records were added between{" "}
+                    {sourceDeletePreview.firstAddedAt
+                      ? new Date(sourceDeletePreview.firstAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                      : "unknown"}{" "}
+                    and{" "}
+                    {sourceDeletePreview.lastAddedAt
+                      ? new Date(sourceDeletePreview.lastAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                      : "unknown"}{" "}
+                    (IST).
+                  </p>
+                )}
+                {sourceDeletePreview.count > 5000 && (
+                  <p className="mt-2 text-xs font-medium text-rose-700">
+                    This is over the 5,000-lead snapshot limit. Narrow the source batch before deleting.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isDeletingSource} onClick={() => setIsSourceDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!sourceDeletePreview || sourceDeletePreview.count === 0 || sourceDeletePreview.count > 5000 || isDeletingSource}
+              onClick={() => void handleDeleteSource()}
+            >
+              {isDeletingSource && <Loader2 className="animate-spin" aria-hidden="true" />}
+              Delete {sourceDeletePreview?.count.toLocaleString() ?? 0} leads
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={isRestoreOpen} onOpenChange={setIsRestoreOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -1956,7 +2362,9 @@ export function LeadsTable({
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {new Date(backup.created_at).toLocaleString()} · {backup.scope}
-                      {backup.search ? ` · search "${backup.search}"` : ""} · by {backup.deleted_by_name}
+                      {backup.search
+                        ? ` · ${backup.scope === "source" ? "source" : "search"} "${backup.search}"`
+                        : ""} · by {backup.deleted_by_name}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

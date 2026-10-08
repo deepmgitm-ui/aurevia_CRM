@@ -1959,6 +1959,8 @@ interface DeleteScope {
   assignedTo: string;
   /** Pre-built `and/or` search expression, if the search box was active. */
   searchFilter: string | null;
+  /** Exact lead source for a source-scoped removal. */
+  source: string;
   /** Exact ticked ids — the only scope used by the "selected rows" delete. */
   ids?: readonly string[];
   /** Whole-table wipe: add an always-true filter so the delete is explicit. */
@@ -1969,6 +1971,7 @@ function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
   const scoped = query as unknown as MutableScopedBuilder;
   if (scope.assignedTo) scoped.eq("assigned_to", scope.assignedTo);
   if (scope.searchFilter) scoped.or(scope.searchFilter);
+  if (scope.source) scoped.eq("source", scope.source);
   if (scope.ids?.length) scoped.in("id", scope.ids);
   else if (scope.unscoped) scoped.not("id", "is", null);
   return query;
@@ -2041,8 +2044,11 @@ export async function bulkDeleteLeads(
   search = "",
   assignedTo = "",
   confirmText = "",
+  source = "",
 ): Promise<ActionResult<{ deleted: number; snapshotSkipped: boolean }>> {
+  if (!Array.isArray(leadIds)) return { success: false, error: "Selected lead IDs must be a list." };
   if (!deleteAll && leadIds.length === 0) return { success: false, error: "No leads selected." };
+  if (typeof source !== "string") return { success: false, error: "Lead source must be text." };
 
   try {
     const supabase = await createClient();
@@ -2052,6 +2058,10 @@ export async function bulkDeleteLeads(
     const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
     if (profile?.role !== "admin" && profile?.role !== "manager") {
       return { success: false, error: "Deleting leads is restricted to admins and managers (403 Forbidden)." };
+    }
+    const scopedSource = source.trim();
+    if (scopedSource && profile.role !== "admin") {
+      return { success: false, error: "Only admins can delete leads by source (403 Forbidden)." };
     }
     const deletedByName = profile?.name?.trim() || "-";
 
@@ -2065,7 +2075,7 @@ export async function bulkDeleteLeads(
       // are wiped, so "Select All" never deletes more than what is visible.
       const searchFilter = buildLeadSearchFilter(search);
       const scopedToEmployee = assignedTo.trim();
-      const unscoped = !scopedToEmployee && !searchFilter;
+      const unscoped = !scopedToEmployee && !searchFilter && !scopedSource;
       if (unscoped && confirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
         return {
           success: false,
@@ -2073,18 +2083,42 @@ export async function bulkDeleteLeads(
         };
       }
 
-      const scope: DeleteScope = { assignedTo: scopedToEmployee, searchFilter, unscoped };
+      const scope: DeleteScope = {
+        assignedTo: scopedToEmployee,
+        searchFilter,
+        source: scopedSource,
+        unscoped,
+      };
+      if (scopedSource) {
+        const { count, error } = await supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("source", scopedSource);
+        if (error) return { success: false, error: error.message };
+        if ((count ?? 0) > BACKUP_LEAD_LIMIT) {
+          return {
+            success: false,
+            error: `This source has ${(count ?? 0).toLocaleString()} leads, above the safe ${BACKUP_LEAD_LIMIT.toLocaleString()}-lead snapshot limit. Narrow the source batch before deleting.`,
+          };
+        }
+      }
       const snapshot = await snapshotLeadsForDeletion(
         supabase,
         scope,
         {
-          scopeLabel: unscoped ? "all" : scopedToEmployee ? "employee" : "search",
-          search,
+          scopeLabel: scopedSource ? "source" : unscoped ? "all" : scopedToEmployee ? "employee" : "search",
+          search: scopedSource || search,
           deletedByName,
         },
         user.id,
       );
       if (!snapshot.ok) return { success: false, error: snapshot.error };
+      if (scopedSource && snapshot.skipped) {
+        return {
+          success: false,
+          error: `Deleting by source is blocked because no recovery snapshot could be saved. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
+        };
+      }
       // FAIL CLOSED on the one unrecoverable operation: wiping EVERY lead when
       // no snapshot could be stored (the backup table migration is missing)
       // would leave the pipeline with no copy anywhere. Bounded deletes (one
@@ -2112,7 +2146,7 @@ export async function bulkDeleteLeads(
     // helper), so even a small mistaken tick is restorable.
     const selectionSnapshot = await snapshotLeadsForDeletion(
       supabase,
-      { assignedTo: "", searchFilter: "", unscoped: false, ids: leadIds },
+      { assignedTo: "", searchFilter: "", source: "", unscoped: false, ids: leadIds },
       { scopeLabel: "selection", search: "", deletedByName },
       user.id,
     );
@@ -2129,6 +2163,51 @@ export async function bulkDeleteLeads(
     return { success: true, data: { deleted: data?.length ?? 0, snapshotSkipped: selectionSnapshot.skipped } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to delete leads.") };
+  }
+}
+
+export interface LeadSourceDeletePreview {
+  source: string;
+  count: number;
+  firstAddedAt: string | null;
+  lastAddedAt: string | null;
+}
+
+/** Admin-only exact-source deletion preview, including when matching CRM rows were added. */
+export async function getLeadSourceDeletePreview(
+  source: string,
+): Promise<ActionResult<LeadSourceDeletePreview>> {
+  const normalizedSource = typeof source === "string" ? source.trim() : "";
+  if (!normalizedSource) return { success: false, error: "Enter a lead source to preview." };
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can preview source-based deletion (403 Forbidden)." };
+    }
+
+    const [countResult, firstResult, lastResult] = await Promise.all([
+      supabase.from("leads").select("id", { count: "exact", head: true }).eq("source", normalizedSource),
+      supabase.from("leads").select("created_at").eq("source", normalizedSource)
+        .order("created_at", { ascending: true }).limit(1).maybeSingle(),
+      supabase.from("leads").select("created_at").eq("source", normalizedSource)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const error = countResult.error ?? firstResult.error ?? lastResult.error;
+    if (error) return { success: false, error: error.message };
+
+    return {
+      success: true,
+      data: {
+        source: normalizedSource,
+        count: countResult.count ?? 0,
+        firstAddedAt: firstResult.data?.created_at ?? null,
+        lastAddedAt: lastResult.data?.created_at ?? null,
+      },
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to preview leads for this source.") };
   }
 }
 
@@ -2301,6 +2380,204 @@ export async function randomAssignLeads(
 
     revalidatePath("/dashboard");
     return { success: true, data: { assigned: leadIds.length } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to assign leads.") };
+  }
+}
+
+export interface LeadAssignmentCriteria {
+  search: string;
+  treatment: string;
+  city: string;
+}
+
+const BULK_ASSIGNMENT_LIMIT = 10000;
+
+function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria): Q {
+  const filtered = query as unknown as {
+    or(expression: string): unknown;
+    ilike(column: string, pattern: string): unknown;
+  };
+  const searchFilter = buildLeadSearchFilter(criteria.search);
+  if (searchFilter) filtered.or(searchFilter);
+  const treatment = criteria.treatment.trim();
+  if (treatment) filtered.ilike("disease", `%${escapeLikePattern(treatment)}%`);
+  const city = criteria.city.trim();
+  if (city) filtered.ilike("city", `%${escapeLikePattern(city)}%`);
+  return query;
+}
+
+/** Returns the number of leads matching an explicit admin assignment filter. */
+export async function getLeadAssignmentPreview(
+  criteria: LeadAssignmentCriteria,
+): Promise<ActionResult<{ count: number }>> {
+  if (!criteria || typeof criteria !== "object") {
+    return { success: false, error: "Enter a search, treatment or city filter." };
+  }
+  const normalized = {
+    search: typeof criteria.search === "string" ? criteria.search.trim() : "",
+    treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
+    city: typeof criteria.city === "string" ? criteria.city.trim() : "",
+  };
+  if (!normalized.search && !normalized.treatment && !normalized.city) {
+    return { success: false, error: "Add a name/search, treatment or city filter first." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
+    }
+    const query = applyAssignmentCriteria(
+      supabase.from("leads").select("id", { count: "exact", head: true }),
+      normalized,
+    );
+    const { count, error } = await query;
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: { count: count ?? 0 } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to preview matching leads.") };
+  }
+}
+
+/** Assigns selected or filtered leads equally among explicitly selected employees. */
+export async function assignLeadsToEmployees(input: {
+  leadIds?: string[];
+  criteria?: LeadAssignmentCriteria;
+  employeeNames: string[];
+}): Promise<ActionResult<SmartAssignmentResult>> {
+  if (!input || typeof input !== "object" || !Array.isArray(input.employeeNames)) {
+    return { success: false, error: "Select employees and leads to assign." };
+  }
+  const employeeNames = Array.from(
+    new Set((input.employeeNames ?? []).map((name) => (typeof name === "string" ? name.trim() : "")).filter(Boolean)),
+  );
+  if (employeeNames.length === 0) {
+    return { success: false, error: "Select at least one employee." };
+  }
+
+  if (input.leadIds !== undefined && !Array.isArray(input.leadIds)) {
+    return { success: false, error: "Selected lead IDs must be a list." };
+  }
+  const leadIds = Array.from(new Set(
+    (input.leadIds ?? []).filter((id): id is string =>
+      typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+    ),
+  ));
+  if ((input.leadIds ?? []).some((id) => typeof id !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    return { success: false, error: "One or more selected leads are invalid. Refresh and try again." };
+  }
+  if (input.criteria !== undefined && (!input.criteria || typeof input.criteria !== "object")) {
+    return { success: false, error: "Lead filters are invalid." };
+  }
+  const criteria = input.criteria
+    ? {
+        search: typeof input.criteria.search === "string" ? input.criteria.search.trim() : "",
+        treatment: typeof input.criteria.treatment === "string" ? input.criteria.treatment.trim() : "",
+        city: typeof input.criteria.city === "string" ? input.criteria.city.trim() : "",
+      }
+    : null;
+
+  if (leadIds.length === 0 && (!criteria || (!criteria.search && !criteria.treatment && !criteria.city))) {
+    return { success: false, error: "Select leads or enter a search, treatment or city filter." };
+  }
+  if (leadIds.length > BULK_ASSIGNMENT_LIMIT) {
+    return { success: false, error: `Select no more than ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} leads at a time.` };
+  }
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .in("name", employeeNames);
+    if (profilesError) return { success: false, error: profilesError.message };
+    const validNames = new Set(
+      (profiles ?? [])
+        .filter((profile) => profile.role === "employee" && typeof profile.name === "string")
+        .map((profile) => profile.name.trim()),
+    );
+    const targets = employeeNames.filter((name) => validNames.has(name));
+    if (targets.length !== employeeNames.length) {
+      return { success: false, error: "One or more selected employees are no longer available. Refresh and try again." };
+    }
+
+    let matchingIds = leadIds;
+    if (matchingIds.length === 0 && criteria) {
+      const countQuery = applyAssignmentCriteria(
+        supabase.from("leads").select("id", { count: "exact", head: true }),
+        criteria,
+      );
+      const { count, error } = await countQuery;
+      if (error) return { success: false, error: error.message };
+      const total = count ?? 0;
+      if (total === 0) return { success: false, error: "No leads match those filters." };
+      if (total > BULK_ASSIGNMENT_LIMIT) {
+        return {
+          success: false,
+          error: `${total.toLocaleString()} leads match. Narrow the filters to ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} leads or fewer.`,
+        };
+      }
+
+      matchingIds = [];
+      const PAGE_SIZE = 500;
+      for (let offset = 0; offset < total; offset += PAGE_SIZE) {
+        const pageQuery = applyAssignmentCriteria(
+          supabase.from("leads").select("id"),
+          criteria,
+        );
+        const { data, error: fetchError } = await pageQuery
+          .order("created_at", { ascending: true })
+          .range(offset, Math.min(offset + PAGE_SIZE, total) - 1);
+        if (fetchError) return { success: false, error: fetchError.message };
+        matchingIds.push(...(data ?? []).map((row) => row.id));
+      }
+    }
+
+    const base = Math.floor(matchingIds.length / targets.length);
+    const remainder = matchingIds.length % targets.length;
+    const perEmployee: { name: string; count: number; leadIds: string[] }[] = [];
+    let cursor = 0;
+    targets.forEach((name, index) => {
+      const share = base + (index < remainder ? 1 : 0);
+      const ids = matchingIds.slice(cursor, cursor + share);
+      cursor += share;
+      perEmployee.push({ name, count: ids.length, leadIds: ids });
+    });
+
+    let assigned = 0;
+    for (const entry of perEmployee) {
+      for (let offset = 0; offset < entry.leadIds.length; offset += 500) {
+        const ids = entry.leadIds.slice(offset, offset + 500);
+        if (ids.length === 0) continue;
+        const { error } = await supabase
+          .from("leads")
+          .update({ assigned_to: entry.name })
+          .in("id", ids);
+        if (error) {
+          return { success: false, error: `Assigned ${assigned} leads before failing: ${error.message}` };
+        }
+        assigned += ids.length;
+      }
+    }
+
+    revalidatePath("/dashboard");
+    return {
+      success: true,
+      data: {
+        assigned,
+        perEmployee: perEmployee
+          .filter((entry) => entry.count > 0)
+          .map(({ name, count }) => ({ name, count })),
+      },
+    };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to assign leads.") };
   }
