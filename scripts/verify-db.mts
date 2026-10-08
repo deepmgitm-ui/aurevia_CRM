@@ -100,6 +100,15 @@ report("profiles.manager_name", await hasColumn("profiles", "manager_name"));
 report("profiles.photo_url", await hasColumn("profiles", "photo_url"));
 const { error: attendanceError } = await supabase.from("attendance" as never).select("id" as never).limit(1 as never);
 report("attendance table", !attendanceError, attendanceError?.message);
+const { error: attendanceRequestsError } = await supabase
+  .from("attendance_requests" as never)
+  .select("id" as never)
+  .limit(1 as never);
+report(
+  "attendance_requests table",
+  !attendanceRequestsError,
+  attendanceRequestsError ? "missed sign-in requests are disabled until supabase-attendance-requests-migration.sql is run" : "",
+);
 
 // --- 4. deletion safety net ---
 console.log("\n4. supabase-deletion-backup-migration.sql");

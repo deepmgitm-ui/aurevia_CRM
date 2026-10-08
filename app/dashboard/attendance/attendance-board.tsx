@@ -12,6 +12,7 @@
 import { useState } from "react";
 
 import { AttendanceCalendar } from "./attendance-calendar";
+import { AttendanceRequests } from "./attendance-requests";
 import { AttendanceTeam } from "./attendance-team";
 import type { AttendanceRow } from "@/lib/attendance";
 
@@ -51,6 +52,7 @@ export function AttendanceBoard({
           onSelect={setSelectedId}
         />
       )}
+      <AttendanceRequests canManage={canManage} todayIso={todayIso} />
       <AttendanceCalendar
         rows={rows}
         month={month}

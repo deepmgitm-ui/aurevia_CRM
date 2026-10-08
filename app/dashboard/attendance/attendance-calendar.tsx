@@ -8,7 +8,7 @@
 // One dot per employee per day (green present / amber half-day / rose absent),
 // and the day panel is where a manager corrects or deletes a mark, or adds one
 // for someone who never signed in.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ChevronLeft, ChevronRight, CircleCheck, UserCheck } from "lucide-react";
 
@@ -103,6 +103,10 @@ export function AttendanceCalendar({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [addEmployee, setAddEmployee] = useState("");
   const [addStatus, setAddStatus] = useState<AttendanceStatus>("Absent");
+
+  useEffect(() => {
+    setData(groupByDate(rows));
+  }, [rows]);
 
   const cells = useMemo(() => buildMonthCells(monthCursor), [monthCursor]);
 

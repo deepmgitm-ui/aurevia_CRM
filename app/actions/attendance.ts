@@ -108,6 +108,191 @@ const SELECT_COLUMNS_TABLE = "attendance";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+export interface AttendanceRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  reason: string;
+  status: "Pending" | "Approved" | "Rejected";
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewNote: string;
+}
+
+interface AttendanceRequestDbRow {
+  id: string;
+  employee_id: string;
+  employee_name?: string | null;
+  attendance_date: string;
+  reason: string | null;
+  status: string;
+  created_at: string;
+  reviewed_at: string | null;
+  review_note: string | null;
+  employee: { name: string | null } | { name: string | null }[] | null;
+}
+
+const REQUEST_SELECT =
+  "id, employee_id, attendance_date, reason, status, created_at, reviewed_at, review_note, employee:profiles!attendance_requests_employee_id_fkey(name)";
+
+function toAttendanceRequest(row: AttendanceRequestDbRow): AttendanceRequest {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: joinedName(row.employee),
+    date: String(row.attendance_date),
+    reason: row.reason ?? "",
+    status: row.status === "Approved" || row.status === "Rejected" ? row.status : "Pending",
+    createdAt: row.created_at,
+    reviewedAt: row.reviewed_at,
+    reviewNote: row.review_note ?? "",
+  };
+}
+
+/** Lists an employee's own requests or the team requests for admins/managers. */
+export async function getAttendanceRequests(): Promise<AttendanceResult<AttendanceRequest[]>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+
+    let query = viewer.supabase
+      .from("attendance_requests")
+      .select(REQUEST_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (!isManager(viewer.role)) query = query.eq("employee_id", viewer.id);
+
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingTableError(error.message)) {
+        return {
+          success: false,
+          error: "Attendance requests are not enabled yet — run supabase-attendance-requests-migration.sql in the Supabase SQL editor.",
+        };
+      }
+      return { success: false, error: getErrorMessage(error, "Could not load attendance requests.") };
+    }
+    return {
+      success: true,
+      data: ((data ?? []) as unknown as AttendanceRequestDbRow[]).map(toAttendanceRequest),
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not load attendance requests.") };
+  }
+}
+
+/** Submits a request for a past day the employee attended but missed signing in. */
+export async function createAttendanceRequest(input: {
+  date: string;
+  reason?: string;
+}): Promise<AttendanceResult<AttendanceRequest>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (isManager(viewer.role)) {
+      return { success: false, error: "Admins and managers can mark attendance directly from the calendar." };
+    }
+    if (!DATE_PATTERN.test(input.date)) return { success: false, error: "Choose a valid attendance date." };
+    if (input.date >= clinicDate()) {
+      return { success: false, error: "You can request attendance only for a past date." };
+    }
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length > 1000) return { success: false, error: "Reason must be 1,000 characters or fewer." };
+
+    const { data: existingAttendance, error: attendanceError } = await viewer.supabase
+      .from("attendance")
+      .select("id")
+      .eq("employee_id", viewer.id)
+      .eq("attendance_date", input.date)
+      .maybeSingle();
+    if (attendanceError) {
+      if (isMissingTableError(attendanceError.message)) {
+        return { success: false, error: ATTENDANCE_TABLE_MISSING_ERROR };
+      }
+      return { success: false, error: attendanceError.message };
+    }
+    if (existingAttendance) {
+      return { success: false, error: "Attendance is already recorded for that date." };
+    }
+
+    const { data, error } = await viewer.supabase
+      .from("attendance_requests")
+      .insert({
+        employee_id: viewer.id,
+        attendance_date: input.date,
+        reason,
+      })
+      .select(REQUEST_SELECT)
+      .single();
+    if (error) {
+      if (isMissingTableError(error.message)) {
+        return {
+          success: false,
+          error: "Attendance requests are not enabled yet — run supabase-attendance-requests-migration.sql in the Supabase SQL editor.",
+        };
+      }
+      if (/duplicate|unique/i.test(error.message)) {
+        return { success: false, error: "A request for this date is already pending review." };
+      }
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: toAttendanceRequest(data as unknown as AttendanceRequestDbRow) };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not submit the attendance request.") };
+  }
+}
+
+/** Atomically approves/rejects a request; approval also records Present attendance. */
+export async function reviewAttendanceRequest(input: {
+  id: string;
+  approved: boolean;
+  reviewNote?: string;
+}): Promise<AttendanceResult<{ id: string; status: "Approved" | "Rejected" }>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (!isManager(viewer.role)) {
+      return { success: false, error: "Only an admin or manager can review attendance requests." };
+    }
+    if (typeof input.id !== "string" || !input.id.trim()) {
+      return { success: false, error: "Choose an attendance request." };
+    }
+    if (typeof input.approved !== "boolean") {
+      return { success: false, error: "Choose whether to approve or reject the request." };
+    }
+    const reviewNote = input.reviewNote?.trim() ?? "";
+    if (reviewNote.length > 1000) return { success: false, error: "Review note must be 1,000 characters or fewer." };
+
+    const { data, error } = await viewer.supabase.rpc("review_attendance_request", {
+      p_request_id: input.id,
+      p_approved: input.approved,
+      p_review_note: reviewNote || null,
+    });
+    if (error) {
+      if (
+        isMissingTableError(error.message) ||
+        (/review_attendance_request/i.test(error.message) &&
+          /function|schema cache|does not exist|could not find/i.test(error.message))
+      ) {
+        return {
+          success: false,
+          error: "Attendance request approval is not enabled yet — run supabase-attendance-requests-migration.sql in the Supabase SQL editor.",
+        };
+      }
+      return { success: false, error: error.message };
+    }
+    if (data !== input.id) return { success: false, error: "The request could not be confirmed as reviewed." };
+
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: { id: input.id, status: input.approved ? "Approved" : "Rejected" } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not review the attendance request.") };
+  }
+}
+
 /**
  * Marks the signed-in employee present for today, recording the sign-in time.
  *

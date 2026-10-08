@@ -64,6 +64,14 @@ Supabase dashboard → Organization → Usage. Database > 400 MB ya egress tezi 
 badhe to mujhe bata — pehla kadam hamesha ek index ya ek projection fix hota
 hai, plan upgrade nahi.
 
+### Missed attendance sign-in requests
+
+Employees can request a correction for a past attendance date and add an
+optional reason. Admins/managers review it; approval atomically marks the
+employee Present and records the reason on the attendance row. Enable this on
+existing Supabase projects by running
+`supabase-attendance-requests-migration.sql` in the Supabase SQL Editor.
+
 ## 3. Meta leads — setup checklist (ye karne pe leads rukenge nahi)
 
 App → `https://<vercel-domain>/api/meta-webhook`

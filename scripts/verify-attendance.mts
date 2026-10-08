@@ -35,6 +35,17 @@ assert.match(readOnlyMigration, /current_user_role\(\) in \('admin', 'manager'\)
 assert.match(readOnlyMigration, /drop policy if exists attendance_self_update_check_in/);
 assert.doesNotMatch(readOnlyMigration, /create policy attendance_self_update_check_in/);
 
+const requestMigration = readFileSync(
+  new URL("../supabase-attendance-requests-migration.sql", import.meta.url),
+  "utf8",
+);
+assert.match(requestMigration, /attendance_requests_select_own_or_manage/);
+assert.match(requestMigration, /attendance_requests_employee_insert/);
+assert.match(requestMigration, /attendance_date < \(now\(\) at time zone 'Asia\/Kolkata'\)::date/);
+assert.match(requestMigration, /review_attendance_request/);
+assert.match(requestMigration, /insert into public\.attendance/);
+assert.match(requestMigration, /attendance_requests_admin_manager_update/);
+
 // ---------------------------------------------------------------------------
 // 1. "Today" is Delhi's calendar day, not UTC's. 18:30 UTC is already the
 //    NEXT day in India, so a UTC-based check-in date would file the evening
