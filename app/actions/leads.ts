@@ -2644,7 +2644,101 @@ export interface LeadAssignmentCriteria {
   city: string;
 }
 
+export interface LeadAssignmentSuggestion {
+  id: string;
+  name: string;
+  phone: string | null;
+  city: string;
+  disease: string;
+  source: string;
+}
+
+const ASSIGNMENT_SUGGESTION_PAGE_SIZE = 25;
 const BULK_ASSIGNMENT_LIMIT = 10000;
+
+/** Searches unassigned leads live, using a name prefix and optional city/treatment filters. */
+export async function getUnassignedLeadAssignmentSuggestions(
+  criteria: LeadAssignmentCriteria,
+  offset = 0,
+): Promise<ActionResult<{
+  leads: LeadAssignmentSuggestion[];
+  total: number;
+  hasMore: boolean;
+}>> {
+  if (!criteria || typeof criteria !== "object") {
+    return { success: false, error: "Enter a lead name, treatment, or city to search." };
+  }
+  const normalized = {
+    search: typeof criteria.search === "string" ? criteria.search.trim() : "",
+    treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
+    city: typeof criteria.city === "string" ? criteria.city.trim() : "",
+  };
+  if (!normalized.search && !normalized.treatment && !normalized.city) {
+    return { success: true, data: { leads: [], total: 0, hasMore: false } };
+  }
+  const safeOffset = Number.isInteger(offset) && offset >= 0 && offset < BULK_ASSIGNMENT_LIMIT ? offset : 0;
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can search leads for assignment (403 Forbidden)." };
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("name");
+    if (profilesError) return { success: false, error: profilesError.message };
+    const assignedNames = [...new Set(
+      (profiles ?? [])
+        .map((profile) => typeof profile.name === "string" ? profile.name.trim() : "")
+        .filter((name) => name && name !== "-" && name !== "Unassigned"),
+    )];
+
+    let query = supabase
+      .from("leads")
+      .select("id, name, phone, city, disease, source", { count: "exact" })
+      .order("name", { ascending: true })
+      .order("created_at", { ascending: false });
+    if (assignedNames.length > 0) {
+      query = query.or(`assigned_to.is.null,assigned_to.not.in.(${inListExpression(assignedNames)})`);
+    }
+    if (normalized.search) {
+      query = query.ilike("name", `${escapeLikePattern(normalized.search)}%`);
+    }
+    if (normalized.treatment) {
+      query = query.ilike("disease", `%${escapeLikePattern(normalized.treatment)}%`);
+    }
+    if (normalized.city) {
+      query = query.ilike("city", `%${escapeLikePattern(normalized.city)}%`);
+    }
+
+    const { data, count, error } = await query.range(
+      safeOffset,
+      safeOffset + ASSIGNMENT_SUGGESTION_PAGE_SIZE - 1,
+    );
+    if (error) return { success: false, error: error.message };
+    const leads = (data ?? []).map((lead) => ({
+      id: lead.id,
+      name: lead.name ?? "",
+      phone: lead.phone,
+      city: lead.city ?? "",
+      disease: lead.disease ?? "",
+      source: lead.source ?? "",
+    }));
+    const total = count ?? 0;
+    return {
+      success: true,
+      data: {
+        leads,
+        total,
+        hasMore: safeOffset + leads.length < total,
+      },
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to search unassigned leads.") };
+  }
+}
 
 function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria): Q {
   const filtered = query as unknown as {

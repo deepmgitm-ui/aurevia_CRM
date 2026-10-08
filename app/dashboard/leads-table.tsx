@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -15,7 +15,7 @@ import {
   getEmployees,
   getLeadActivities,
   getLeadDeletionBackups,
-  getLeadAssignmentPreview,
+  getUnassignedLeadAssignmentSuggestions,
   getLeadSourceBatches,
   getLeadsForSourceBatches,
   permanentlyDeleteLeadDeletionBackup,
@@ -31,6 +31,7 @@ import {
   randomAssignLeads,
   assignLeadsToEmployees,
   type LeadAssignmentCriteria,
+  type LeadAssignmentSuggestion,
   type LeadSourceBatch,
   type Lead,
   type LeadActivity,
@@ -500,8 +501,12 @@ export function LeadsTable({
     treatment: "",
     city: "",
   });
-  const [assignmentPreviewCount, setAssignmentPreviewCount] = useState<number | null>(null);
-  const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false);
+  const [assignmentSuggestions, setAssignmentSuggestions] = useState<LeadAssignmentSuggestion[]>([]);
+  const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
+  const [assignmentSuggestionTotal, setAssignmentSuggestionTotal] = useState(0);
+  const [hasMoreAssignmentSuggestions, setHasMoreAssignmentSuggestions] = useState(false);
+  const [isLoadingAssignmentSuggestions, setIsLoadingAssignmentSuggestions] = useState(false);
+  const [assignmentSuggestionError, setAssignmentSuggestionError] = useState("");
   const [isSourceDeleteOpen, setIsSourceDeleteOpen] = useState(false);
   const [sourceBatches, setSourceBatches] = useState<LeadSourceBatch[]>([]);
   const [selectedSourceBatchKeys, setSelectedSourceBatchKeys] = useState<string[]>([]);
@@ -531,6 +536,7 @@ export function LeadsTable({
   // Guards against out-of-order responses when searches/pages change quickly —
   // only the most recently issued fetch is allowed to update the table.
   const fetchSequenceRef = useRef(0);
+  const assignmentSuggestionSequenceRef = useRef(0);
 
   function setLeadSaving(id: string, saving: boolean) {
     setSavingLeadIds((current) => {
@@ -1092,10 +1098,16 @@ export function LeadsTable({
   }
 
   function openAssignment(mode: "selected" | "filters") {
+    assignmentSuggestionSequenceRef.current += 1;
     setAssignmentMode(mode);
     setAssignmentEmployeeNames([]);
     setAssignmentCriteria({ search: "", treatment: "", city: "" });
-    setAssignmentPreviewCount(null);
+    setAssignmentSuggestions([]);
+    setSelectedAssignmentLeads([]);
+    setAssignmentSuggestionTotal(0);
+    setHasMoreAssignmentSuggestions(false);
+    setIsLoadingAssignmentSuggestions(false);
+    setAssignmentSuggestionError("");
     setIsAssignmentOpen(true);
   }
 
@@ -1107,46 +1119,98 @@ export function LeadsTable({
 
   function updateAssignmentCriteria(patch: Partial<LeadAssignmentCriteria>) {
     setAssignmentCriteria((current) => ({ ...current, ...patch }));
-    setAssignmentPreviewCount(null);
+    assignmentSuggestionSequenceRef.current += 1;
+    setAssignmentSuggestions([]);
+    setAssignmentSuggestionTotal(0);
+    setHasMoreAssignmentSuggestions(false);
+    setAssignmentSuggestionError("");
   }
 
-  async function previewFilteredAssignment() {
-    setIsPreviewingAssignment(true);
-    try {
-      const response = await getLeadAssignmentPreview(assignmentCriteria);
-      if (!response.success) {
-        setAssignmentPreviewCount(null);
-        toast.add({ title: "Could not find matching leads", description: response.error, type: "error" });
-      } else {
-        setAssignmentPreviewCount(response.data.count);
+  const fetchAssignmentSuggestions = useCallback(
+    async (criteria: LeadAssignmentCriteria, offset = 0) => {
+      const requestId = ++assignmentSuggestionSequenceRef.current;
+      setIsLoadingAssignmentSuggestions(true);
+      setAssignmentSuggestionError("");
+      try {
+        const response = await getUnassignedLeadAssignmentSuggestions(criteria, offset);
+        if (requestId !== assignmentSuggestionSequenceRef.current) return;
+        if (!response.success) {
+          setAssignmentSuggestionError(response.error);
+          setHasMoreAssignmentSuggestions(false);
+          return;
+        }
+        setAssignmentSuggestions((current) => {
+          if (offset === 0) return response.data.leads;
+          const seen = new Set(current.map((lead) => lead.id));
+          return [...current, ...response.data.leads.filter((lead) => !seen.has(lead.id))];
+        });
+        setAssignmentSuggestionTotal(response.data.total);
+        setHasMoreAssignmentSuggestions(response.data.hasMore);
+      } catch (error) {
+        if (requestId !== assignmentSuggestionSequenceRef.current) return;
+        setAssignmentSuggestionError(
+          error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        );
+        setHasMoreAssignmentSuggestions(false);
+      } finally {
+        if (requestId === assignmentSuggestionSequenceRef.current) {
+          setIsLoadingAssignmentSuggestions(false);
+        }
       }
-    } catch (error) {
-      setAssignmentPreviewCount(null);
-      toast.add({
-        title: "Could not find matching leads",
-        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
-        type: "error",
-      });
-    } finally {
-      setIsPreviewingAssignment(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isAssignmentOpen || assignmentMode !== "filters") return;
+    const criteria = {
+      search: assignmentCriteria.search.trim(),
+      treatment: assignmentCriteria.treatment.trim(),
+      city: assignmentCriteria.city.trim(),
+    };
+    if (!criteria.search && !criteria.treatment && !criteria.city) {
+      setAssignmentSuggestions([]);
+      setAssignmentSuggestionTotal(0);
+      setHasMoreAssignmentSuggestions(false);
+      setIsLoadingAssignmentSuggestions(false);
+      setAssignmentSuggestionError("");
+      return;
     }
-  }
+    const timer = setTimeout(() => {
+      void fetchAssignmentSuggestions(criteria);
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      assignmentSuggestionSequenceRef.current += 1;
+    };
+  }, [
+    assignmentCriteria.city,
+    assignmentCriteria.search,
+    assignmentCriteria.treatment,
+    assignmentMode,
+    fetchAssignmentSuggestions,
+    isAssignmentOpen,
+  ]);
 
   async function handleAssignAmongSelectedEmployees() {
-    if (assignmentEmployeeNames.length === 0 || isBulkActionPending) return;
+    const leadIdsToAssign = assignmentMode === "selected"
+      ? selectedLeads
+      : selectedAssignmentLeads.map((lead) => lead.id);
+    if (assignmentEmployeeNames.length === 0 || leadIdsToAssign.length === 0 || isBulkActionPending) return;
     setIsBulkActionPending(true);
     try {
-      const response = await assignLeadsToEmployees(
-        assignmentMode === "selected"
-          ? { leadIds: selectedLeads, employeeNames: assignmentEmployeeNames }
-          : { criteria: assignmentCriteria, employeeNames: assignmentEmployeeNames },
-      );
+      const response = await assignLeadsToEmployees({
+        leadIds: leadIdsToAssign,
+        employeeNames: assignmentEmployeeNames,
+      });
       if (!response.success) {
         toast.add({ title: "Assignment failed", description: response.error, type: "error" });
       } else {
         if (assignmentMode === "selected") {
           setSelectedLeads([]);
           setIsSelectAllChecked(false);
+        } else {
+          setSelectedAssignmentLeads([]);
         }
         setIsAssignmentOpen(false);
         router.refresh();
@@ -2157,12 +2221,12 @@ export function LeadsTable({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {assignmentMode === "selected" ? "Split selected leads among employees" : "Assign leads by filters"}
+              {assignmentMode === "selected" ? "Split selected leads among employees" : "Select unassigned leads to assign"}
             </DialogTitle>
             <DialogDescription>
               {assignmentMode === "selected"
                 ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose.`
-                : "Search by lead name/phone/disease, treatment, or city. Matching leads are reassigned and split equally among the employees you choose."}
+                : "Search unassigned leads by the beginning of a name, treatment, or city. Select the exact leads to assign."}
             </DialogDescription>
           </DialogHeader>
 
@@ -2170,12 +2234,12 @@ export function LeadsTable({
             {assignmentMode === "filters" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="assign-lead-search">Lead name, phone or disease</Label>
+                  <Label htmlFor="assign-lead-search">Lead name starts with</Label>
                   <Input
                     id="assign-lead-search"
                     value={assignmentCriteria.search}
-                    placeholder="Search matching leads"
-                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    placeholder="Type a name or its first letters"
+                    disabled={isBulkActionPending}
                     onChange={(event) => updateAssignmentCriteria({ search: event.target.value })}
                   />
                 </div>
@@ -2185,7 +2249,7 @@ export function LeadsTable({
                     id="assign-treatment"
                     value={assignmentCriteria.treatment}
                     placeholder="e.g. Cataract"
-                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    disabled={isBulkActionPending}
                     onChange={(event) => updateAssignmentCriteria({ treatment: event.target.value })}
                   />
                 </div>
@@ -2195,28 +2259,107 @@ export function LeadsTable({
                     id="assign-city"
                     value={assignmentCriteria.city}
                     placeholder="e.g. Delhi"
-                    disabled={isPreviewingAssignment || isBulkActionPending}
+                    disabled={isBulkActionPending}
                     onChange={(event) => updateAssignmentCriteria({ city: event.target.value })}
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={
-                      isPreviewingAssignment ||
-                      (!assignmentCriteria.search.trim() && !assignmentCriteria.treatment.trim() && !assignmentCriteria.city.trim())
-                    }
-                    onClick={() => void previewFilteredAssignment()}
-                  >
-                    {isPreviewingAssignment && <Loader2 className="animate-spin" aria-hidden="true" />}
-                    Preview matches
-                  </Button>
-                  {assignmentPreviewCount !== null && (
-                    <span className={`text-sm ${assignmentPreviewCount > 10000 ? "text-rose-700" : "text-slate-600"}`}>
-                      {assignmentPreviewCount.toLocaleString()} matching leads
-                      {assignmentPreviewCount > 10000 ? " — narrow your filters to 10,000 or fewer." : ""}
-                    </span>
+                <div className="space-y-2 sm:col-span-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>
+                      Matching unassigned leads
+                      {assignmentSuggestionTotal > 0 && ` (${assignmentSuggestionTotal.toLocaleString()})`}
+                    </Label>
+                    {isLoadingAssignmentSuggestions && (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500" role="status">
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                        Searching…
+                      </span>
+                    )}
+                  </div>
+                  {assignmentSuggestionError ? (
+                    <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                      {assignmentSuggestionError}
+                    </p>
+                  ) : assignmentSuggestions.length > 0 ? (
+                    <>
+                      <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                        {assignmentSuggestions.map((lead) => (
+                          <label
+                            key={lead.id}
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={selectedAssignmentLeads.some((selected) => selected.id === lead.id)}
+                              disabled={isBulkActionPending}
+                              onChange={(event) =>
+                                setSelectedAssignmentLeads((current) =>
+                                  event.target.checked
+                                    ? current.some((selected) => selected.id === lead.id)
+                                      ? current
+                                      : [...current, lead]
+                                    : current.filter((selected) => selected.id !== lead.id),
+                                )
+                              }
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
+                              <span className="block truncate text-xs text-slate-500">
+                                {[lead.phone, lead.disease, lead.city, lead.source].filter(Boolean).join(" · ") || "No extra details"}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {hasMoreAssignmentSuggestions && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isLoadingAssignmentSuggestions || isBulkActionPending}
+                          onClick={() =>
+                            void fetchAssignmentSuggestions(assignmentCriteria, assignmentSuggestions.length)
+                          }
+                        >
+                          Load more leads
+                        </Button>
+                      )}
+                    </>
+                  ) : isLoadingAssignmentSuggestions ? null : assignmentCriteria.search.trim() ||
+                    assignmentCriteria.treatment.trim() ||
+                    assignmentCriteria.city.trim() ? (
+                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                      No unassigned leads match. Try a different name, treatment, or city.
+                    </p>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                      Start typing a name to see matching leads here. Names match from the first letter.
+                    </p>
+                  )}
+                  {selectedAssignmentLeads.length > 0 && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+                      <p className="mb-1.5 text-xs font-semibold text-blue-900">
+                        {selectedAssignmentLeads.length} lead{selectedAssignmentLeads.length === 1 ? "" : "s"} selected
+                      </p>
+                      <div className="max-h-24 space-y-1 overflow-y-auto">
+                        {selectedAssignmentLeads.map((lead) => (
+                          <label key={lead.id} className="flex items-center gap-2 text-xs text-blue-900">
+                            <input
+                              type="checkbox"
+                              checked
+                              disabled={isBulkActionPending}
+                              onChange={() =>
+                                setSelectedAssignmentLeads((current) =>
+                                  current.filter((selected) => selected.id !== lead.id),
+                                )
+                              }
+                            />
+                            <span className="truncate">{lead.name}{lead.phone ? ` · ${lead.phone}` : ""}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2283,7 +2426,7 @@ export function LeadsTable({
                 assignmentEmployeeNames.length === 0 ||
                 (assignmentMode === "selected"
                   ? selectedLeads.length === 0
-                  : assignmentPreviewCount === null || assignmentPreviewCount === 0 || assignmentPreviewCount > 10000)
+                  : selectedAssignmentLeads.length === 0)
               }
               onClick={() => void handleAssignAmongSelectedEmployees()}
             >
