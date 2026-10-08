@@ -139,7 +139,7 @@ export async function GET(request: Request) {
   }
 }
 
-// Facebook retries webhooks on non-2xx responses, so every POST path ends in 200.
+// A 2xx acknowledges delivery; return non-2xx for failures Meta should retry.
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   console.log("[Meta Webhook][POST] Request received", { requestId });
@@ -152,10 +152,16 @@ export async function POST(request: NextRequest) {
       console.warn("[Meta Webhook][POST] META_APP_SECRET not set — signature check skipped", { requestId });
     } else if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
       console.warn("[Meta Webhook][POST] Invalid X-Hub-Signature-256 — payload rejected", { requestId });
-      return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 200 });
+      return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 401 });
     }
 
-    const payload = JSON.parse(rawBody || "{}") as JsonValue;
+    let payload: JsonValue;
+    try {
+      payload = JSON.parse(rawBody || "{}") as JsonValue;
+    } catch {
+      console.warn("[Meta Webhook][POST] Invalid JSON payload", { requestId });
+      return NextResponse.json({ success: false, error: "Invalid JSON payload." }, { status: 400 });
+    }
     const root = getObject(payload);
     const entry = Array.isArray(root.entry) ? getObject(root.entry[0]) : {};
     const changes = Array.isArray(entry.changes) ? getObject(entry.changes[0]) : {};
@@ -175,7 +181,7 @@ export async function POST(request: NextRequest) {
       console.warn("[Meta Webhook][POST] leadgen_id missing in payload", { requestId });
       return NextResponse.json(
         { success: false, error: "leadgen_id is missing from the webhook payload." },
-        { status: 200 },
+        { status: 400 },
       );
     }
 
@@ -184,7 +190,7 @@ export async function POST(request: NextRequest) {
       console.error("[Meta Webhook][POST] META_ACCESS_TOKEN is not configured", { requestId });
       return NextResponse.json(
         { success: false, error: "Meta access token is not configured." },
-        { status: 200 },
+        { status: 503 },
       );
     }
 
@@ -205,7 +211,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json(
         { success: false, error: "Unable to fetch lead details from the Meta Graph API." },
-        { status: 200 },
+        { status: 502 },
       );
     }
 
@@ -286,7 +292,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json(
         { success: false, error: "Unable to create the lead." },
-        { status: 200 },
+        { status: 503 },
       );
     }
 
@@ -305,10 +311,10 @@ export async function POST(request: NextRequest) {
       requestId,
       error: error instanceof Error ? error.message : error,
     });
-    // Always 200 so Facebook does not retry the webhook.
+    // A non-2xx response lets Meta retry transient Graph API / database failures.
     return NextResponse.json(
       { success: false, error: "Unable to process Meta webhook." },
-      { status: 200 },
+      { status: 500 },
     );
   }
 }
