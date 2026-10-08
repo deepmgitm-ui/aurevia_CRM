@@ -481,7 +481,7 @@ export function LeadsTable({
       employee.name.trim() !== "" &&
       employee.name !== "-" &&
       employee.name !== "Unassigned" &&
-      (employee.role === "employee" || (isAdmin && employee.role !== "employee")),
+      (isAdmin || employee.role === "employee"),
   );
   // Master data (Settings → Master Data): the DB-backed picklists. Seeded first
   // so the selects are never empty, then upgraded with the admin's lists.
