@@ -559,6 +559,8 @@ interface ResolvedLeadFilters {
   city: string | null;
   source: string | null;
   assigned: string | null;
+  assignmentStatus: "" | "assigned" | "unassigned";
+  assignmentNames: string[];
 }
 
 function emptyResolvedFilters(): ResolvedLeadFilters {
@@ -571,6 +573,8 @@ function emptyResolvedFilters(): ResolvedLeadFilters {
     city: null,
     source: null,
     assigned: null,
+    assignmentStatus: "",
+    assignmentNames: [],
   };
 }
 
@@ -617,6 +621,13 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   if (resolved.city) filtered = filtered.ilike("city", resolved.city);
   if (resolved.source) filtered = filtered.ilike("source", resolved.source);
   if (resolved.assigned) filtered = filtered.eq("assigned_to", resolved.assigned);
+  if (resolved.assignmentStatus === "assigned") {
+    filtered = filtered.in("assigned_to", resolved.assignmentNames);
+  } else if (resolved.assignmentStatus === "unassigned" && resolved.assignmentNames.length > 0) {
+    filtered = filtered.or(
+      `assigned_to.is.null,assigned_to.not.in.(${inListExpression(resolved.assignmentNames)})`,
+    );
+  }
   return filtered;
 }
 
@@ -639,8 +650,24 @@ async function resolveLeadFilters(
   const city = (filters.city ?? "").trim();
   const source = (filters.source ?? "").trim();
   const assigned = (filters.assigned ?? "").trim();
-  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned) {
+  const assignmentStatus = filters.assignmentStatus === "assigned" || filters.assignmentStatus === "unassigned"
+    ? filters.assignmentStatus
+    : "";
+  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned && !assignmentStatus) {
     return resolved;
+  }
+  if (assignmentStatus) {
+    const { data: profiles, error } = await supabase
+      .from("profiles")
+      .select("name");
+    if (error) throw new Error(`Unable to resolve lead assignments: ${error.message}`);
+    resolved.assignmentNames = [...new Set(
+      (profiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name)),
+    )];
+    resolved.assignmentStatus = assignmentStatus;
+    if (assignmentStatus === "assigned" && resolved.assignmentNames.length === 0) {
+      resolved.empty = true;
+    }
   }
 
   // --- Stage: run every distinct status through stageForStatus() (the exact
@@ -913,7 +940,23 @@ export async function getTreatmentTally(
   const result = await getAnalyticsLeads();
   if (!result.success) return result;
   const resolved: LeadListFilters = { ...EMPTY_LEAD_FILTERS, ...filters };
-  return { success: true, data: tallyTreatments(result.data.map(toAnalyticsLead), resolved) };
+  let rows = result.data.map(toAnalyticsLead);
+  if (resolved.assignmentStatus) {
+    const supabase = await createClient();
+    const { data: profiles, error } = await supabase.from("profiles").select("name");
+    if (error) return { success: false, error: `Unable to resolve lead assignments: ${error.message}` };
+    const assignedNames = new Set(
+      (profiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name)),
+    );
+    rows = rows.filter((row) => {
+      const isAssigned = assignedNames.has(row.assigned_to.trim());
+      return resolved.assignmentStatus === "assigned" ? isAssigned : !isAssigned;
+    });
+  }
+  return {
+    success: true,
+    data: tallyTreatments(rows, { ...resolved, assignmentStatus: "" }),
+  };
 }
 
 export interface LeadMonthTally {
@@ -1948,10 +1991,13 @@ const BACKUP_ACTIVITY_LIMIT = 20000;
  * triggers TS2589 (excessively deep instantiation).
  */
 interface MutableScopedBuilder {
-  eq(column: string, value: string): unknown;
-  or(expression: string): unknown;
-  in(column: string, values: readonly string[]): unknown;
-  not(column: string, operator: string, value: null): unknown;
+  eq(column: string, value: string): MutableScopedBuilder;
+  or(expression: string): MutableScopedBuilder;
+  in(column: string, values: readonly string[]): MutableScopedBuilder;
+  ilike(column: string, pattern: string): MutableScopedBuilder;
+  gte(column: string, value: string): MutableScopedBuilder;
+  lt(column: string, value: string): MutableScopedBuilder;
+  not(column: string, operator: string, value: null): MutableScopedBuilder;
 }
 
 interface DeleteScope {
@@ -1959,22 +2005,35 @@ interface DeleteScope {
   assignedTo: string;
   /** Pre-built `and/or` search expression, if the search box was active. */
   searchFilter: string | null;
+  /** The selected status/temperature filter for a select-all delete. */
+  statusFilter?: string;
   /** Exact lead source for a source-scoped removal. */
   source: string;
   /** Exact ticked ids — the only scope used by the "selected rows" delete. */
   ids?: readonly string[];
+  /** Additional URL filters applied to the all-matching delete and its snapshot. */
+  resolvedFilters?: ResolvedLeadFilters;
   /** Whole-table wipe: add an always-true filter so the delete is explicit. */
   unscoped: boolean;
 }
 
 function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
-  const scoped = query as unknown as MutableScopedBuilder;
-  if (scope.assignedTo) scoped.eq("assigned_to", scope.assignedTo);
-  if (scope.searchFilter) scoped.or(scope.searchFilter);
-  if (scope.source) scoped.eq("source", scope.source);
-  if (scope.ids?.length) scoped.in("id", scope.ids);
-  else if (scope.unscoped) scoped.not("id", "is", null);
-  return query;
+  let scoped = query as unknown as MutableScopedBuilder;
+  if (scope.assignedTo) scoped = scoped.eq("assigned_to", scope.assignedTo);
+  if (scope.searchFilter) scoped = scoped.or(scope.searchFilter);
+  const statusFilter = scope.statusFilter?.trim() ?? "";
+  if (statusFilter) {
+    scoped = TEMPERATURE_FILTERS.has(statusFilter.toLowerCase())
+      ? scoped.eq("temperature", statusFilter)
+      : scoped.eq("status", statusFilter);
+  }
+  if (scope.source) scoped = scoped.eq("source", scope.source);
+  if (scope.ids?.length) scoped = scoped.in("id", scope.ids);
+  else if (scope.unscoped) scoped = scoped.not("id", "is", null);
+  if (scope.resolvedFilters) {
+    scoped = applyLeadFilters(scoped, scope.resolvedFilters);
+  }
+  return scoped as unknown as Q;
 }
 
 /** Outcome of the pre-delete snapshot. `skipped` = undo is unavailable. */
@@ -2045,6 +2104,8 @@ export async function bulkDeleteLeads(
   assignedTo = "",
   confirmText = "",
   source = "",
+  filters?: Partial<LeadListFilters>,
+  statusFilter = "",
 ): Promise<ActionResult<{ deleted: number; snapshotSkipped: boolean }>> {
   if (!Array.isArray(leadIds)) return { success: false, error: "Selected lead IDs must be a list." };
   if (!deleteAll && leadIds.length === 0) return { success: false, error: "No leads selected." };
@@ -2075,7 +2136,14 @@ export async function bulkDeleteLeads(
       // are wiped, so "Select All" never deletes more than what is visible.
       const searchFilter = buildLeadSearchFilter(search);
       const scopedToEmployee = assignedTo.trim();
-      const unscoped = !scopedToEmployee && !searchFilter && !scopedSource;
+      const resolvedFilters = await resolveLeadFilters(supabase, filters);
+      if (resolvedFilters.empty) {
+        return { success: true, data: { deleted: 0, snapshotSkipped: false } };
+      }
+      const hasUrlFilters = Object.values(filters ?? {}).some(
+        (value) => typeof value === "string" && value.trim().length > 0,
+      );
+      const unscoped = !scopedToEmployee && !searchFilter && !scopedSource && !hasUrlFilters;
       if (unscoped && confirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
         return {
           success: false,
@@ -2086,7 +2154,9 @@ export async function bulkDeleteLeads(
       const scope: DeleteScope = {
         assignedTo: scopedToEmployee,
         searchFilter,
+        statusFilter: statusFilter.trim() || filters?.status || "",
         source: scopedSource,
+        resolvedFilters,
         unscoped,
       };
       if (scopedSource) {
@@ -2106,7 +2176,15 @@ export async function bulkDeleteLeads(
         supabase,
         scope,
         {
-          scopeLabel: scopedSource ? "source" : unscoped ? "all" : scopedToEmployee ? "employee" : "search",
+          scopeLabel: scopedSource
+            ? "source"
+            : unscoped
+              ? "all"
+              : resolvedFilters.assignmentStatus
+                ? resolvedFilters.assignmentStatus
+                : scopedToEmployee
+                  ? "employee"
+                  : "search",
           search: scopedSource || search,
           deletedByName,
         },

@@ -48,6 +48,7 @@ const original: LeadListFilters = {
   city: "Mumbai",
   source: "Meta Ads",
   assigned: "Ravi Sharma",
+  assignmentStatus: "",
   status: "",
 };
 const href = leadsHref(original);
@@ -83,6 +84,15 @@ assert.deepEqual(describeActiveFilters(parsed), [
   "Meta Ads",
   "Ravi Sharma",
 ]);
+const unassignedFilters = parseLeadFilters({ assignmentStatus: "unassigned" });
+assert.equal(unassignedFilters.assignmentStatus, "unassigned");
+assert.ok(hasLeadFilters(unassignedFilters));
+assert.deepEqual(describeActiveFilters(unassignedFilters), ["Unassigned leads"]);
+assert.equal(
+  parseLeadFilters({ assignmentStatus: "unknown" }).assignmentStatus,
+  "",
+  "unsupported assignment filters are ignored",
+);
 assert.equal(prettifyFilterKey("eye-checkup"), "Eye checkup");
 assert.equal(filterChipLabels().surgery, "Surgery Completed");
 

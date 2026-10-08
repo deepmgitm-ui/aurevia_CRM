@@ -254,6 +254,7 @@ export interface LeadListFilters {
   city: string;
   source: string;
   assigned: string;
+  assignmentStatus: "" | "assigned" | "unassigned";
   status: string;
 }
 
@@ -267,6 +268,7 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   city: "",
   source: "",
   assigned: "",
+  assignmentStatus: "",
   status: "",
 };
 
@@ -288,6 +290,9 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     city: firstValue(params.city),
     source: firstValue(params.source),
     assigned: firstValue(params.assigned),
+    assignmentStatus: ["assigned", "unassigned"].includes(firstValue(params.assignmentStatus))
+      ? (firstValue(params.assignmentStatus) as LeadListFilters["assignmentStatus"])
+      : "",
     status: firstValue(params.status),
   };
 }
@@ -303,6 +308,7 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
     filters.city.length > 0 ||
     filters.source.length > 0 ||
     filters.assigned.length > 0 ||
+    filters.assignmentStatus.length > 0 ||
     filters.status.length > 0
   );
 }
@@ -371,6 +377,9 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   if (filters.city) chips.push(filters.city);
   if (filters.source) chips.push(filters.source);
   if (filters.assigned) chips.push(filters.assigned);
+  if (filters.assignmentStatus) {
+    chips.push(filters.assignmentStatus === "unassigned" ? "Unassigned leads" : "Assigned leads");
+  }
   if (filters.status) chips.push(filters.status);
   if (filters.q) chips.push(`Search: ${filters.q}`);
   return chips;
@@ -584,4 +593,3 @@ export function tallyTreatments(
     return right.count - left.count || left.label.localeCompare(right.label);
   });
 }
-

@@ -328,6 +328,13 @@ function drillDownChips(filters: LeadListFilters): {
   if (filters.city) chips.push({ key: "city", label: filters.city, next: { city: "" } });
   if (filters.source) chips.push({ key: "source", label: filters.source, next: { source: "" } });
   if (filters.assigned) chips.push({ key: "assigned", label: filters.assigned, next: { assigned: "" } });
+  if (filters.assignmentStatus) {
+    chips.push({
+      key: "assignmentStatus",
+      label: filters.assignmentStatus === "unassigned" ? "Unassigned leads" : "Assigned leads",
+      next: { assignmentStatus: "" },
+    });
+  }
   if (filters.status) chips.push({ key: "status", label: filters.status, next: { status: "" } });
   if (filters.q) chips.push({ key: "q", label: `Search: "${filters.q}"`, next: { q: "" } });
   return chips;
@@ -1211,7 +1218,14 @@ export function LeadsTable({
 
   // A scoped delete (one employee / one search) already can't touch more than
   // what is on screen, so only the true whole-table wipe needs typing.
-  const requiresTypedConfirm = isSelectAllChecked && !assignedTo.trim() && !activeSearch.trim();
+  const requiresTypedConfirm =
+    isSelectAllChecked &&
+    !assignedTo.trim() &&
+    !activeSearch.trim() &&
+    !filters.assignmentStatus;
+  const deleteAllIsScoped = Boolean(
+    activeSearch.trim() || assignedTo.trim() || activeStatusFilter || hasLeadFilters(filters),
+  );
 
   async function handleBulkDelete() {
     // When "select all" is active, delete with a single { deleteAll: true }
@@ -1235,7 +1249,7 @@ export function LeadsTable({
     // lead_deletion_backups when that migration has been applied.
     const backupScope = deleteAll ? activeSearch : "";
     const backup = deleteAll
-      ? await getLeadsForExport(backupScope, "", assignedTo)
+      ? await getLeadsForExport(backupScope, activeStatusFilter, assignedTo, filters)
       : await getLeadsForExport("", "", "", undefined, selectedLeads);
     if (backup.success) {
       downloadLeadsCsv(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`);
@@ -1255,7 +1269,16 @@ export function LeadsTable({
         type: "error",
       });
     }
-    const response = await bulkDeleteLeads(deleteAll ? [] : selectedLeads, deleteAll, activeSearch, assignedTo, deleteConfirmText);
+    const response = await bulkDeleteLeads(
+      deleteAll ? [] : selectedLeads,
+      deleteAll,
+      activeSearch,
+      assignedTo,
+      deleteConfirmText,
+      "",
+      filters,
+      activeStatusFilter,
+    );
     if (!response.success) {
       toast.add({ title: "Delete failed", description: response.error, type: "error" });
       setIsBulkActionPending(false);
@@ -2079,9 +2102,9 @@ export function LeadsTable({
             <DialogTitle>{isSelectAllChecked ? "Delete ALL leads?" : "Delete selected leads?"}</DialogTitle>
             <DialogDescription>
               {isSelectAllChecked
-                ? activeSearch
-                  ? `This deletes ALL ${serverTotal.toLocaleString()} leads matching the search "${activeSearch}"${assignedTo ? ` assigned to ${assignedTo}` : ""} and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
-                  : `This deletes ALL ${serverTotal.toLocaleString()} leads${assignedTo ? ` assigned to ${assignedTo}` : " in your pipeline"} and their activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
+                ? `This deletes ALL ${serverTotal.toLocaleString()} leads ${
+                    deleteAllIsScoped ? "matching the current filters" : "in your pipeline"
+                  } and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
                 : `This deletes ${selectedLeads.length} selected leads and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`}
             </DialogDescription>
           </DialogHeader>

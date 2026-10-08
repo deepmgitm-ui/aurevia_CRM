@@ -5,6 +5,7 @@ import {
   getLeadCounts,
   getLeadMonthTally,
   getLeadsPage,
+  getTeamStats,
   getTreatmentTally,
   getViewer,
   type LeadCounts,
@@ -25,6 +26,7 @@ import {
 } from "../lead-filters";
 import { LeadsTable } from "../leads-table";
 import { treatmentColor } from "../overview/analytics";
+import { AssignmentFilterTabs } from "./assignment-filter-tabs";
 
 /**
  * Treatment-wise strip: "which lead wants which treatment / disease" — one chip
@@ -170,7 +172,7 @@ export default async function LeadsPage({
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, countsResult, tallyResult, viewerResult, monthsResult] = await Promise.all([
+  const [leadsResult, countsResult, tallyResult, viewerResult, monthsResult, teamResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getLeadCounts(),
     getTreatmentTally(filters),
@@ -178,6 +180,7 @@ export default async function LeadsPage({
     // Month picker options: the months that really hold leads, so picking one
     // can never land on an empty list.
     getLeadMonthTally(),
+    getTeamStats(),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
@@ -186,6 +189,8 @@ export default async function LeadsPage({
     : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
   const tally = tallyResult.success ? tallyResult.data : [];
   const months: LeadMonthTally[] = monthsResult.success ? monthsResult.data : [];
+  const team = teamResult.success ? teamResult.data : null;
+  const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
   // filtered result — the difference is what the filters are hiding. When that is
@@ -206,6 +211,9 @@ export default async function LeadsPage({
         </p>
       </div>
       <DashboardStats counts={counts} />
+      {canViewAssignments && team && (
+        <AssignmentFilterTabs team={team} filters={filters} />
+      )}
       {/* "Leads 0" scare: a filtered list (from a chart click or a shared link)
           used to look like an empty database. The banner always states how many
           leads exist and how many the filters are hiding. */}
