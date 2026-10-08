@@ -13,12 +13,11 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { LeadsTable } from "./leads-table";
-import { SmartAssignmentBanner } from "./smart-assignment";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
 import { resolveDashboardWindow, toAnalyticsLead } from "./overview/analytics";
 import { PipelineInsights } from "./pipeline-insights";
-import { TeamOverview } from "./team-overview";
+import { LeadAssignmentTabs } from "./lead-assignment-tabs";
 
 const statCards = [
   {
@@ -152,13 +151,6 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
-        {team.unassigned > 0 && (
-          <SmartAssignmentBanner
-            unassigned={team.unassigned}
-            employees={team.employees.map(({ id, name }) => ({ id, name }))}
-          />
-        )}
-
         <OverviewDashboard
           rows={rows}
           employees={employees}
@@ -167,18 +159,7 @@ export default async function DashboardPage({
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 
-        {/* The old Team Dashboard survives as a roster grid: clicking a card
-            still opens that member's leads (?employee=<name>). */}
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Team roster</h2>
-            <p className="text-sm text-slate-500">
-              {team.total.toLocaleString()} leads in the pipeline across {team.employees.length} team member
-              {team.employees.length === 1 ? "" : "s"}. Click a team member to view their leads.
-            </p>
-          </div>
-          <TeamOverview team={team} />
-        </section>
+        <LeadAssignmentTabs team={team} />
 
         {insights && <PipelineInsights insights={insights} />}
       </div>
