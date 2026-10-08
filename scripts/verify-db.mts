@@ -1,8 +1,9 @@
-// READ-ONLY live check: are the three optional SQL migrations applied?
+// READ-ONLY live check: are the optional SQL migrations applied?
 // Run with: npm run verify:db
 //   1. supabase-indexes.sql           (performance indexes + lead_rollup view)
 //   2. supabase-calendar-migration.sql (calendar_events + employee activity SELECT)
 //   3. supabase-hr-migration.sql       (profiles HR columns + attendance)
+//   4. supabase-lead-source-batches-migration.sql (exact lead import batches)
 import { readFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
@@ -34,9 +35,8 @@ function report(label: string, ok: boolean, detail = "") {
 }
 
 async function hasColumn(table: string, column: string): Promise<boolean> {
-  const { data, error } = await supabase.from(table).select(column).limit(1);
-  if (error) return false;
-  return Boolean(data);
+  const { error } = await supabase.from(table).select(column).limit(1);
+  return !error;
 }
 
 async function hasIndex(name: string): Promise<boolean | null> {
@@ -131,8 +131,18 @@ report("crm_automation_rules table", !rulesError, rulesError ? "rules fall back 
 const { error: runsError } = await supabase.from("crm_automation_runs").select("id").limit(1);
 report("crm_automation_runs table", !runsError, runsError ? "run receipts are not stored" : "");
 
-// --- 7. is the pipeline actually populated? (informational, never a failure) ---
-console.log("\n7. leads data");
+// --- 7. exact lead import batches ---
+console.log("\n7. supabase-lead-source-batches-migration.sql");
+report(
+  "leads.source_batch_id",
+  await hasColumn("leads", "source_batch_id"),
+  "needed to distinguish repeated Excel, Meta, and manual batches",
+);
+report("leads.source_batch_label", await hasColumn("leads", "source_batch_label"));
+report("leads.source_batch_created_at", await hasColumn("leads", "source_batch_created_at"));
+
+// --- 8. is the pipeline actually populated? (informational, never a failure) ---
+console.log("\n8. leads data");
 const { count: leadCount, error: leadCountError } = await supabase
   .from("leads")
   .select("id", { count: "exact", head: true });

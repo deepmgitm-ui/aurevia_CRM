@@ -11,11 +11,13 @@ import {
   bulkDeleteLeads,
   bulkInsertLeads,
   createLead,
+  deleteLeadSourceBatches,
   getEmployees,
   getLeadActivities,
   getLeadDeletionBackups,
   getLeadAssignmentPreview,
-  getLeadSourceDeletePreview,
+  getLeadSourceBatches,
+  getLeadsForSourceBatches,
   permanentlyDeleteLeadDeletionBackup,
   restoreLeadDeletionBackup,
   getLeadsForExport,
@@ -29,7 +31,7 @@ import {
   randomAssignLeads,
   assignLeadsToEmployees,
   type LeadAssignmentCriteria,
-  type LeadSourceDeletePreview,
+  type LeadSourceBatch,
   type Lead,
   type LeadActivity,
   type Employee,
@@ -374,6 +376,10 @@ function downloadLeadsCsv(leads: Lead[], fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+function sourceBatchKey(batch: Pick<LeadSourceBatch, "id" | "source">): string {
+  return batch.id ? `batch:${batch.id}` : `legacy:${batch.source}`;
+}
+
 export function LeadsTable({
   leads: initialLeads,
   initialTotal,
@@ -497,9 +503,10 @@ export function LeadsTable({
   const [assignmentPreviewCount, setAssignmentPreviewCount] = useState<number | null>(null);
   const [isPreviewingAssignment, setIsPreviewingAssignment] = useState(false);
   const [isSourceDeleteOpen, setIsSourceDeleteOpen] = useState(false);
-  const [deleteSourceInput, setDeleteSourceInput] = useState("");
-  const [sourceDeletePreview, setSourceDeletePreview] = useState<LeadSourceDeletePreview | null>(null);
-  const [isPreviewingSourceDelete, setIsPreviewingSourceDelete] = useState(false);
+  const [sourceBatches, setSourceBatches] = useState<LeadSourceBatch[]>([]);
+  const [selectedSourceBatchKeys, setSelectedSourceBatchKeys] = useState<string[]>([]);
+  const [isLoadingSourceBatches, setIsLoadingSourceBatches] = useState(false);
+  const [sourceBatchLoadError, setSourceBatchLoadError] = useState("");
   const [isDeletingSource, setIsDeletingSource] = useState(false);
   const [selectedSource, setSelectedSource] = useState("all");
   // Search/status seeded from the URL drill-down so paging and debounced typing
@@ -1160,61 +1167,75 @@ export function LeadsTable({
     }
   }
 
-  async function previewSourceDeletion() {
-    setIsPreviewingSourceDelete(true);
-    setSourceDeletePreview(null);
+  async function openSourceBatchDeletion() {
+    setIsSourceDeleteOpen(true);
+    setIsLoadingSourceBatches(true);
+    setSourceBatches([]);
+    setSelectedSourceBatchKeys([]);
+    setSourceBatchLoadError("");
     try {
-      const response = await getLeadSourceDeletePreview(deleteSourceInput);
+      const response = await getLeadSourceBatches();
       if (!response.success) {
-        toast.add({ title: "Could not preview source", description: response.error, type: "error" });
+        setSourceBatchLoadError(response.error);
+        toast.add({ title: "Could not load import batches", description: response.error, type: "error" });
       } else {
-        setSourceDeletePreview(response.data);
+        setSourceBatches(response.data);
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reach the server. Please try again.";
+      setSourceBatchLoadError(message);
       toast.add({
-        title: "Could not preview source",
-        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        title: "Could not load import batches",
+        description: message,
         type: "error",
       });
     } finally {
-      setIsPreviewingSourceDelete(false);
+      setIsLoadingSourceBatches(false);
     }
   }
 
-  async function handleDeleteSource() {
-    if (!sourceDeletePreview || sourceDeletePreview.count === 0 || isDeletingSource) return;
+  const selectedSourceBatches = sourceBatches.filter((batch) =>
+    selectedSourceBatchKeys.includes(sourceBatchKey(batch)),
+  );
+  const selectedSourceBatchLeadCount = selectedSourceBatches.reduce((sum, batch) => sum + batch.count, 0);
+
+  async function handleDeleteSourceBatches() {
+    if (selectedSourceBatches.length === 0 || isDeletingSource) return;
     setIsDeletingSource(true);
     try {
-      const backup = await getLeadsForExport("", "", "", { source: sourceDeletePreview.source });
+      const batchRefs = selectedSourceBatches.map(({ id, source }) => ({ id, source }));
+      const backup = await getLeadsForSourceBatches(batchRefs);
       if (!backup.success) {
         toast.add({
-          title: "Source deletion cancelled",
+          title: "Batch deletion cancelled",
           description: `A CSV safety copy could not be prepared. ${backup.error}`,
           type: "error",
         });
         return;
       }
+      const batchLabel = selectedSourceBatches.length === 1
+        ? selectedSourceBatches[0].label
+        : `${selectedSourceBatches.length} selected batches`;
       downloadLeadsCsv(
         backup.data,
-        `leads-source-backup-${sourceDeletePreview.source.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`,
+        `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`,
       );
-      const response = await bulkDeleteLeads([], true, "", "", "", sourceDeletePreview.source);
+      const response = await deleteLeadSourceBatches(batchRefs);
       if (!response.success) {
-        toast.add({ title: "Source deletion failed", description: response.error, type: "error" });
+        toast.add({ title: "Batch deletion failed", description: response.error, type: "error" });
         return;
       }
       setIsSourceDeleteOpen(false);
-      setDeleteSourceInput("");
-      setSourceDeletePreview(null);
+      setSelectedSourceBatchKeys([]);
       router.refresh();
       toast.add({
-        title: "Source leads deleted",
-        description: `${response.data.deleted.toLocaleString()} leads with source "${sourceDeletePreview.source}" were deleted. A CSV and recovery snapshot were saved.`,
+        title: "Import batches deleted",
+        description: `${response.data.deleted.toLocaleString()} leads from ${response.data.batches} batch${response.data.batches === 1 ? "" : "es"} were deleted. A CSV and recovery snapshot were saved.`,
         type: "success",
       });
     } catch (error) {
       toast.add({
-        title: "Source deletion failed",
+        title: "Batch deletion failed",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
         type: "error",
       });
@@ -1282,7 +1303,6 @@ export function LeadsTable({
       activeSearch,
       assignedTo,
       deleteConfirmText,
-      "",
       filters,
       activeStatusFilter,
     );
@@ -1615,14 +1635,10 @@ export function LeadsTable({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  setDeleteSourceInput("");
-                  setSourceDeletePreview(null);
-                  setIsSourceDeleteOpen(true);
-                }}
+                onClick={() => void openSourceBatchDeletion()}
               >
                 <Trash2 aria-hidden="true" />
-                Delete by Source
+                Delete Import Batches
               </Button>
             )}
             <Button type="button" onClick={() => setIsAddLeadOpen(true)}><Plus aria-hidden="true" />Add Lead</Button>
@@ -2283,64 +2299,96 @@ export function LeadsTable({
           if (!isDeletingSource) setIsSourceDeleteOpen(open);
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Delete leads by source</DialogTitle>
+            <DialogTitle>Delete specific import batches</DialogTitle>
             <DialogDescription>
-              Enter one exact source name to review the matching leads before deleting. The deletion also saves a CSV and a Recent Deletions recovery snapshot.
+              Each Excel/CSV upload, Meta lead, and manual lead is listed separately. Select one or more batches; a CSV and recovery snapshot are saved before deletion.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="delete-lead-source">Lead source</Label>
-              <Input
-                id="delete-lead-source"
-                list="lead-source-options"
-                value={deleteSourceInput}
-                placeholder="e.g. Meta Ads"
-                disabled={isDeletingSource || isPreviewingSourceDelete}
-                onChange={(event) => {
-                  setDeleteSourceInput(event.target.value);
-                  setSourceDeletePreview(null);
-                }}
-              />
-              <datalist id="lead-source-options">
-                {masterSourceOptions.map((source) => <option key={source} value={source} />)}
-              </datalist>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!deleteSourceInput.trim() || isPreviewingSourceDelete || isDeletingSource}
-              onClick={() => void previewSourceDeletion()}
-            >
-              {isPreviewingSourceDelete && <Loader2 className="animate-spin" aria-hidden="true" />}
-              Preview source
-            </Button>
-            {sourceDeletePreview && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                <p className="font-semibold">
-                  {sourceDeletePreview.count.toLocaleString()} leads have source “{sourceDeletePreview.source}”.
+            {isLoadingSourceBatches ? (
+              <p className="flex items-center gap-2 py-6 text-sm text-slate-500">
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                Loading import batches…
+              </p>
+            ) : sourceBatchLoadError ? (
+              <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-4 text-sm text-rose-800">
+                {sourceBatchLoadError}
+              </p>
+            ) : sourceBatches.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600">
+                No leads are available to delete.
+              </p>
+            ) : (
+              <>
+                <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+                  {sourceBatches.map((batch) => {
+                    const key = sourceBatchKey(batch);
+                    const selected = selectedSourceBatchKeys.includes(key);
+                    const wouldExceedLimit =
+                      !selected && selectedSourceBatchLeadCount + batch.count > 5000;
+                    const batchTime = batch.createdAt ?? batch.firstAddedAt;
+                    return (
+                      <label
+                        key={key}
+                        className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors ${
+                          selected
+                            ? "border-blue-300 bg-blue-50"
+                            : "border-slate-200 bg-white hover:bg-slate-50"
+                        } ${wouldExceedLimit ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={selected}
+                          disabled={isDeletingSource || wouldExceedLimit}
+                          onChange={(event) =>
+                            setSelectedSourceBatchKeys((current) =>
+                              event.target.checked
+                                ? [...current, key]
+                                : current.filter((item) => item !== key),
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-medium text-slate-900">{batch.label}</span>
+                            <span className="text-xs font-semibold tabular-nums text-slate-700">
+                              {batch.count.toLocaleString()} leads
+                            </span>
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">
+                            {batch.legacy
+                              ? "Older leads — exact import batch is unknown"
+                              : batchTime
+                                ? `Added ${new Date(batchTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+                                : "Added time unavailable"}
+                          </span>
+                          {batch.legacy && (batch.firstAddedAt || batch.lastAddedAt) && (
+                            <span className="mt-1 block text-xs text-amber-800">
+                              Legacy lead dates:{" "}
+                              {batch.firstAddedAt
+                                ? new Date(batch.firstAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                                : "unknown"}
+                              {" – "}
+                              {batch.lastAddedAt
+                                ? new Date(batch.lastAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                                : "unknown"}
+                              {" "}IST (not exact batch times)
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500">
+                  {selectedSourceBatches.length} batch{selectedSourceBatches.length === 1 ? "" : "es"} ·{" "}
+                  {selectedSourceBatchLeadCount.toLocaleString()} leads selected.
+                  {selectedSourceBatchLeadCount >= 5000 && " The safety limit is 5,000 leads per deletion."}
                 </p>
-                {sourceDeletePreview.count > 0 && (
-                  <p className="mt-1 text-xs text-amber-900">
-                    CRM records were added between{" "}
-                    {sourceDeletePreview.firstAddedAt
-                      ? new Date(sourceDeletePreview.firstAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-                      : "unknown"}{" "}
-                    and{" "}
-                    {sourceDeletePreview.lastAddedAt
-                      ? new Date(sourceDeletePreview.lastAddedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-                      : "unknown"}{" "}
-                    (IST).
-                  </p>
-                )}
-                {sourceDeletePreview.count > 5000 && (
-                  <p className="mt-2 text-xs font-medium text-rose-700">
-                    This is over the 5,000-lead snapshot limit. Narrow the source batch before deleting.
-                  </p>
-                )}
-              </div>
+              </>
             )}
           </div>
           <DialogFooter>
@@ -2350,11 +2398,16 @@ export function LeadsTable({
             <Button
               type="button"
               variant="destructive"
-              disabled={!sourceDeletePreview || sourceDeletePreview.count === 0 || sourceDeletePreview.count > 5000 || isDeletingSource}
-              onClick={() => void handleDeleteSource()}
+              disabled={
+                selectedSourceBatches.length === 0 ||
+                selectedSourceBatchLeadCount > 5000 ||
+                isLoadingSourceBatches ||
+                isDeletingSource
+              }
+              onClick={() => void handleDeleteSourceBatches()}
             >
               {isDeletingSource && <Loader2 className="animate-spin" aria-hidden="true" />}
-              Delete {sourceDeletePreview?.count.toLocaleString() ?? 0} leads
+              Delete {selectedSourceBatchLeadCount.toLocaleString()} leads
             </Button>
           </DialogFooter>
         </DialogContent>

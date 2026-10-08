@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
 
@@ -67,6 +68,9 @@ export interface Lead {
   assigned_to: string | null;
   created_at: string;
   updated_at: string;
+  source_batch_id?: string | null;
+  source_batch_label?: string | null;
+  source_batch_created_at?: string | null;
   /**
    * OPD / IPD appointment dates — one per status (see lib/appointments.ts).
    * Nullable rather than "-": these columns were added after the original
@@ -1500,6 +1504,9 @@ export async function createLead(
         lead_date: dashIfEmpty(input.lead_date) === "-" ? todayDate() : dashIfEmpty(input.lead_date),
         follow_up_date: dashIfEmpty(input.follow_up_date),
         source: "Manual",
+        source_batch_id: randomUUID(),
+        source_batch_label: `Manual entry — ${input.name.trim()}`.slice(0, 240),
+        source_batch_created_at: new Date().toISOString(),
         assigned_to: dashIfEmpty(profile?.name),
         temperature: dashIfEmpty(input.temperature),
         status: dashIfEmpty(input.status),
@@ -1508,7 +1515,7 @@ export async function createLead(
       .single();
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: sourceBatchMigrationError(error) };
     }
 
     revalidatePath("/dashboard");
@@ -1546,6 +1553,9 @@ export async function bulkInsertLeads(
   // (as this code used to) put "Untitled spreadsheet.xlsx" on every lead and
   // polluted the Lead Source Performance chart on every import.
   const batchSource = "Excel/CSV";
+  const batchId = randomUUID();
+  const batchCreatedAt = new Date().toISOString();
+  const batchLabel = `Excel/CSV import — ${fileName.trim() || "uploaded file"}`.slice(0, 240);
   const supabase = await createClient();
 
   // RBAC: bulk import is an Admin/Manager capability. Employees add leads
@@ -1746,7 +1756,12 @@ export async function bulkInsertLeads(
     for (let index = 0; index < freshRecords.length; index += chunkSize) {
       const chunk = freshRecords
         .slice(index, index + chunkSize)
-        .map((record) => pickLeadColumns(record as unknown as Record<string, unknown>));
+        .map((record) => ({
+          ...pickLeadColumns(record as unknown as Record<string, unknown>),
+          source_batch_id: batchId,
+          source_batch_label: batchLabel,
+          source_batch_created_at: batchCreatedAt,
+        }));
       const { data, error } = await supabase
         .from("leads")
         .insert(chunk)
@@ -1758,7 +1773,7 @@ export async function bulkInsertLeads(
         const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved before the failure. ` : "";
         return {
           success: false,
-          error: `${saved}Rows ${from}-${to} failed: ${error.message}`,
+          error: `${saved}Rows ${from}-${to} failed: ${sourceBatchMigrationError(error)}`,
         };
       }
 
@@ -2007,8 +2022,6 @@ interface DeleteScope {
   searchFilter: string | null;
   /** The selected status/temperature filter for a select-all delete. */
   statusFilter?: string;
-  /** Exact lead source for a source-scoped removal. */
-  source: string;
   /** Exact ticked ids — the only scope used by the "selected rows" delete. */
   ids?: readonly string[];
   /** Additional URL filters applied to the all-matching delete and its snapshot. */
@@ -2027,7 +2040,6 @@ function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
       ? scoped.eq("temperature", statusFilter)
       : scoped.eq("status", statusFilter);
   }
-  if (scope.source) scoped = scoped.eq("source", scope.source);
   if (scope.ids?.length) scoped = scoped.in("id", scope.ids);
   else if (scope.unscoped) scoped = scoped.not("id", "is", null);
   if (scope.resolvedFilters) {
@@ -2103,13 +2115,11 @@ export async function bulkDeleteLeads(
   search = "",
   assignedTo = "",
   confirmText = "",
-  source = "",
   filters?: Partial<LeadListFilters>,
   statusFilter = "",
 ): Promise<ActionResult<{ deleted: number; snapshotSkipped: boolean }>> {
   if (!Array.isArray(leadIds)) return { success: false, error: "Selected lead IDs must be a list." };
   if (!deleteAll && leadIds.length === 0) return { success: false, error: "No leads selected." };
-  if (typeof source !== "string") return { success: false, error: "Lead source must be text." };
 
   try {
     const supabase = await createClient();
@@ -2119,10 +2129,6 @@ export async function bulkDeleteLeads(
     const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
     if (profile?.role !== "admin" && profile?.role !== "manager") {
       return { success: false, error: "Deleting leads is restricted to admins and managers (403 Forbidden)." };
-    }
-    const scopedSource = source.trim();
-    if (scopedSource && profile.role !== "admin") {
-      return { success: false, error: "Only admins can delete leads by source (403 Forbidden)." };
     }
     const deletedByName = profile?.name?.trim() || "-";
 
@@ -2143,7 +2149,7 @@ export async function bulkDeleteLeads(
       const hasUrlFilters = Object.values(filters ?? {}).some(
         (value) => typeof value === "string" && value.trim().length > 0,
       );
-      const unscoped = !scopedToEmployee && !searchFilter && !scopedSource && !hasUrlFilters;
+      const unscoped = !scopedToEmployee && !searchFilter && !hasUrlFilters;
       if (unscoped && confirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
         return {
           success: false,
@@ -2155,48 +2161,26 @@ export async function bulkDeleteLeads(
         assignedTo: scopedToEmployee,
         searchFilter,
         statusFilter: statusFilter.trim() || filters?.status || "",
-        source: scopedSource,
         resolvedFilters,
         unscoped,
       };
-      if (scopedSource) {
-        const { count, error } = await supabase
-          .from("leads")
-          .select("id", { count: "exact", head: true })
-          .eq("source", scopedSource);
-        if (error) return { success: false, error: error.message };
-        if ((count ?? 0) > BACKUP_LEAD_LIMIT) {
-          return {
-            success: false,
-            error: `This source has ${(count ?? 0).toLocaleString()} leads, above the safe ${BACKUP_LEAD_LIMIT.toLocaleString()}-lead snapshot limit. Narrow the source batch before deleting.`,
-          };
-        }
-      }
       const snapshot = await snapshotLeadsForDeletion(
         supabase,
         scope,
         {
-          scopeLabel: scopedSource
-            ? "source"
-            : unscoped
-              ? "all"
-              : resolvedFilters.assignmentStatus
-                ? resolvedFilters.assignmentStatus
-                : scopedToEmployee
-                  ? "employee"
-                  : "search",
-          search: scopedSource || search,
+          scopeLabel: unscoped
+            ? "all"
+            : resolvedFilters.assignmentStatus
+              ? resolvedFilters.assignmentStatus
+              : scopedToEmployee
+                ? "employee"
+                : "search",
+          search,
           deletedByName,
         },
         user.id,
       );
       if (!snapshot.ok) return { success: false, error: snapshot.error };
-      if (scopedSource && snapshot.skipped) {
-        return {
-          success: false,
-          error: `Deleting by source is blocked because no recovery snapshot could be saved. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
-        };
-      }
       // FAIL CLOSED on the one unrecoverable operation: wiping EVERY lead when
       // no snapshot could be stored (the backup table migration is missing)
       // would leave the pipeline with no copy anywhere. Bounded deletes (one
@@ -2224,7 +2208,7 @@ export async function bulkDeleteLeads(
     // helper), so even a small mistaken tick is restorable.
     const selectionSnapshot = await snapshotLeadsForDeletion(
       supabase,
-      { assignedTo: "", searchFilter: "", source: "", unscoped: false, ids: leadIds },
+      { assignedTo: "", searchFilter: "", unscoped: false, ids: leadIds },
       { scopeLabel: "selection", search: "", deletedByName },
       user.id,
     );
@@ -2244,48 +2228,239 @@ export async function bulkDeleteLeads(
   }
 }
 
-export interface LeadSourceDeletePreview {
+export interface LeadSourceBatch {
+  id: string | null;
   source: string;
+  label: string;
   count: number;
+  createdAt: string | null;
   firstAddedAt: string | null;
   lastAddedAt: string | null;
+  legacy: boolean;
 }
 
-/** Admin-only exact-source deletion preview, including when matching CRM rows were added. */
-export async function getLeadSourceDeletePreview(
-  source: string,
-): Promise<ActionResult<LeadSourceDeletePreview>> {
-  const normalizedSource = typeof source === "string" ? source.trim() : "";
-  if (!normalizedSource) return { success: false, error: "Enter a lead source to preview." };
+export interface LeadSourceBatchRef {
+  id: string | null;
+  source: string;
+}
 
+const SOURCE_BATCH_LIMIT = 5000;
+
+function sourceBatchMigrationError(error: { message: string }): string {
+  if (/source_batch_(id|label|created_at)/i.test(error.message)) {
+    return "Lead import batches are not set up in the database yet. Run supabase-lead-source-batches-migration.sql in the Supabase SQL Editor, then retry.";
+  }
+  return error.message;
+}
+
+function sourceBatchRefKey(batch: LeadSourceBatchRef): string {
+  return batch.id ? `batch:${batch.id}` : `legacy:${batch.source}`;
+}
+
+function validateSourceBatchRefs(input: unknown): LeadSourceBatchRef[] | null {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 100) return null;
+  const refs: LeadSourceBatchRef[] = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    if (!item || typeof item !== "object") return null;
+    const value = item as Record<string, unknown>;
+    const source = typeof value.source === "string" ? value.source.trim() : "";
+    const id = value.id === null ? null : typeof value.id === "string" ? value.id.trim() : "";
+    if (!source || (id !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+      return null;
+    }
+    const ref = { id, source };
+    const key = sourceBatchRefKey(ref);
+    if (!seen.has(key)) {
+      refs.push(ref);
+      seen.add(key);
+    }
+  }
+  return refs.length > 0 ? refs : null;
+}
+
+async function getRowsForSourceBatches(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  batches: LeadSourceBatchRef[],
+): Promise<ActionResult<Lead[]>> {
+  const leads: Lead[] = [];
+  for (const batch of batches) {
+    let from = 0;
+    let expectedBatchCount: number | null = null;
+    for (;;) {
+      let query = supabase
+        .from("leads")
+        .select("*", { count: "exact" })
+        .order("created_at", { ascending: true });
+      query = batch.id
+        ? query.eq("source_batch_id", batch.id)
+        : query.is("source_batch_id", null).eq("source", batch.source);
+      const { data, error, count } = await query.range(from, from + 999);
+      if (error) return { success: false, error: sourceBatchMigrationError(error) };
+      if (expectedBatchCount === null) {
+        expectedBatchCount = count ?? 0;
+        if (expectedBatchCount + leads.length > SOURCE_BATCH_LIMIT) {
+          return {
+            success: false,
+            error: `Selected import batches contain more than ${SOURCE_BATCH_LIMIT.toLocaleString()} leads. Select fewer batches so a complete safety copy can be made.`,
+          };
+        }
+      }
+      const rows = (data ?? []) as Lead[];
+      leads.push(...rows);
+      if (rows.length < 1000) break;
+      from += rows.length;
+    }
+  }
+  return { success: true, data: leads };
+}
+
+/** Admin-only list of exact import batches; older rows remain grouped as legacy by source. */
+export async function getLeadSourceBatches(): Promise<ActionResult<LeadSourceBatch[]>> {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
     if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can preview source-based deletion (403 Forbidden)." };
+      return { success: false, error: "Only admins can view lead import batches (403 Forbidden)." };
     }
 
-    const [countResult, firstResult, lastResult] = await Promise.all([
-      supabase.from("leads").select("id", { count: "exact", head: true }).eq("source", normalizedSource),
-      supabase.from("leads").select("created_at").eq("source", normalizedSource)
-        .order("created_at", { ascending: true }).limit(1).maybeSingle(),
-      supabase.from("leads").select("created_at").eq("source", normalizedSource)
-        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ]);
-    const error = countResult.error ?? firstResult.error ?? lastResult.error;
-    if (error) return { success: false, error: error.message };
+    const batches = new Map<string, LeadSourceBatch>();
+    const chunkSize = 1000;
+    for (let from = 0; ; from += chunkSize) {
+      const { data, error } = await supabase
+        .from("leads")
+        .select("source, source_batch_id, source_batch_label, source_batch_created_at, created_at")
+        .order("created_at", { ascending: false })
+        .range(from, from + chunkSize - 1);
+      if (error) return { success: false, error: sourceBatchMigrationError(error) };
+
+      const rows = data ?? [];
+      for (const row of rows) {
+        const source = typeof row.source === "string" && row.source.trim() ? row.source.trim() : "Unknown source";
+        const id = typeof row.source_batch_id === "string" ? row.source_batch_id : null;
+        const legacy = id === null;
+        const ref = { id, source };
+        const key = sourceBatchRefKey(ref);
+        const createdAt = typeof row.source_batch_created_at === "string"
+          ? row.source_batch_created_at
+          : typeof row.created_at === "string"
+            ? row.created_at
+            : null;
+        const existing = batches.get(key);
+        if (existing) {
+          existing.count += 1;
+          if (row.created_at && (!existing.firstAddedAt || row.created_at < existing.firstAddedAt)) {
+            existing.firstAddedAt = row.created_at;
+          }
+          if (row.created_at && (!existing.lastAddedAt || row.created_at > existing.lastAddedAt)) {
+            existing.lastAddedAt = row.created_at;
+          }
+          continue;
+        }
+        batches.set(key, {
+          ...ref,
+          label: legacy
+            ? `Legacy / batch unknown · ${source}`
+            : typeof row.source_batch_label === "string" && row.source_batch_label.trim()
+              ? row.source_batch_label.trim()
+              : `${source} import`,
+          count: 1,
+          createdAt,
+          firstAddedAt: typeof row.created_at === "string" ? row.created_at : null,
+          lastAddedAt: typeof row.created_at === "string" ? row.created_at : null,
+          legacy,
+        });
+      }
+      if (rows.length < chunkSize) break;
+    }
 
     return {
       success: true,
-      data: {
-        source: normalizedSource,
-        count: countResult.count ?? 0,
-        firstAddedAt: firstResult.data?.created_at ?? null,
-        lastAddedAt: lastResult.data?.created_at ?? null,
-      },
+      data: [...batches.values()].sort((a, b) =>
+        (b.createdAt ?? b.lastAddedAt ?? "").localeCompare(a.createdAt ?? a.lastAddedAt ?? ""),
+      ),
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to preview leads for this source.") };
+    return { success: false, error: getErrorMessage(error, "Unable to load lead import batches.") };
+  }
+}
+
+/** Admin-only rows for the selected source batches, used to save a CSV before deletion. */
+export async function getLeadsForSourceBatches(
+  input: unknown,
+): Promise<ActionResult<Lead[]>> {
+  const batches = validateSourceBatchRefs(input);
+  if (!batches) return { success: false, error: "Select one or more valid import batches." };
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can export source batches (403 Forbidden)." };
+    }
+    return await getRowsForSourceBatches(supabase, batches);
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to export selected import batches.") };
+  }
+}
+
+/** Deletes selected exact batches only after saving a recovery snapshot of precisely those rows. */
+export async function deleteLeadSourceBatches(
+  input: unknown,
+): Promise<ActionResult<{ deleted: number; batches: number }>> {
+  const batches = validateSourceBatchRefs(input);
+  if (!batches) return { success: false, error: "Select one or more valid import batches." };
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "You must be signed in." };
+    const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
+    if (profile?.role !== "admin") {
+      return { success: false, error: "Only admins can delete import batches (403 Forbidden)." };
+    }
+
+    const rowsResult = await getRowsForSourceBatches(supabase, batches);
+    if (!rowsResult.success) return rowsResult;
+    const leadIds = rowsResult.data.map((lead) => lead.id);
+    if (leadIds.length === 0) return { success: false, error: "Those import batches no longer contain leads. Refresh the batch list." };
+
+    const snapshot = await snapshotLeadsForDeletion(
+      supabase,
+      { assignedTo: "", searchFilter: "", unscoped: false, ids: leadIds },
+      {
+        scopeLabel: "source-batches",
+        search: batches.map((batch) => batch.id ? batch.id : `legacy:${batch.source}`).join(", "),
+        deletedByName: profile.name?.trim() || "-",
+      },
+      user.id,
+    );
+    if (!snapshot.ok) return { success: false, error: snapshot.error };
+    if (snapshot.skipped) {
+      return {
+        success: false,
+        error: `Batch deletion is blocked because no recovery snapshot could be saved. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
+      };
+    }
+
+    let deleted = 0;
+    for (let offset = 0; offset < leadIds.length; offset += 500) {
+      const { data, error } = await supabase
+        .from("leads")
+        .delete()
+        .in("id", leadIds.slice(offset, offset + 500))
+        .select("id");
+      if (error) {
+        return {
+          success: false,
+          error: `Deleted ${deleted} leads before the remaining batches failed. Restore from Recent Deletions if needed. ${error.message}`,
+        };
+      }
+      deleted += data?.length ?? 0;
+    }
+
+    revalidatePath("/dashboard");
+    return { success: true, data: { deleted, batches: batches.length } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to delete selected import batches.") };
   }
 }
 

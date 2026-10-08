@@ -275,6 +275,9 @@ export async function POST(request: NextRequest) {
         insurance_status: leadData.insurance_status,
         remarks: leadData.remarks,
         source: "Meta Ads",
+        source_batch_id: requestId,
+        source_batch_label: `Meta Ads${campaignName !== "-" ? ` — ${campaignName}` : ""}${formId !== "-" ? ` · Form ${formId}` : ""}`.slice(0, 240),
+        source_batch_created_at: new Date().toISOString(),
         status: "New",
         // Stored as 'Hot' (the app's canonical value); the UI renders it as "Hot 🔥".
         temperature: "Hot",
