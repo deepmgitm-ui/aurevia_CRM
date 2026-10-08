@@ -2519,7 +2519,7 @@ export async function getLeadAssignmentPreview(
   }
 }
 
-/** Assigns selected or filtered leads equally among explicitly selected employees. */
+/** Assigns selected or filtered leads equally among explicitly selected team members. */
 export async function assignLeadsToEmployees(input: {
   leadIds?: string[];
   criteria?: LeadAssignmentCriteria;
@@ -2532,7 +2532,7 @@ export async function assignLeadsToEmployees(input: {
     new Set((input.employeeNames ?? []).map((name) => (typeof name === "string" ? name.trim() : "")).filter(Boolean)),
   );
   if (employeeNames.length === 0) {
-    return { success: false, error: "Select at least one employee." };
+    return { success: false, error: "Select at least one team member." };
   }
 
   if (input.leadIds !== undefined && !Array.isArray(input.leadIds)) {
@@ -2579,12 +2579,23 @@ export async function assignLeadsToEmployees(input: {
     if (profilesError) return { success: false, error: profilesError.message };
     const validNames = new Set(
       (profiles ?? [])
-        .filter((profile) => profile.role === "employee" && typeof profile.name === "string")
+        .filter((profile) =>
+          typeof profile.name === "string" &&
+          profile.name.trim() !== "" &&
+          profile.name.trim() !== "-" &&
+          profile.name.trim() !== "Unassigned" &&
+          (viewerRole === "admin" || profile.role === "employee"),
+        )
         .map((profile) => profile.name.trim()),
     );
     const targets = employeeNames.filter((name) => validNames.has(name));
     if (targets.length !== employeeNames.length) {
-      return { success: false, error: "One or more selected employees are no longer available. Refresh and try again." };
+      return {
+        success: false,
+        error: viewerRole === "admin"
+          ? "One or more selected team members are no longer available. Refresh and try again."
+          : "Only employee accounts are available as assignees for managers. Refresh and try again.",
+      };
     }
 
     let matchingIds = leadIds;

@@ -470,6 +470,13 @@ export function LeadsTable({
   const [note, setNote] = useState("");
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const assignableEmployees = employees.filter(
+    (employee) =>
+      employee.name.trim() !== "" &&
+      employee.name !== "-" &&
+      employee.name !== "Unassigned" &&
+      (employee.role === "employee" || (isAdmin && employee.role !== "employee")),
+  );
   // Master data (Settings → Master Data): the DB-backed picklists. Seeded first
   // so the selects are never empty, then upgraded with the admin's lists.
   const [masterData, setMasterData] = useState<MasterDataSnapshot>(() => seedMasterData());
@@ -2201,16 +2208,16 @@ export function LeadsTable({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Assign to employees</Label>
+                <Label>Assign to team members</Label>
                 <button
                   type="button"
                   className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={isBulkActionPending}
                   onClick={() =>
                     setAssignmentEmployeeNames((current) =>
-                      current.length === employees.filter((employee) => employee.role === "employee").length
+                      current.length === assignableEmployees.length
                         ? []
-                        : employees.filter((employee) => employee.role === "employee").map((employee) => employee.name),
+                        : assignableEmployees.map((employee) => employee.name),
                     )
                   }
                 >
@@ -2218,7 +2225,7 @@ export function LeadsTable({
                 </button>
               </div>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                {employees.filter((employee) => employee.role === "employee").map((employee) => (
+                {assignableEmployees.map((employee) => (
                   <label
                     key={employee.id}
                     className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
@@ -2231,16 +2238,19 @@ export function LeadsTable({
                       onChange={(event) => toggleAssignmentEmployee(employee.name, event.target.checked)}
                     />
                     {employee.name}
+                    {isAdmin && employee.role !== "employee" && (
+                      <span className="text-xs capitalize text-slate-400">{employee.role}</span>
+                    )}
                   </label>
                 ))}
-                {employees.every((employee) => employee.role !== "employee") && (
-                  <p className="px-2 py-2 text-xs text-slate-500">No employees are available to assign leads to.</p>
+                {assignableEmployees.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-slate-500">No team members are available to assign leads to.</p>
                 )}
               </div>
               {assignmentEmployeeNames.length > 0 && (
                 <p className="text-xs text-slate-500">
-                  {assignmentEmployeeNames.length} employee{assignmentEmployeeNames.length === 1 ? "" : "s"} selected.
-                  Leads are split as evenly as possible; the first selected employees get any remainder.
+                  {assignmentEmployeeNames.length} team member{assignmentEmployeeNames.length === 1 ? "" : "s"} selected.
+                  Leads are split as evenly as possible; the first selected team members get any remainder.
                 </p>
               )}
             </div>
