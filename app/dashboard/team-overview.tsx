@@ -24,7 +24,13 @@ function StatChip({ label, value, className }: { label: string; value: number; c
 
 // Team Overview: a grid of clickable employee cards. Clicking a card drills
 // into that employee's leads (/dashboard?employee=<name>).
-export function TeamOverview({ team }: { team: TeamStats }) {
+export function TeamOverview({
+  team,
+  leadHref,
+}: {
+  team: TeamStats;
+  leadHref?: (employeeName: string) => string;
+}) {
   if (team.employees.length === 0) {
     return (
       <p className="text-sm text-slate-500">
@@ -38,7 +44,7 @@ export function TeamOverview({ team }: { team: TeamStats }) {
       {team.employees.map((employee) => (
         <Link
           key={employee.id}
-          href={`/dashboard?employee=${encodeURIComponent(employee.name)}`}
+          href={leadHref?.(employee.name) ?? `/dashboard?employee=${encodeURIComponent(employee.name)}`}
           className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-400 hover:shadow-md"
         >
           <div className="flex items-center justify-between">
@@ -48,7 +54,9 @@ export function TeamOverview({ team }: { team: TeamStats }) {
               </span>
               <div>
                 <p className="font-semibold text-slate-950 group-hover:underline">{employee.name}</p>
-                <p className="text-xs text-slate-500">{employee.total.toLocaleString()} total leads</p>
+                <p className="text-xs text-slate-500">
+                  {employee.total.toLocaleString()} total leads · View leads
+                </p>
               </div>
             </div>
             <ArrowRight

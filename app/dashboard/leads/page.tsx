@@ -25,6 +25,7 @@ import {
   type TreatmentTally,
 } from "../lead-filters";
 import { LeadsTable } from "../leads-table";
+import { TeamOverview } from "../team-overview";
 import { treatmentColor } from "../overview/analytics";
 import { AssignmentFilterTabs } from "./assignment-filter-tabs";
 
@@ -212,7 +213,21 @@ export default async function LeadsPage({
       </div>
       <DashboardStats counts={counts} />
       {canViewAssignments && team && (
-        <AssignmentFilterTabs team={team} filters={filters} />
+        <>
+          <AssignmentFilterTabs team={team} filters={filters} />
+          <section aria-label="Leads by team member" className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Agent-wise assigned leads</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Each card shows that team member’s lead count. Select a card to filter the leads list to that person.
+              </p>
+            </div>
+            <TeamOverview
+              team={team}
+              leadHref={(name) => leadsHref({ ...filters, assigned: name, assignmentStatus: "" })}
+            />
+          </section>
+        </>
       )}
       {/* "Leads 0" scare: a filtered list (from a chart click or a shared link)
           used to look like an empty database. The banner always states how many

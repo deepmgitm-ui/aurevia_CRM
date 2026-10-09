@@ -13,7 +13,7 @@ type AssignmentTab = "unassigned" | "assigned";
 
 export function LeadAssignmentTabs({ team }: { team: TeamStats }) {
   const [activeTab, setActiveTab] = useState<AssignmentTab>(
-    team.unassigned > 0 ? "unassigned" : "assigned",
+    "assigned",
   );
   const assigned = Math.max(0, team.total - team.unassigned);
 
