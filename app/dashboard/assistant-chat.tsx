@@ -43,7 +43,10 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
       const response = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({
+          message: question,
+          history: messages.slice(-8).map(({ role, text }) => ({ role, content: text })),
+        }),
       });
       const payload: unknown = await response.json();
       const answer = payload && typeof payload === "object" && "answer" in payload && typeof payload.answer === "string"
@@ -137,7 +140,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
             />
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] leading-4 text-slate-500">
-                Ye guide CRM records access ya AI provider ko send nahi karti.
+                Customer details mat bhejein. Sawal Cloudflare AI ko jayega; CRM records nahi.
               </p>
               <Button type="submit" size="icon" aria-label="Send message" disabled={sending || !input.trim()}>
                 <Send aria-hidden="true" />
