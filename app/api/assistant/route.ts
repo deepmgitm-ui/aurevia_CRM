@@ -71,6 +71,23 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function getQuickHelpReply(message: string): string | null {
+  const normalized = message.toLocaleLowerCase();
+  const asksWhere = /\b(where|kaha|kahan|kha|kidhar|milegi|milengi|milta|milti)\b/.test(normalized);
+
+  if (asksWhere && /\b(leads?|lead page)\b/.test(normalized)) {
+    return "Leads page left-side menu mein **Leads** par milega. Mobile par pehle ☰ menu kholo, phir **Leads** tap karo. Dashboard par kis agent ke paas kitni leads hain, woh **Lead assignments → Assigned** mein dikhega.";
+  }
+  if (asksWhere && /\b(attendance|hazri)\b/.test(normalized)) {
+    return "Attendance page left-side menu mein **Attendance** par milega. Mobile par ☰ menu kholo, phir **Attendance** tap karo.";
+  }
+  if (asksWhere && /\b(assignments?|assigned|unassigned|agent|employee|team)\b/.test(normalized)) {
+    return "Dashboard par **Lead assignments** section kholo. **Assigned** tab mein har agent ka lead count hai; **Unassigned** tab mein abhi assign na hui leads dikhengi.";
+  }
+
+  return null;
+}
+
 function getSearchTerms(message: string): string[] {
   return [...new Set(
     (message.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
@@ -228,12 +245,6 @@ export async function POST(request: Request) {
     return jsonError(`Message must be between 1 and ${MAX_MESSAGE_LENGTH} characters.`, 400);
   }
 
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
-  if (!accountId || !apiToken) {
-    return jsonError("The AI assistant is not configured yet. Add the Cloudflare account ID and API token to the server environment.", 503);
-  }
-
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -257,6 +268,15 @@ export async function POST(request: Request) {
       return jsonError("Please wait a minute before sending more messages.", 429);
     } else {
       limit.count += 1;
+    }
+
+    const quickHelpReply = getQuickHelpReply(message);
+    if (quickHelpReply) return NextResponse.json({ answer: quickHelpReply });
+
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
+    if (!accountId || !apiToken) {
+      return jsonError("AI setup abhi complete nahi hai. Cloudflare Account ID aur API token Vercel Environment Variables mein add karke redeploy karein.", 503);
     }
 
     const needsLeadData = /\b(how many|number of|count|search|find|show|list|lead(s)?|assigned|unassigned|treatment|disease|city|source|follow.?up|hot|warm|cold|won|lost|records?|details?)\b|meri|mere|kitne|kitna|dikh(a|o)|bata/i.test(message);
@@ -303,10 +323,24 @@ export async function POST(request: Request) {
       },
     );
 
-    const result: unknown = await response.json();
+    const responseText = await response.text();
+    let result: unknown = null;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      console.error("[assistant] Cloudflare Workers AI returned a non-JSON response:", response.status);
+      return jsonError("Cloudflare AI ne unexpected response diya. API token/permissions aur Workers AI status check karein.", 502);
+    }
+
     if (!response.ok) {
       console.error("[assistant] Cloudflare Workers AI request failed:", response.status);
       if (response.status === 429) return jsonError("Free AI quota or rate limit reached. Please try again later.", 429);
+      if (response.status === 401 || response.status === 403) {
+        return jsonError("Cloudflare API token invalid hai ya usme Workers AI permission missing hai.", 502);
+      }
+      if (response.status === 404) {
+        return jsonError("Cloudflare Account ID ya Workers AI model configuration check karein.", 502);
+      }
       return jsonError("The AI service is temporarily unavailable. Please try again shortly.", 502);
     }
 
@@ -323,10 +357,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ answer });
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      return jsonError("The assistant took too long to respond. Please try again.", 504);
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return jsonError("AI reply dene mein zyada waqt laga. Thodi der baad dobara try karein.", 504);
     }
     console.error("[assistant] Request failed:", error instanceof Error ? error.message : "Unknown error");
-    return jsonError("The assistant could not complete that request. Please try again.", 500);
+    return jsonError("CRM data load nahi ho paya. Thodi der baad dobara try karein; agar issue rahe toh admin ko batayein.", 500);
   }
 }
