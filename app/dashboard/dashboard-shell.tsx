@@ -37,6 +37,7 @@ import { logout } from "@/app/login/actions";
 import { currentQuarterRange, type DateRange } from "./overview/analytics";
 import { DashboardDateRangeProvider } from "./dashboard-date-range";
 import { RealtimeNotifications } from "./realtime-notifications";
+import { AssistantChat } from "./assistant-chat";
 
 interface DashboardProfile {
   name: string;
@@ -386,6 +387,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>
           <main className="flex-1 bg-slate-50 p-4 sm:p-6 lg:p-8">{children}</main>
         </DashboardDateRangeProvider>
+        <AssistantChat role={profile.role} />
       </div>
     </div>
   );
