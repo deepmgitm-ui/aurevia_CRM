@@ -20,8 +20,8 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
     {
       role: "assistant",
       text: role === "employee"
-        ? "Namaste! Main CRM use karne mein help kar sakta hoon aur aapki assigned leads ke baare mein jawab de sakta hoon."
-        : "Namaste! Main CRM use karne mein help kar sakta hoon aur team leads/assignments ke baare mein jawab de sakta hoon.",
+        ? "Namaste! CRM ke features kahan milte hain, main usmein help kar sakta hoon."
+        : "Namaste! CRM ke features, jaise lead assignment aur reports, kahan milte hain main bata sakta hoon.",
     },
   ]);
   const conversationEnd = useRef<HTMLDivElement>(null);
@@ -80,7 +80,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
               <div>
                 <h2 className="text-sm font-semibold">Aurevia Assistant</h2>
                 <p className="text-xs text-blue-100">
-                  {role === "employee" ? "Your leads and CRM help" : "Team leads and CRM help"}
+                  {role === "employee" ? "CRM feature guide" : "CRM feature guide"}
                 </p>
               </div>
             </div>
@@ -128,7 +128,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="Ask about your leads or CRM…"
+              placeholder="CRM feature kahan milega?"
               aria-label="Message the CRM assistant"
               maxLength={1000}
               rows={2}
@@ -137,7 +137,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
             />
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] leading-4 text-slate-500">
-                Free AI has daily limits. Lead details are sent to Cloudflare AI to answer data questions.
+                Ye guide CRM records access ya AI provider ko send nahi karti.
               </p>
               <Button type="submit" size="icon" aria-label="Send message" disabled={sending || !input.trim()}>
                 <Send aria-hidden="true" />

@@ -23,14 +23,9 @@ or `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` for local development and in
 Vercel's Environment Variables for each deployment environment. Restart the local
 server after changing `.env.local`, and redeploy after changing Vercel variables.
 
-The dashboard assistant uses Cloudflare Workers AI. Set `CLOUDFLARE_ACCOUNT_ID`
-and a server-side `CLOUDFLARE_API_TOKEN` with Workers AI permission in `.env.local`
-and in Vercel's Environment Variables, then restart/redeploy. Do not prefix these
-values with `NEXT_PUBLIC_` or expose them in the browser. The free allocation is
-limited to 10,000 Neurons per day; the assistant may stop responding after the
-quota is reached. When answering lead questions, the assistant sends a limited
-set of role-authorized lead fields to Cloudflare. Employees are restricted to
-their own assigned leads.
+The dashboard assistant is a built-in CRM feature guide. It answers navigation
+questions using static help text, does not require an external AI API key, and
+does not read or send CRM lead records to an AI provider.
 
 Database migrations are run in Supabase, not by deploying to Vercel. If the OPD/IPD
 appointment-date columns have not been added yet, run `supabase-master-data-migration.sql`
