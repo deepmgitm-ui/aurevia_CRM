@@ -1381,6 +1381,8 @@ export interface EmployeeLeadStats {
   won: number;
   lost: number;
   opdDone: number;
+  opdBooked: number;
+  ipd: number;
 }
 
 export interface TeamStats {
@@ -1433,6 +1435,8 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         won: 0,
         lost: 0,
         opdDone: 0,
+        opdBooked: 0,
+        ipd: 0,
       });
     }
 
@@ -1466,6 +1470,8 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         else if (status === "won") stats.won += 1;
         else if (status === "lost") stats.lost += 1;
         else if (status === "opd done") stats.opdDone += 1;
+        else if (status === "opd booked") stats.opdBooked += 1;
+        else if (status === "ipd done") stats.ipd += 1;
       }
       if (rows.length < chunkSize) break;
       from += chunkSize;

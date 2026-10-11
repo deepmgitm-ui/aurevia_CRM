@@ -219,13 +219,10 @@ export default async function LeadsPage({
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Agent-wise assigned leads</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Each card shows that team member’s lead count. Select a card to filter the leads list to that person.
+                Tap a category to view that agent’s matching leads, or their name to view all assigned leads.
               </p>
             </div>
-            <TeamOverview
-              team={team}
-              leadHref={(name) => leadsHref({ ...filters, assigned: name, assignmentStatus: "" })}
-            />
+            <TeamOverview team={team} />
           </section>
         </>
       )}
@@ -258,14 +255,16 @@ export default async function LeadsPage({
       <AgeStrip filters={filters} months={months} />
       {/* Key remounts on every filter change so the table drops its loaded page
           and refetches page 1 of the new result set. */}
-      <LeadsTable
-        key={JSON.stringify(filters)}
-        leads={leadsPage.leads}
-        initialTotal={leadsPage.total}
-        initialTotalPages={leadsPage.totalPages}
-        role={viewer?.role ?? "employee"}
-        filters={filters}
-      />
+      <section id="lead-list" className="scroll-mt-6" aria-label="Matching leads">
+        <LeadsTable
+          key={JSON.stringify(filters)}
+          leads={leadsPage.leads}
+          initialTotal={leadsPage.total}
+          initialTotalPages={leadsPage.totalPages}
+          role={viewer?.role ?? "employee"}
+          filters={filters}
+        />
+      </section>
     </div>
   );
 }
