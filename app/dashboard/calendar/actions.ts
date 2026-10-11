@@ -76,7 +76,7 @@ export interface MonthDays {
   month: string;
   days: CalendarDay[];
   warning?: string;
-  /** All appointments from today onwards, soonest first — the "upcoming" list. */
+  /** Upcoming entries: next 90 days on the page, displayed interval on month navigation. */
   upcoming: CalendarAppointment[];
 }
 
@@ -205,13 +205,13 @@ async function monthCells(
  * One month of the OPD/IPD appointment calendar. Admins and managers see the
  * team schedule; employees see appointments assigned to their profile name.
  */
-export async function getMonthDays(month?: string): Promise<CalendarResult<MonthDays>> {
+export async function getMonthDays(month?: string, includeUpcoming = false): Promise<CalendarResult<MonthDays>> {
   try {
     const viewer = await getCalendarViewer();
     if (!viewer) return { success: false, error: "Sign in to open your calendar." };
 
     const now = new Date();
-    const target = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : toIsoDate(now).slice(0, 7);
+    const target = /^\d{4}-(0[1-9]|1[0-2])$/.test(month ?? "") ? month! : toIsoDate(now).slice(0, 7);
     const cells = await monthCells(target);
     const from = cells[0]!.iso;
     const to = cells[cells.length - 1]!.iso;
@@ -222,29 +222,33 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     const viewerName = viewer.name.trim().toLowerCase();
     const isTeamView = viewer.role === "admin" || viewer.role === "manager";
 
-    // Appointments read live off the three OPD/IPD columns on `leads` — NOT from
-    // leads.follow_up_date. Follow-up calls are handled by the Leads page
-    // filters; this calendar is specifically the clinic's OPD/IPD schedule.
-    //
-    // The three columns come back in ONE query and then spread into up to three
-    // calendar entries per lead: a patient booked for OPD and later admitted
-    // for IPD appears on BOTH days, which is the whole point of storing three
-    // dates instead of one.
-    //
-    // `assigned_to` stores a display name rather than an auth uid, so employee
-    // appointments are filtered against the signed-in profile after fetching.
-    const { data: leadRows, error: leadsError } = await supabase
-      .from("leads")
-      .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
-      .or("opd_booked_date.not.is.null,opd_done_date.not.is.null,ipd_done_date.not.is.null")
-      .limit(500);
+    const horizon = new Date(today + "T00:00:00Z");
+    horizon.setUTCDate(horizon.getUTCDate() + 89);
+    const upcomingEnd = horizon.toISOString().slice(0, 10);
+    // Navigation loads only one calendar; the initial page also loads the next 90 days.
+    const dateFilter = APPOINTMENT_FIELDS.flatMap(({ column }) => [
+      `and(${column}.gte.${from},${column}.lte.${to})`,
+      ...(includeUpcoming ? [`and(${column}.gte.${today},${column}.lte.${upcomingEnd})`] : []),
+    ]).join(",");
+    const leadRows: LeadAppointmentRow[] = [];
     let warning: string | undefined;
-    if (leadsError) {
-      if (isMissingAppointmentColumnsError(leadsError)) {
-        warning = APPOINTMENT_COLUMNS_MISSING_WARNING;
-      } else {
-        return { success: false, error: leadsError.message };
+    for (let offset = 0; ; offset += 500) {
+      let query = supabase.from("leads")
+        .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date")
+        .or(dateFilter).order("id").range(offset, offset + 499);
+      if (!isTeamView) {
+        query = query.ilike("assigned_to", viewer.name.replace(/[\\%_]/g, "\\$&"));
       }
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingAppointmentColumnsError(error)) {
+          warning = APPOINTMENT_COLUMNS_MISSING_WARNING;
+          break;
+        }
+        return { success: false, error: error.message };
+      }
+      leadRows.push(...(data ?? []) as LeadAppointmentRow[]);
+      if (!data || data.length < 500) break;
     }
 
     const byDay = new Map<string, CalendarAppointment[]>();
@@ -252,11 +256,12 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
     for (const row of (leadRows ?? []) as LeadAppointmentRow[]) {
       if (!isTeamView && (row.assigned_to ?? "").trim().toLowerCase() !== viewerName) continue;
       for (const entry of toCalendarAppointments(row, today)) {
+        if (includeUpcoming && entry.date >= today && entry.date <= upcomingEnd) upcoming.push(entry);
         if (entry.date < from || entry.date > to) continue;
         const bucket = byDay.get(entry.date) ?? [];
         bucket.push(entry);
         byDay.set(entry.date, bucket);
-        if (entry.date >= today) upcoming.push(entry);
+        if (!includeUpcoming && entry.date >= today) upcoming.push(entry);
       }
     }
     // Soonest first; same-day entries keep a stable, human (alphabetical) order.
@@ -268,9 +273,7 @@ export async function getMonthDays(month?: string): Promise<CalendarResult<Month
       ...cell,
       reminders: byDay.get(cell.iso) ?? [],
     }));
-    // `upcoming` is built in the query loop above and spans every day of the
-    // month from today forward, so it survives a month change without a second
-    // round trip.
+    // The page agenda spans the next 90 days independently of the displayed month.
     return { success: true, data: { month: target, days, upcoming, warning } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load the calendar.") };

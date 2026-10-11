@@ -86,7 +86,7 @@ const topTabs = [
   { label: "Source Analysis", href: "/dashboard/source-analysis", exact: false },
   { label: "Agents Performance", href: "/dashboard/agents", exact: false },
   { label: "City Analysis", href: "/dashboard/city-analysis", exact: false },
-  { label: "Appointments", href: "/dashboard/calendar", exact: false },
+  { label: "Upcoming Appointments", href: "/dashboard/calendar", exact: false },
 ] as const;
 
 function isActivePath(pathname: string, href: string, exact: boolean): boolean {

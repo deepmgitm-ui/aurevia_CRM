@@ -80,7 +80,7 @@ export function PlanCalendar({
   warning?: string;
 }) {
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
-  const [selectedIso, setSelectedIso] = useState(todayIso);
+  const [selectedIso, setSelectedIso] = useState(month === todayIso.slice(0, 7) ? todayIso : `${month}-01`);
   // Month-key cache: `days` always belongs to `monthKey`, so "fetching another
   // month" is a DERIVED flag â€” no setState needed inside the fetch effect.
   const [itemsFor, setItemsFor] = useState<{ monthKey: string; days: CalendarDay[] }>(() => ({
@@ -128,11 +128,7 @@ export function PlanCalendar({
         reminders: ensureArray<CalendarAppointment>([]),
       }));
     }
-    const [year, month] = monthCursor.split("-").map(Number);
-    return itemsFor.days.filter((day) => {
-      const [dayYear, dayMonth] = day.iso.split("-").map(Number);
-      return dayYear === year && dayMonth === month;
-    }).map((day) => ({ ...day, reminders: ensureArray(day.reminders) }));
+    return itemsFor.days.map((day) => ({ ...day, reminders: ensureArray(day.reminders) }));
   }, [itemsFor.days, monthNeedsFetch, monthCursor]);
 
   const selected = visibleDays.find((day) => day.iso === selectedIso);
@@ -219,6 +215,8 @@ export function PlanCalendar({
                   type="button"
                   onClick={() => setSelectedIso(day.iso)}
                   title={day.iso}
+                  aria-pressed={isSelected}
+                  aria-label={`${day.iso}: ${ensureArray(day.reminders).length} appointments`}
                   className={`flex min-h-[74px] flex-col items-stretch gap-1 rounded-xl border p-1.5 text-left transition-colors sm:min-h-[86px] ${
                     isSelected
                       ? "border-blue-500 bg-blue-50/70"
@@ -328,7 +326,7 @@ function ReminderCard({
         <span>{reminder.kindLabel}</span>
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
-      {reminder.phone !== "-" && <p className="mt-1 text-xs font-medium text-slate-700">{reminder.phone}</p>}
+      {reminder.phone !== "-" && <a href={`tel:${reminder.phone.replace(/[^+\d]/g, "")}`} className="mt-2 inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Call {reminder.phone}</a>}
     </article>
   );
 }

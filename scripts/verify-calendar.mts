@@ -1,7 +1,7 @@
 // Regression checks for the "Plan your calendar" month math + clean-input rules.
 // Run with: npm run verify:calendar
 import assert from "node:assert/strict";
-import { ensureArray } from "../app/dashboard/calendar/month-grid.ts";
+import { buildMonthCells, ensureArray } from "../app/dashboard/calendar/month-grid.ts";
 
 // NOTE: actions.ts is a "use server" module (imports next/cache + the supabase
 // server client), so plain node cannot import it. The pure month-grid math is
@@ -27,7 +27,8 @@ function specMonthCells(month: string): { iso: string; day: number; isCurrentMon
 }
 
 function checkGrid(month: string, firstIso: string, inMonthCount: number): void {
-  const grid = specMonthCells(month);
+  const grid = buildMonthCells(month);
+  assert.deepEqual(grid, specMonthCells(month), "runtime grid must match the weekday specification");
   assert.equal(grid.length, 42, "a month grid is always 6 × 7 cells");
   assert.equal(grid[0]!.iso, firstIso, `${month}: wrong first cell`);
   assert.equal(

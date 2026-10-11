@@ -83,7 +83,7 @@ async function DashboardShellData({
   // the check-in and date-window data resolve.
   const [attendance, window] = await Promise.all([
     markMyAttendance({ id: userId, role: profileRole }),
-    getDashboardWindow(),
+    profileRole === "employee" ? Promise.resolve(null) : getDashboardWindow(),
   ]);
   if (!attendance.success) {
     console.warn("[attendance] Could not record the check-in:", attendance.error);
@@ -97,7 +97,7 @@ async function DashboardShellData({
         photo_url: typeof profileWithPhoto?.photo_url === "string" ? profileWithPhoto.photo_url : null,
       }}
       attendanceToday={attendance.success ? attendance.data : null}
-      initialRange={window.range}
+      initialRange={window?.range}
     >
       {children}
     </DashboardShell>

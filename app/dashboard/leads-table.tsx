@@ -1119,6 +1119,7 @@ export function LeadsTable({
 
   function updateAssignmentCriteria(patch: Partial<LeadAssignmentCriteria>) {
     setAssignmentCriteria((current) => ({ ...current, ...patch }));
+    setIsLoadingAssignmentSuggestions(false);
     assignmentSuggestionSequenceRef.current += 1;
     setAssignmentSuggestions([]);
     setAssignmentSuggestionTotal(0);
@@ -1169,11 +1170,6 @@ export function LeadsTable({
       city: assignmentCriteria.city.trim(),
     };
     if (!criteria.search && !criteria.treatment && !criteria.city) {
-      setAssignmentSuggestions([]);
-      setAssignmentSuggestionTotal(0);
-      setHasMoreAssignmentSuggestions(false);
-      setIsLoadingAssignmentSuggestions(false);
-      setAssignmentSuggestionError("");
       return;
     }
     const timer = setTimeout(() => {
