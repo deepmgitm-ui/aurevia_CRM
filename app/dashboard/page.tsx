@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Flame, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight } from "lucide-react";
+import { ArrowLeft, Flame, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
 
 import {
   getAnalyticsLeads,
@@ -10,6 +10,7 @@ import {
   getTeamStats,
   getViewer,
   getDailyWorkCounts,
+  getDailyAssignmentStatuses,
 } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -75,7 +76,7 @@ function StatCardSection({ values }: { values: [number, number, number] }) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ employee?: string; from?: string; to?: string; work?: string; day?: string }>;
+  searchParams: Promise<{ employee?: string; from?: string; to?: string; work?: string; day?: string; status?: string }>;
 }) {
   const query = await searchParams;
   const { employee: selectedEmployee } = query;
@@ -176,18 +177,21 @@ export default async function DashboardPage({
   const today = clinicDate();
   const day = isWorkDate(query.day ?? "") ? query.day! : today;
   const work: DailyWorkKind = isDailyWorkKind(query.work ?? "") ? query.work as DailyWorkKind : "assigned";
-  const filters = { ...EMPTY_LEAD_FILTERS, work, day };
-  const [leadsResult, dailyResult] = await Promise.all([
+  const selectedStatus = work === "assigned" ? (query.status ?? "").trim() : "";
+  const filters = { ...EMPTY_LEAD_FILTERS, work, day, status: selectedStatus };
+  const [leadsResult, dailyResult, statusResult] = await Promise.all([
     getLeadsPage(1, 50, "", "", "", filters),
     getDailyWorkCounts(day),
+    getDailyAssignmentStatuses(day),
   ]);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const isToday = day === today;
   const dailyCards = [
-    { key: "assigned" as const, label: "New assignments", detail: "Leads assigned to you on this date", icon: UserPlus, tone: "border-blue-200 bg-blue-50 text-blue-800" },
+    { key: "assigned" as const, label: "Leads assigned", detail: "New calling assignments received on this date", icon: UserPlus, tone: "border-blue-200 bg-blue-50 text-blue-800" },
     { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-    { key: "ipd" as const, label: "IPD appointments", detail: "Patients with an IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
+    { key: "opdDone" as const, label: "OPD Done", detail: "Patients whose recorded OPD completion date is this day", icon: CircleCheck, tone: "border-teal-200 bg-teal-50 text-teal-800" },
+    { key: "ipd" as const, label: "IPD managed", detail: "Patients with a recorded IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
   ];
   const selectedCard = dailyCards.find((card) => card.key === work)!;
 
@@ -204,6 +208,7 @@ export default async function DashboardPage({
         </p>
         <form key={day} action="/dashboard" className="mt-4 flex flex-wrap items-end gap-2">
           <input type="hidden" name="work" value={work} />
+          {selectedStatus && <input type="hidden" name="status" value={selectedStatus} />}
           <label className="text-xs font-medium text-slate-600">Work date
             <input type="date" name="day" defaultValue={day} required className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" />
           </label>
@@ -211,7 +216,7 @@ export default async function DashboardPage({
         </form>
       </div>
 
-      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-3">
+      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dailyCards.map(({ key, label, detail, icon: Icon, tone }) => (
           <Link key={key} href={`/dashboard?work=${key}&day=${day}#today-leads`} aria-current={work === key ? "page" : undefined}
             className={`rounded-2xl border p-5 shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${tone} ${work === key ? "ring-2 ring-current ring-offset-2" : ""}`}>
@@ -222,10 +227,28 @@ export default async function DashboardPage({
           </Link>
         ))}
       </section>
+      <section aria-label="Assignment status breakdown" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-950">{isToday ? "Today’s assigned leads" : "Assigned leads for this date"} · Status breakdown</h2>
+          <Link href={`/dashboard?work=assigned&day=${day}#today-leads`} className="text-sm font-semibold text-blue-700 hover:underline">View all assignments</Link>
+        </div>
+        <p className="mt-1 text-sm text-slate-500">Current status of leads received on {dayLabel}. OPD and IPD cards above include your earlier assignments too.</p>
+        {statusResult.success ? statusResult.data.length === 0 ? (
+          <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No new leads were assigned to you on this date.</p>
+        ) : (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {statusResult.data.map(({ status, count }) => {
+              const content = <><span className="text-sm font-medium">{status?.trim() && status !== "-" ? status : "No status recorded"}</span><span className="text-2xl font-semibold tabular-nums">{count.toLocaleString()}</span></>;
+              const className = `flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${selectedStatus && selectedStatus === status ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-200 text-slate-700"}`;
+              return status?.trim() ? <Link key={status} href={`/dashboard?work=assigned&day=${day}&status=${encodeURIComponent(status)}#today-leads`} aria-current={selectedStatus === status ? "page" : undefined} className={`${className} transition hover:border-blue-300 hover:bg-blue-50`}>{content}</Link> : <div key={status ?? "null"} className={className}>{content}</div>;
+            })}
+          </div>
+        ) : <p role="alert" className="mt-4 text-sm text-amber-700">Assignment statuses could not be loaded. Please refresh.</p>}
+      </section>
       {(!dailyResult.success || !leadsResult.success) && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Daily work could not be loaded. Please refresh or contact your administrator.</p>}
       <section id="today-leads" className="scroll-mt-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsPage.total.toLocaleString()} leads</p></div>
+          <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}{selectedStatus ? ` · ${selectedStatus}` : ""}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsPage.total.toLocaleString()} leads</p></div>
           <div className="flex gap-3 text-sm font-medium">
             {!isToday && <Link href="/dashboard" className="text-blue-700 hover:underline">Back to today</Link>}
             <Link href="/dashboard/leads" className="text-blue-700 hover:underline">All my leads</Link>
@@ -238,7 +261,7 @@ export default async function DashboardPage({
             <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
           </div>
         ) : (
-          <LeadsTable key={`${work}-${day}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} />
+          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} />
         )}
       </section>
     </div>

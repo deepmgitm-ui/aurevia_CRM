@@ -1,13 +1,14 @@
-export type DailyWorkKind = "assigned" | "opd" | "ipd";
+export type DailyWorkKind = "assigned" | "opd" | "opdDone" | "ipd";
 
 export const DAILY_WORK_LABELS: Record<DailyWorkKind, string> = {
   assigned: "New assignments",
   opd: "OPD appointments",
+  opdDone: "OPD completed",
   ipd: "IPD appointments",
 };
 
 export function isDailyWorkKind(value: string): value is DailyWorkKind {
-  return value === "assigned" || value === "opd" || value === "ipd";
+  return value === "assigned" || value === "opd" || value === "opdDone" || value === "ipd";
 }
 
 export function isWorkDate(value: string): boolean {
@@ -41,5 +42,6 @@ export function applyDailyWorkFilter<Q extends DailyQuery<Q>>(query: Q, work: Da
     // One lead appears once even if both OPD dates fall on the same day.
     return query.or(`opd_booked_date.eq.${day},opd_done_date.eq.${day}`);
   }
+  if (work === "opdDone") return query.eq("opd_done_date", day);
   return query.eq("ipd_done_date", day);
 }

@@ -28,7 +28,7 @@ const rows: Row[] = [
   { id: "tomorrow", assigned_at: "2026-10-11T18:30:00.000Z", opd_booked_date: "2026-10-12", opd_done_date: null, ipd_done_date: null },
   { id: "unknown-history", assigned_at: null, opd_booked_date: null, opd_done_date: null, ipd_done_date: null },
 ];
-for (const [kind, expected] of [["assigned", "old-created-newly-assigned"], ["opd", "old-created-newly-assigned"], ["ipd", "yesterday"]] as const) {
+for (const [kind, expected] of [["assigned", "old-created-newly-assigned"], ["opd", "old-created-newly-assigned"], ["opdDone", "old-created-newly-assigned"], ["ipd", "yesterday"]] as const) {
   const query = applyDailyWorkFilter(new Query(), kind, "2026-10-11");
   assert.deepEqual(rows.filter(row => query.matches(row)).map(row => row.id), [expected]);
   const filters = parseLeadFilters({ work: kind, day: "2026-10-11" });
@@ -38,4 +38,11 @@ for (const [kind, expected] of [["assigned", "old-created-newly-assigned"], ["op
   assert.ok(describeActiveFilters(filters).some(label => label.includes("2026-10-11")));
 }
 assert.equal(parseLeadFilters({ work: "assigned", day: "2026-02-30" }).work, "");
+const bookedOnly = { opd_booked_date: "2026-10-11", opd_done_date: null };
+assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(bookedOnly), false);
+const progressed = { status: "IPD Done", opd_done_date: "2026-10-11" };
+assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(progressed), true);
+const statusFilters = parseLeadFilters({ work: "assigned", day: "2026-10-11", status: "OPD Booked" });
+const statusUrl = new URL(leadsHref(statusFilters), "https://crm.test");
+assert.deepEqual(parseLeadFilters(Object.fromEntries(statusUrl.searchParams)), statusFilters);
 console.log("✓ daily work: IST boundaries, assignment date, OPD deduplication, IPD dates and filter round trips passed");
