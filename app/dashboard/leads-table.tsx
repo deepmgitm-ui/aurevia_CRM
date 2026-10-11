@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, X } from "lucide-react";
+import { getRecognizedLeadImportFields, normalizeLeadImportHeader } from "@/lib/lead-import";
 
 import {
   addLeadActivity,
@@ -144,19 +145,6 @@ function parsePastedTable(text: string): ImportRow[] {
   }
   return records;
 }
-
-// Canonical field aliases understood by the import pipeline (mirrors the
-// flexible mapping inside bulkInsertLeads) — used to give paste-time feedback
-// in the Magic Paste modal.
-const PASTE_HEADER_ALIASES: { label: string; aliases: string[] }[] = [
-  { label: "Name", aliases: ["full name", "name", "patient name", "patient_name", "patient"] },
-  { label: "Phone", aliases: ["contact no", "phone", "phone number", "phone_number", "contact", "contact number", "mobile"] },
-  { label: "City", aliases: ["city", "location", "area", "address"] },
-  { label: "Disease", aliases: ["disease", "treatment", "issue", "problem", "health concern"] },
-  { label: "Remarks", aliases: ["remark 1", "remarks", "remark", "note", "notes", "comment", "comments"] },
-  { label: "Date", aliases: ["date", "lead date", "lead_date", "date of lead", "date_of_lead", "created at", "created_at"] },
-  { label: "Email", aliases: ["email", "email id", "email_id", "mail"] },
-];
 
 // Reads just the first non-empty line's headers of the pasted TSV.
 function getPastedHeaders(text: string): string[] {
@@ -464,12 +452,9 @@ export function LeadsTable({
   const pastePreview = useMemo(() => {
     if (!isPasteOpen) return { rowCount: 0, recognized: [] as string[], hasAnyHeader: false };
     const rowCount = parsePastedTable(pastedData).length;
-    const normalizedHeaders = getPastedHeaders(pastedData).map((header) =>
-      header.trim().toLowerCase().replace(/\s+/g, " "),
-    );
-    const recognized = PASTE_HEADER_ALIASES.filter((field) =>
-      field.aliases.some((alias) => normalizedHeaders.includes(alias)),
-    ).map((field) => field.label);
+    const headers = getPastedHeaders(pastedData);
+    const normalizedHeaders = headers.map(normalizeLeadImportHeader);
+    const recognized = getRecognizedLeadImportFields(headers);
     return { rowCount, recognized, hasAnyHeader: normalizedHeaders.length > 0 };
   }, [isPasteOpen, pastedData]);
   const [activities, setActivities] = useState<LeadActivity[]>([]);

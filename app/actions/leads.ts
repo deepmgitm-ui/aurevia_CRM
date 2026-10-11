@@ -45,6 +45,7 @@ import {
   normaliseAppointmentDate,
 } from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
+import { findLeadImportValue, normalizeImportedLeadStatus } from "@/lib/lead-import";
 
 export type LeadStatus = string;
 
@@ -1593,20 +1594,13 @@ export async function bulkInsertLeads(
       }
 
       const candidate = lead as Record<string, unknown>;
-      const getField = (...keys: string[]): unknown => {
-        // Case-insensitive + collapse internal/edge whitespace, so "Full  Name",
-        // " Patient ", and "patient" all match the same column.
-        const normalizedKeys = keys.map((key) => key.trim().toLowerCase().replace(/\s+/g, " "));
-        const entry = Object.entries(candidate).find(([key]) =>
-          normalizedKeys.includes(key.trim().toLowerCase().replace(/\s+/g, " ")),
-        );
-        return entry?.[1];
-      };
-      const text = (...keys: string[]) => toTextField(getField(...keys));
+      const getField = (field: Parameters<typeof findLeadImportValue>[1]) =>
+        findLeadImportValue(candidate, field);
+      const text = (field: Parameters<typeof findLeadImportValue>[1]) => toTextField(getField(field));
 
-      const name = text("Full Name", "name", "patient name", "patient_name", "patient");
-      const phoneRaw = text("Contact no", "phone", "phone number", "phone_number", "contact", "contact number", "mobile");
-      const email = text("Email", "email", "email id", "email_id", "mail");
+      const name = text("name");
+      const phoneRaw = text("phone");
+      const email = text("email");
 
       // Skip blank filler rows (headers repeated mid-sheet, empty lines, etc.)
       // so they never become junk "-" leads in the database.
@@ -1617,56 +1611,30 @@ export async function bulkInsertLeads(
 
       // Optional columns: if the spreadsheet does not have them at all,
       // toTextField returns "" and dashIfEmpty turns that into "-".
-      const importedDate = getField(
-        "Date",
-        "date",
-        "Lead Date",
-        "lead_date",
-        "Date of Lead",
-        "date_of_lead",
-        "created at",
-        "created_at",
-      );
-      const followUpDate = getField(
-        "Follow-up Date",
-        "follow_up_date",
-        "Follow Up Date",
-        "followup_date",
-        "Next Follow Up",
-        "next_follow_up",
-      );
-      const importedAssignee = text("Assigned To", "assigned_to", "assign to", "assign_to");
+      const importedDate = getField("date");
+      const followUpDate = getField("followUpDate");
+      const importedAssignee = text("assignedTo");
       const assignedProfileName = importedAssignee
         ? validProfileNames.get(importedAssignee.toLowerCase()) ?? "-"
         : "-";
       // The sheet's own source column wins whenever it has one.
-      const importedSource = text(
-        "Source",
-        "source",
-        "Lead Source",
-        "lead_source",
-        "Channel",
-        "channel",
-        "Campaign",
-        "campaign",
-        "Platform",
-        "platform",
-      );
+      const importedSource = text("source");
+      const importedStatus = text("status");
 
       records.push({
         name: dashIfEmpty(name),
         phone: sanitizePhone(phoneRaw),
         email: dashIfEmpty(email),
-        gender: dashIfEmpty(text("Gender", "gender")),
+        gender: dashIfEmpty(text("gender")),
         // CRITICAL: city/location/area/address all funnel into the dedicated city column.
-        city: dashIfEmpty(text("City", "city", "Location", "location", "Area", "area", "Address", "address")),
-        disease: dashIfEmpty(text("Disease", "disease", "Treatment", "treatment", "Issue", "issue", "Problem", "problem", "Health Concern")),
-        insurance_status: dashIfEmpty(text("Insurance Status", "insurance_status", "insurance")),
-        remarks: dashIfEmpty(text("Remark 1", "remarks", "remark", "Remark", "note", "notes", "comment", "comments")),
+        city: dashIfEmpty(text("city")),
+        disease: dashIfEmpty(text("disease")),
+        insurance_status: dashIfEmpty(text("insurance")),
+        remarks: dashIfEmpty(text("remarks")),
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: importedSource || batchSource,
-        status: dashIfEmpty(text("Lead Status", "status", "lead_status")),
+        status: dashIfEmpty(normalizeImportedLeadStatus(importedStatus)),
         temperature: "Warm",
         assigned_to: assignedProfileName,
       });

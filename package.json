@@ -15,6 +15,7 @@
     "verify:db": "node scripts/verify-db.mts",
     "verify:attendance": "node scripts/verify-attendance.mts",
     "verify:appointments": "node scripts/verify-appointments.mts",
+    "verify:lead-import": "node scripts/verify-lead-import.mts",
     "audit:db": "node scripts/audit-db.mts",
     "fix:data": "node scripts/fix-data-values.mts",
     "verify:timeline": "node scripts/verify-timeline.mts",
