@@ -28,8 +28,8 @@ const APPOINTMENT_BY_STATUS: Record<string, AppointmentField> = {
   "opd booked": {
     kind: "opdBooked",
     column: "opd_booked_date",
-    label: "Booked date",
-    hint: "The day this patient's OPD appointment was booked.",
+    label: "OPD appointment date",
+    hint: "The day the patient is scheduled to attend OPD, rather than the day the booking was entered.",
   },
   "opd done": {
     kind: "opdDone",

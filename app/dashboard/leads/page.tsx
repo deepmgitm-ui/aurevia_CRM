@@ -176,7 +176,7 @@ export default async function LeadsPage({
   const [leadsResult, countsResult, tallyResult, viewerResult, monthsResult, teamResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getLeadCounts(),
-    getTreatmentTally(filters),
+    filters.work ? Promise.resolve({ success: true as const, data: [] }) : getTreatmentTally(filters),
     getViewer(),
     // Month picker options: the months that really hold leads, so picking one
     // can never land on an empty list.

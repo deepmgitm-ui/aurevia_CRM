@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Flame, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Flame, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight } from "lucide-react";
 
 import {
   getAnalyticsLeads,
@@ -9,6 +9,7 @@ import {
   getPipelineInsights,
   getTeamStats,
   getViewer,
+  getDailyWorkCounts,
 } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -18,6 +19,9 @@ import { OverviewDashboard } from "./overview/overview-dashboard";
 import { resolveDashboardWindow, toAnalyticsLead } from "./overview/analytics";
 import { PipelineInsights } from "./pipeline-insights";
 import { LeadAssignmentTabs } from "./lead-assignment-tabs";
+import { clinicDate } from "@/lib/attendance";
+import { isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { EMPTY_LEAD_FILTERS } from "./lead-filters";
 
 const statCards = [
   {
@@ -71,7 +75,7 @@ function StatCardSection({ values }: { values: [number, number, number] }) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ employee?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ employee?: string; from?: string; to?: string; work?: string; day?: string }>;
 }) {
   const query = await searchParams;
   const { employee: selectedEmployee } = query;
@@ -169,13 +173,23 @@ export default async function DashboardPage({
   // ---- Employee default view: their own leads table, directly ----
   // Server-side scoping (RLS + assigned_to filter) limits the table to the
   // signed-in employee's own leads.
-  const [leadsResult, countsResult, insightsResult] = await Promise.all([getLeadsPage(1), getLeadCounts(), getPipelineInsights()]);
+  const today = clinicDate();
+  const day = isWorkDate(query.day ?? "") ? query.day! : today;
+  const work: DailyWorkKind = isDailyWorkKind(query.work ?? "") ? query.work as DailyWorkKind : "assigned";
+  const filters = { ...EMPTY_LEAD_FILTERS, work, day };
+  const [leadsResult, dailyResult] = await Promise.all([
+    getLeadsPage(1, 50, "", "", "", filters),
+    getDailyWorkCounts(day),
+  ]);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
-  const counts = countsResult.success
-    ? countsResult.data
-    : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
-  const values = [counts.total, counts.new, counts.hot];
-  const insights = insightsResult.success ? insightsResult.data : null;
+  const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const isToday = day === today;
+  const dailyCards = [
+    { key: "assigned" as const, label: "New assignments", detail: "Leads assigned to you on this date", icon: UserPlus, tone: "border-blue-200 bg-blue-50 text-blue-800" },
+    { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+    { key: "ipd" as const, label: "IPD appointments", detail: "Patients with an IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
+  ];
+  const selectedCard = dailyCards.find((card) => card.key === work)!;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
@@ -183,17 +197,50 @@ export default async function DashboardPage({
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-          Dashboard Overview
+          {isToday ? "My day" : "My daily work"}
         </h1>
         <p className="mt-2 text-sm text-slate-500">
-          Keep track of your pipeline and lead activity.
+          {dayLabel} · New calling assignments and patient appointments, all in one place.
         </p>
+        <form key={day} action="/dashboard" className="mt-4 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="work" value={work} />
+          <label className="text-xs font-medium text-slate-600">Work date
+            <input type="date" name="day" defaultValue={day} required className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" />
+          </label>
+          <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">View day</button>
+        </form>
       </div>
 
-      <StatCardSection values={[values[0], values[1], values[2]]} />
-
-      <LeadsTable leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} role={viewer?.role ?? "employee"} />
-      {insights && <PipelineInsights insights={insights} />}
+      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-3">
+        {dailyCards.map(({ key, label, detail, icon: Icon, tone }) => (
+          <Link key={key} href={`/dashboard?work=${key}&day=${day}#today-leads`} aria-current={work === key ? "page" : undefined}
+            className={`rounded-2xl border p-5 shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${tone} ${work === key ? "ring-2 ring-current ring-offset-2" : ""}`}>
+            <div className="flex items-center justify-between"><span className="text-sm font-semibold">{isToday ? "Today’s " : ""}{label}</span><Icon className="size-5" aria-hidden="true" /></div>
+            <p className="mt-4 text-4xl font-semibold tabular-nums">{dailyResult.success ? dailyResult.data[key].toLocaleString() : "—"}</p>
+            <p className="mt-2 text-xs opacity-80">{detail}</p>
+            <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold">View leads <ArrowRight className="size-3" aria-hidden="true" /></span>
+          </Link>
+        ))}
+      </section>
+      {(!dailyResult.success || !leadsResult.success) && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Daily work could not be loaded. Please refresh or contact your administrator.</p>}
+      <section id="today-leads" className="scroll-mt-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsPage.total.toLocaleString()} leads</p></div>
+          <div className="flex gap-3 text-sm font-medium">
+            {!isToday && <Link href="/dashboard" className="text-blue-700 hover:underline">Back to today</Link>}
+            <Link href="/dashboard/leads" className="text-blue-700 hover:underline">All my leads</Link>
+          </div>
+        </div>
+        {work === "assigned" && <p className="text-xs text-slate-500">Assignments are tracked from the daily-work update onwards. Older assignments without a recorded date remain in All my leads.</p>}
+        {leadsResult.success && leadsPage.total === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+            <p className="font-semibold text-slate-800">No {selectedCard.label.toLowerCase()} for this date</p>
+            <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
+          </div>
+        ) : (
+          <LeadsTable key={`${work}-${day}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} />
+        )}
+      </section>
     </div>
   );
 }

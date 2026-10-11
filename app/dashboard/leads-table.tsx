@@ -74,6 +74,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
+import { DAILY_WORK_LABELS } from "@/lib/daily-work";
 import {
   AGE_CHIP_BUCKETS,
   EMPTY_LEAD_FILTERS,
@@ -276,6 +277,7 @@ function drillDownChips(filters: LeadListFilters): {
   const chips: { key: string; label: string; next: Partial<LeadListFilters> }[] = [];
 
   const stageKeys = stageFilterKeys(filters.stage);
+  if (filters.work) chips.push({ key: "work", label: `${DAILY_WORK_LABELS[filters.work]} · ${filters.day}`, next: { work: "", day: "" } });
   for (const key of stageKeys) {
     chips.push({
       key: `stage-${key}`,

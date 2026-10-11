@@ -39,6 +39,7 @@ import { STAGE_TARGET_STATUS, stageForStatus } from "../app/dashboard/overview/a
 // 1. Round trip: a chart click link parses back to the exact same filter set.
 // ---------------------------------------------------------------------------
 const original: LeadListFilters = {
+  ...EMPTY_LEAD_FILTERS,
   q: "",
   stage: "booked,attended,surgery",
   treatment: "other",

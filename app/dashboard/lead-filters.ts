@@ -9,6 +9,7 @@ import {
   type AnalyticsLead,
   type StageKey,
 } from "./overview/analytics.ts";
+import { DAILY_WORK_LABELS, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "../../lib/daily-work.ts";
 
 // ---------------------------------------------------------------------------
 // Aurevia CRM — Lead list filters + age buckets.
@@ -234,6 +235,8 @@ export function shortLeadAge(value: Date | string | null | undefined, today = ne
 // ---------------------------------------------------------------------------
 
 export interface LeadListFilters {
+  work?: DailyWorkKind | "";
+  day?: string;
   /** Free-text search (name / phone / treatment). */
   q: string;
   /** Pipeline stage key(s), comma-separated for KPI cards (new | contacted | booked | attended | surgery | lost). */
@@ -259,6 +262,8 @@ export interface LeadListFilters {
 }
 
 export const EMPTY_LEAD_FILTERS: LeadListFilters = {
+  work: "",
+  day: "",
   q: "",
   stage: "",
   treatment: "",
@@ -281,6 +286,8 @@ function firstValue(value: string | string[] | undefined): string {
 
 export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
   return {
+    work: isDailyWorkKind(firstValue(params.work)) && isWorkDate(firstValue(params.day)) ? firstValue(params.work) as DailyWorkKind : "",
+    day: isWorkDate(firstValue(params.day)) ? firstValue(params.day) : "",
     q: firstValue(params.q),
     stage: firstValue(params.stage),
     treatment: firstValue(params.treatment),
@@ -300,6 +307,7 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
 /** True when at least one drill-down filter is active (drives the summary bar). */
 export function hasLeadFilters(filters: LeadListFilters): boolean {
   return (
+    Boolean(filters.work) ||
     filters.q.length > 0 ||
     filters.stage.length > 0 ||
     filters.treatment.length > 0 ||
@@ -370,6 +378,7 @@ export function filterChipLabels(): Record<string, string> {
 export function describeActiveFilters(filters: LeadListFilters): string[] {
   const labels = filterChipLabels();
   const chips: string[] = [];
+  if (filters.work) chips.push(`${DAILY_WORK_LABELS[filters.work]} · ${filters.day}`);
   for (const key of stageFilterKeys(filters.stage)) chips.push(labels[key] ?? prettifyFilterKey(key));
   if (filters.treatment) chips.push(labels[filters.treatment] ?? prettifyFilterKey(filters.treatment));
   if (filters.age) chips.push(ageBucketLabel(filters.age));

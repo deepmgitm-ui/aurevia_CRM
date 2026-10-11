@@ -3,6 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
+import { clinicDate } from "@/lib/attendance";
+import { applyDailyWorkFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -559,6 +561,8 @@ async function getDistinctTreatmentValues(supabase: LeadsSupabaseClient): Promis
 
 /** The resolved drill-down filters, ready to chain onto any leads query. */
 interface ResolvedLeadFilters {
+  work: DailyWorkKind | null;
+  day: string;
   /** No row can match — the caller short-circuits with an empty page. */
   empty: boolean;
   inFilters: { column: string; values: string[] }[];
@@ -574,6 +578,8 @@ interface ResolvedLeadFilters {
 
 function emptyResolvedFilters(): ResolvedLeadFilters {
   return {
+    work: null,
+    day: "",
     empty: false,
     inFilters: [],
     orExpressions: [],
@@ -618,6 +624,7 @@ function intersectWindows(a: AgeWindow | null, b: AgeWindow | null): AgeWindow |
 
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
+  if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
   // (stage AND treatment AND age ...).
@@ -651,6 +658,10 @@ async function resolveLeadFilters(
 ): Promise<ResolvedLeadFilters> {
   const resolved = emptyResolvedFilters();
   if (!filters) return resolved;
+  if (isDailyWorkKind(filters.work ?? "") && isWorkDate(filters.day ?? "")) {
+    resolved.work = filters.work as DailyWorkKind;
+    resolved.day = filters.day!;
+  }
 
   const stageKeys = stageFilterKeys(filters.stage ?? "");
   const treatment = (filters.treatment ?? "").trim();
@@ -1003,6 +1014,27 @@ export async function getLeadMonthTally(): Promise<ActionResult<LeadMonthTally[]
     .map(([key, count]) => ({ key, label: monthFilterLabel(key), count }));
 
   return { success: true, data: tally };
+}
+
+export async function getDailyWorkCounts(day = clinicDate()): Promise<ActionResult<Record<DailyWorkKind, number>>> {
+  try {
+    if (!isWorkDate(day)) return { success: false, error: "Invalid work date." };
+    const viewerResult = await getViewer();
+    const viewer = viewerResult.success ? viewerResult.data : null;
+    if (!viewer?.name.trim()) return { success: false, error: "Sign in to see your daily work." };
+    const supabase = await createClient();
+    const kinds: DailyWorkKind[] = ["assigned", "opd", "ipd"];
+    const results = await Promise.all(kinds.map((kind) =>
+      applyDailyWorkFilter(
+        buildScopedLeadsQuery(supabase, viewer.role, viewer.name, true, viewer.name), kind, day,
+      ),
+    ));
+    const failed = results.find((result) => result.error);
+    if (failed?.error) return { success: false, error: "Daily work is unavailable. Please contact your administrator." };
+    return { success: true, data: { assigned: results[0].count ?? 0, opd: results[1].count ?? 0, ipd: results[2].count ?? 0 } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load daily work.") };
+  }
 }
 
 export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadCounts>> {
