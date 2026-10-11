@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, X } from "lucide-react";
-import { getRecognizedLeadImportFields, normalizeLeadImportHeader } from "@/lib/lead-import";
+import {
+  findLeadImportHeaderRow,
+  getRecognizedLeadImportFields,
+  leadImportGridToRecords,
+  normalizeLeadImportHeader,
+} from "@/lib/lead-import";
 
 import {
   addLeadActivity,
@@ -116,48 +121,21 @@ interface ImportRow {
 // only export async functions, so the constant is duplicated here).
 const LEADS_PAGE_SIZE = 50;
 
-// "Magic Paste": Excel / Google Sheets copies land on the clipboard as
-// Tab-Separated Values (TSV). Rows are split by newlines and columns by tabs;
-// the first pasted row is treated as the header row and every cell is keyed by
-// its header. That means the EXACT same flexible, case-insensitive column
-// mapping used for CSV/Excel imports applies downstream in bulkInsertLeads
-// (name/patient -> name, phone/contact -> contact, city/location/area ->
-// city, treatment/disease -> treatment, remarks/notes -> remarks, ...), and
-// unmapped/missing fields fall back to "-" automatically.
+// "Magic Paste" accepts the same delimited formats as CSV import. The shared
+// parser finds a likely header row and all remaining columns use the same
+// flexible server-side mapping as uploaded spreadsheets.
 function parsePastedTable(text: string): ImportRow[] {
-  const rows = text
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .filter((row) => row.trim().length > 0);
-  if (rows.length === 0) return [];
-
-  const headers = rows[0].split("\t").map((header) => header.trim());
-  const records: ImportRow[] = [];
-  for (const row of rows.slice(1)) {
-    const cells = row.split("\t");
-    const record: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      if (!header) return;
-      record[header] = (cells[index] ?? "").trim();
-    });
-    records.push(record as ImportRow);
-  }
-  return records;
+  const result = Papa.parse<unknown[]>(text, { skipEmptyLines: "greedy" });
+  return leadImportGridToRecords(result.data).map((record) => record as ImportRow);
 }
 
-// Reads just the first non-empty line's headers of the pasted TSV.
+// Reads the detected header row from pasted delimited data.
 function getPastedHeaders(text: string): string[] {
-  const firstLine = text
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .find((row) => row.trim().length > 0);
-  if (!firstLine) return [];
-  return firstLine
-    .split("\t")
-    .map((header) => header.trim())
-    .filter(Boolean);
+  const rows = Papa.parse<unknown[]>(text, { skipEmptyLines: "greedy" }).data;
+  const headerRow = findLeadImportHeaderRow(rows);
+  return headerRow < 0
+    ? []
+    : rows[headerRow].map((cell) => String(cell ?? "").trim()).filter(Boolean);
 }
 
 function formatDate(value: string): string {
@@ -827,16 +805,25 @@ export function LeadsTable({
     const extension = file.name.split(".").pop()?.toLowerCase();
 
     if (extension === "csv") {
-      Papa.parse<ImportRow>(file, {
-        header: true,
-        skipEmptyLines: true,
+      Papa.parse<unknown[]>(file, {
+        skipEmptyLines: "greedy",
         complete: (result) => {
           if (result.errors.length > 0) {
             setIsImporting(false);
             toast.add({ title: "Import could not be read", description: result.errors[0].message, type: "error" });
             return;
           }
-          void processImportedRows(result.data, file.name);
+          const rows = leadImportGridToRecords(result.data) as ImportRow[];
+          if (rows.length === 0) {
+            setIsImporting(false);
+            toast.add({
+              title: "Lead headers not recognized",
+              description: "The CSV needs a header row with a name, phone, email, or other lead column.",
+              type: "error",
+            });
+            return;
+          }
+          void processImportedRows(rows, file.name);
         },
         error: (error) => {
           setIsImporting(false);
@@ -856,14 +843,39 @@ export function LeadsTable({
           }
 
           const workbook = XLSX.read(buffer, { type: "array" });
-          const firstSheetName = workbook.SheetNames[0];
-          if (!firstSheetName) {
+          if (workbook.SheetNames.length === 0) {
             throw new Error("The Excel file does not contain a worksheet.");
           }
 
-          const worksheet = workbook.Sheets[firstSheetName];
-          const rows = XLSX.utils.sheet_to_json<ImportRow>(worksheet, { defval: "" });
-          void processImportedRows(rows, file.name);
+          const sheets = workbook.SheetNames.map((sheetName) => {
+            const worksheet = workbook.Sheets[sheetName];
+            const grid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+              header: 1,
+              defval: "",
+              raw: false,
+            });
+            const headerRow = findLeadImportHeaderRow(grid);
+            return {
+              sheetName,
+              rows: leadImportGridToRecords(grid) as ImportRow[],
+              recognizedFields: headerRow < 0
+                ? []
+                : getRecognizedLeadImportFields(
+                    grid[headerRow].map((cell) => String(cell ?? "").trim()),
+                  ),
+            };
+          });
+          const bestSheet = sheets
+            .filter((sheet) => sheet.rows.length > 0)
+            .sort(
+              (left, right) =>
+                right.recognizedFields.length * 10000 + right.rows.length -
+                (left.recognizedFields.length * 10000 + left.rows.length),
+            )[0];
+          if (!bestSheet) {
+            throw new Error("No worksheet had a recognizable lead header. Include a name, phone, or email column.");
+          }
+          void processImportedRows(bestSheet.rows, `${file.name} (${bestSheet.sheetName})`);
         } catch (error) {
           setIsImporting(false);
           toast.add({
@@ -893,8 +905,9 @@ export function LeadsTable({
     const rows = parsePastedTable(pastedData);
     if (rows.length === 0) {
       toast.add({
-        title: "Nothing to add",
-        description: "Paste your Excel or Google Sheets data first (the first row must be the header row).",
+        title: "Lead headers not recognized",
+        description:
+          "Paste the table with its column headers. Supported headers include name/patient, phone/mobile, city/location, treatment, date, source, status and remarks.",
         type: "error",
       });
       return;
@@ -2111,18 +2124,19 @@ export function LeadsTable({
           <DialogHeader>
             <DialogTitle>Paste from Excel / Google Sheets</DialogTitle>
             <DialogDescription>
-              Rows are split by lines, columns by tabs. Missing columns and blank cells are filled automatically, invalid dates fall back to today, and duplicate phone numbers are skipped.
+              Paste copied cells or delimited text with headers. Header rows can be below a title; duplicate phone numbers are skipped.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
             <p className="font-medium">
-              Headers needed (any order): Name, Phone, City, Disease, Remarks, Date. Copy your data with headers and paste below.
+              Headers can use common names such as Patient / Customer, Mobile / WhatsApp, City / Location, Treatment / Query, Date, Source, Status, or Notes. Columns can be in any order.
             </p>
+            <p className="mt-1">Any other filled-in columns are kept in the lead remarks so form answers are not lost.</p>
             {pastePreview.rowCount > 0 && (
               <p className="mt-1">
                 {pastePreview.recognized.length > 0
                   ? `Detected columns: ${pastePreview.recognized.join(", ")}.`
-                  : "No recognized column headers found — check that your first pasted row contains headers like Name or Phone."}
+                  : "No recognized column headers found — include column headers such as Name, Phone, or Email."}
               </p>
             )}
           </div>

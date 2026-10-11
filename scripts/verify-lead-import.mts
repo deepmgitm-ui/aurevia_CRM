@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  findLeadImportHeaderRow,
   findLeadImportValue,
+  getUnmappedLeadImportValues,
   getRecognizedLeadImportFields,
+  leadImportGridToRecords,
   normalizeImportedLeadStatus,
 } from "../lib/lead-import.ts";
 
@@ -38,9 +41,44 @@ assert.equal(normalizeImportedLeadStatus("New Lead"), "New");
 assert.equal(normalizeImportedLeadStatus("Lost"), "Dropped");
 assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow Up");
 assert.equal(findLeadImportValue(googleExport, "status"), "New Lead");
+assert.equal(findLeadImportValue({ "First Name": "Asha", Surname: "Sharma" }, "name"), "Asha Sharma");
+assert.equal(
+  findLeadImportValue({ "Original Mobile Number": "", "Phone (WhatsApp)": "+91 9876543210" }, "phone"),
+  "+91 9876543210",
+);
+assert.equal(
+  findLeadImportValue({ "Treatment / Procedure Interested In": "LASIK" }, "disease"),
+  "LASIK",
+);
+assert.equal(
+  findLeadImportValue({ "Preferred Time": "Evening" }, "remarks"),
+  "Evening",
+);
+assert.equal(findLeadImportValue({ "Lead Stage": "Pre OPD" }, "status"), undefined);
+assert.deepEqual(getUnmappedLeadImportValues({ "Preferred Time": "Evening", "Lead Stage": "Pre OPD" }), [
+  "Lead Stage: Pre OPD",
+]);
 assert.deepEqual(
   getRecognizedLeadImportFields(Object.keys(googleExport)),
   ["Name", "Phone", "City", "Lead date", "Source", "Status"],
+);
+
+const titledExport = [
+  ["Monthly Leads Export"],
+  ["Exported from CRM"],
+  ["Patient Name", "WhatsApp Number", "Treatment / Procedure", "Town"],
+  ["Asha Sharma", "9876543210", "Cataract", "Pune"],
+];
+assert.equal(findLeadImportHeaderRow(titledExport), 2);
+const parsedTitledRows = leadImportGridToRecords(titledExport);
+assert.equal(parsedTitledRows.length, 1);
+assert.equal(findLeadImportValue(parsedTitledRows[0], "name"), "Asha Sharma");
+assert.equal(findLeadImportValue(parsedTitledRows[0], "phone"), "9876543210");
+assert.equal(findLeadImportValue(parsedTitledRows[0], "city"), "Pune");
+assert.equal(
+  findLeadImportHeaderRow([["Contact Phone", "Date of Registration"], ["9876543210", "11/10/2026"]]),
+  0,
+  "a phone header is enough to identify a simple header row",
 );
 
 console.log("Lead import header mappings verified.");

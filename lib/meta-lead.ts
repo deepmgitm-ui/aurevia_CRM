@@ -44,39 +44,80 @@ export interface MetaLeadFields {
 
 /** Exact label aliases (already normalised) per column. */
 export const META_FIELD_ALIASES = {
-  name: ["full_name", "name", "first_name", "patient_name", "your_name", "username"],
+  name: [
+    "full_name",
+    "patient_full_name",
+    "customer_name",
+    "patient_name",
+    "contact_name",
+    "your_name",
+    "name",
+    "username",
+  ],
   phone: [
+    "original_mobile_number",
+    "primary_phone_number",
+    "alternate_phone_number",
+    "telephone_number",
     "phone_number",
     "phone",
     "mobile",
     "mobile_number",
+    "mobile_no",
+    "phone_no",
     "contact_number",
     "contact_no",
     "contact",
     "whatsapp_number",
+    "whatsapp_phone",
+    "whatsapp_mobile",
     "whatsapp",
+    "tel",
   ],
-  email: ["email_address", "email", "email_id", "e_mail"],
+  email: ["email_address", "email", "email_id", "e_mail", "mail"],
   gender: ["gender", "sex"],
-  city: ["city", "town", "location", "area", "city_name", "place"],
+  city: [
+    "city",
+    "town",
+    "location",
+    "area",
+    "city_name",
+    "current_city",
+    "district",
+    "residence",
+    "place",
+  ],
   disease: [
     "disease",
     "treatment",
     "treatment_type",
     "treatment_required",
+    "treatment_interested_in",
+    "interested_treatment",
     "service",
     "service_interested_in",
     "procedure",
+    "procedure_interested_in",
     "surgery",
     "condition",
     "eye_problem",
     "eye_issue",
+    "eye_condition",
     "problem",
     "health_concern",
     "interested_in",
     "requirement",
+    "query",
+    "department",
   ],
-  insuranceStatus: ["insurance_status", "insurance", "insurance_provider", "mediclaim", "insurance_company"],
+  insuranceStatus: [
+    "insurance_status",
+    "insurance",
+    "insurance_provider",
+    "mediclaim",
+    "medical_insurance",
+    "insurance_company",
+  ],
   remarks: [
     "remarks",
     "remark",
@@ -89,6 +130,11 @@ export const META_FIELD_ALIASES = {
     "comments",
     "query",
     "additional_information",
+    "additional_comments",
+    "other_details",
+    "other_information",
+    "description",
+    "preferred_call_time",
     "anything_else",
   ],
 } as const;
@@ -145,17 +191,31 @@ export function metaFieldLabel(field: MetaField): string {
 /** First value of the first field whose normalised label is in `labels`. */
 export function metaFieldValue(fields: MetaField[], labels: readonly string[]): string | null {
   const wanted = new Set(labels.map((label) => normalizeMetaLabel(label)));
-  const field = fields.find((candidate) => wanted.has(metaFieldLabel(candidate)));
-  return metaString(field?.values?.[0]);
+  const field = fields.find(
+    (candidate) =>
+      wanted.has(metaFieldLabel(candidate)) &&
+      Boolean(candidate.values?.some((value) => metaString(value)?.trim())),
+  );
+  return metaFieldValues(field);
 }
 
 /** First value of the first field whose label CONTAINS any keyword. */
 export function metaFieldMatching(fields: MetaField[], keywords: readonly string[]): string | null {
   const field = fields.find((candidate) => {
     const label = metaFieldLabel(candidate);
+    if (!candidate.values?.some((value) => metaString(value)?.trim())) return false;
+    if (keywords.includes("name") && /\b(campaign|ad|form|page|account)_/.test(label)) return false;
     return keywords.some((keyword) => label.includes(normalizeMetaLabel(keyword)));
   });
-  return metaString(field?.values?.[0]);
+  return metaFieldValues(field);
+}
+
+function metaFieldValues(field: MetaField | undefined): string | null {
+  if (!field?.values) return null;
+  const values = field.values
+    .map((value) => metaString(value))
+    .filter((value): value is string => Boolean(value?.trim()));
+  return values.length ? values.join(", ") : null;
 }
 
 /** Last 10 digits — how Indian numbers are stored everywhere else in the CRM. */
@@ -197,8 +257,14 @@ export function detectTreatmentInText(text: string): string {
  * for a treatment keyword so even an oddly named form lands in the right bucket.
  */
 export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
+  const firstName = metaFieldValue(fields, ["first_name", "given_name", "firstname"]);
+  const lastName = metaFieldValue(fields, ["last_name", "family_name", "surname", "lastname"]);
+  const combinedName = [firstName, lastName].filter(Boolean).join(" ");
   const name =
-    metaFieldValue(fields, META_FIELD_ALIASES.name) ?? metaFieldMatching(fields, META_FIELD_KEYWORDS.name) ?? "";
+    metaFieldValue(fields, META_FIELD_ALIASES.name) ??
+    combinedName ??
+    metaFieldMatching(fields, META_FIELD_KEYWORDS.name) ??
+    "";
   const phone =
     metaFieldValue(fields, META_FIELD_ALIASES.phone) ?? metaFieldMatching(fields, META_FIELD_KEYWORDS.phone);
   const email =
@@ -209,12 +275,12 @@ export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
   const disease =
     metaFieldValue(fields, META_FIELD_ALIASES.disease) ?? metaFieldMatching(fields, META_FIELD_KEYWORDS.disease);
   const insuranceStatus = metaFieldValue(fields, META_FIELD_ALIASES.insuranceStatus);
-  const remarkField = metaFieldValue(fields, META_FIELD_ALIASES.remarks);
-
   // Anything the form asked that we have no column for is worth keeping — it is
-  // usually "preferred time", "how did you hear about us", etc.
+  // usually a remark or custom question such as "preferred time".
   const knownLabels = new Set<string>(
-    Object.values(META_FIELD_ALIASES).flatMap((labels) => [...labels]),
+    Object.entries(META_FIELD_ALIASES)
+      .filter(([column]) => column !== "remarks")
+      .flatMap(([, labels]) => [...labels]),
   );
   const extras = fields
     .filter((field) => {
@@ -227,7 +293,7 @@ export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
       return `${label}: ${metaString(field?.values?.[0]) ?? ""}`;
     });
 
-  const remarks = [remarkField ?? "", ...extras].filter(Boolean).join(" | ");
+  const remarks = extras.join(" | ");
   const resolvedDisease = dashIfEmpty(disease);
 
   return {
@@ -244,4 +310,3 @@ export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
     remarks: dashIfEmpty(remarks),
   };
 }
-

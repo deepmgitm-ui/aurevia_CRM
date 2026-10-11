@@ -57,6 +57,19 @@ assert.equal(custom.city, "Pune", "a custom city question must still fill the ci
 assert.equal(custom.disease, "Lasik", "a custom treatment question must still fill the treatment column");
 assert.ok(custom.remarks.includes("preferred call time: Evening"), "unknown questions are preserved in remarks");
 
+const splitNameForm = [
+  { field_name: "first_name", values: ["Asha"] },
+  { field_name: "last_name", values: ["Sharma"] },
+  { field_name: "whatsapp_mobile", values: ["+91 98765 43210"] },
+  { field_name: "what_city_do_you_live_in", values: ["Nagpur"] },
+  { field_name: "which_procedure_are_you_interested_in", values: ["LASIK", "Cataract"] },
+];
+const splitName = extractMetaLead(splitNameForm);
+assert.equal(splitName.name, "Asha Sharma");
+assert.equal(splitName.phone, "9876543210");
+assert.equal(splitName.city, "Nagpur");
+assert.equal(splitName.disease, "LASIK, Cataract");
+
 // ---------------------------------------------------------------------------
 // 4. Odd but common shapes.
 // ---------------------------------------------------------------------------

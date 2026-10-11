@@ -45,7 +45,11 @@ import {
   normaliseAppointmentDate,
 } from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
-import { findLeadImportValue, normalizeImportedLeadStatus } from "@/lib/lead-import";
+import {
+  findLeadImportValue,
+  getUnmappedLeadImportValues,
+  normalizeImportedLeadStatus,
+} from "@/lib/lead-import";
 
 export type LeadStatus = string;
 
@@ -1620,6 +1624,11 @@ export async function bulkInsertLeads(
       // The sheet's own source column wins whenever it has one.
       const importedSource = text("source");
       const importedStatus = text("status");
+      const additionalDetails = getUnmappedLeadImportValues(candidate);
+      const importedRemarks = [
+        text("remarks"),
+        ...additionalDetails,
+      ].filter(Boolean).join(" | ");
 
       records.push({
         name: dashIfEmpty(name),
@@ -1630,7 +1639,7 @@ export async function bulkInsertLeads(
         city: dashIfEmpty(text("city")),
         disease: dashIfEmpty(text("disease")),
         insurance_status: dashIfEmpty(text("insurance")),
-        remarks: dashIfEmpty(text("remarks")),
+        remarks: dashIfEmpty(importedRemarks),
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: importedSource || batchSource,
