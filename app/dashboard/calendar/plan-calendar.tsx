@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
 import { buildMonthCells, ensureArray } from "./month-grid";
+import { AppointmentStatusActions } from "./appointment-status-actions";
 import { AppointmentEditor } from "./appointment-editor";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -242,7 +243,7 @@ export function PlanCalendar({
                   <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
                     {ensureArray(day.reminders).slice(0, 3).map((reminder) => (
                       <ReminderDot
-                        key={`${reminder.leadId}-${reminder.kind}`}
+                        key={reminder.appointmentId}
                         kind={reminder.kind}
                         past={reminder.past}
                       />
@@ -337,11 +338,12 @@ function ReminderCard({
         {reminder.past && <Badge variant="secondary">Past</Badge>}
       </div>
       <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-        <span>{reminder.kindLabel}</span>
+        <span>{reminder.kindLabel}{reminder.time ? ` · ${reminder.time} IST` : ""}</span>
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
       {reminder.phone !== "-" && <a href={`tel:${reminder.phone.replace(/[^+\d]/g, "")}`} className="mt-2 inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Call {reminder.phone}</a>}
-      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} label="Edit appointment" /></div>}
+      <AppointmentStatusActions id={reminder.appointmentId} status={reminder.appointmentStatus}/>
+      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} appointmentId={reminder.appointmentId} updatedAt={reminder.updatedAt} status={reminder.appointmentStatus} time={reminder.time} notes={reminder.notes} label="Edit appointment" /></div>}
     </article>
   );
 }

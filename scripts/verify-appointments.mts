@@ -62,7 +62,8 @@ assert.equal(appointmentForStatus("IPD DONE")?.kind, "ipdDone", "all caps still 
 assert.equal(appointmentForStatus(""), null, "an empty status has no date");
 assert.equal(appointmentForStatus("   "), null, "whitespace is not a status");
 assert.equal(appointmentForStatus("OPD Booked extra"), null, "a near-miss is NOT matched");
-assert.equal(appointmentForStatus("IPD Booked"), null, "IPD Booked is not an appointment status here");
+assert.equal(appointmentForStatus("IPD Booked")?.column,"ipd_done_date","IPD booking uses the scheduled admission date");
+assert.equal(isWonStatus("IPD Booked"),false,"a scheduled admission is not completed work");
 
 // ---------------------------------------------------------------------------
 // 6. "Won" is derived, never stored. Reaching an OPD or IPD IS the win.

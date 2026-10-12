@@ -18,11 +18,20 @@ export interface CalendarEntryInput {
   remarks: string;
   assignedTo: string;
   updateStatus: boolean;
+  appointmentId?: string;
+  expectedAppointmentUpdatedAt?: string;
+  appointmentStatus?: string;
+  time?: string;
+  appointmentNotes?: string;
 }
 
 export function validateCalendarEntry(input: CalendarEntryInput): string | null {
   if (!input || !["new", "existing"].includes(input.mode)) return "Choose an existing lead or a new patient.";
   if (!Object.hasOwn(CALENDAR_ENTRY_TYPES, input.kind)) return "Choose a valid appointment type.";
+  if(input.appointmentStatus && !["booked","confirmed","arrived","completed","cancelled","no_show"].includes(input.appointmentStatus)) return "Choose a valid appointment status.";
+  if(input.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) return "Choose a valid appointment time.";
+  if(input.appointmentNotes && input.appointmentNotes.length>5000) return "Appointment notes are too long.";
+  if(input.appointmentId && !input.expectedAppointmentUpdatedAt) return "Reopen the appointment before saving.";
   if (!isWorkDate(input.date)) return "Choose a valid appointment date.";
   if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 200) return "Patient name is required (maximum 200 characters).";
   if (typeof input.phone !== "string" || typeof input.city !== "string" || typeof input.remarks !== "string" || typeof input.assignedTo !== "string" || typeof input.updateStatus !== "boolean") return "Invalid patient details.";

@@ -1,3 +1,7 @@
+# Updated October 2026
+
+For current limits, capacity assumptions and rollout instructions, see [CRM operations](CRM-OPERATIONS.md). The notes below describe the earlier September implementation; aggregate queries have now replaced the old analytics projection.
+
 # Aurevia CRM — What shipped, what to add next, and how to stay free
 
 > Bhaiyon wali summary: site tez rahe, Supabase free tier me rahe, aur har lead

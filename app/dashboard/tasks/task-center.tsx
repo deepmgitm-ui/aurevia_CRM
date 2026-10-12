@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CalendarClock, CheckCircle2, MessageCircle, Phone, RotateCcw, Search } from "lucide-react";
 
 import {
@@ -8,6 +8,9 @@ import {
   logLeadCall,
   rescheduleFollowUp,
 } from "@/app/actions/leads";
+import { getTaskPage, type TaskPageData } from "@/app/actions/crm-workflows";
+import { trackLeadMutations } from "../lead-mutation-tracker";
+import { CALL_OUTCOMES } from "@/lib/calls";
 import { getLeadPriorityScore, getPriorityLabel } from "@/lib/lead-score";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -28,6 +31,7 @@ export type TaskLead = {
   assigned_to: string | null;
   source: string;
   remarks: string;
+  follow_up_at?: string | null;
 };
 
 function dateKey(value: string): string {
@@ -40,8 +44,7 @@ function dateKey(value: string): string {
 }
 
 function todayKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Kolkata"}).format(new Date());
 }
 
 function displayDate(value: string): string {
@@ -51,8 +54,9 @@ function displayDate(value: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
+export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLead[]; initialPage: TaskPageData }) {
   const [leads, setLeads] = useState(initialLeads);
+  const [page,setPage]=useState(1),[total,setTotal]=useState(initialPage.total),[stats,setStats]=useState(initialPage.stats),[loading,setLoading]=useState(false),[requestError,setRequestError]=useState(""),[nextTime,setNextTime]=useState("");
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<"all" | "overdue" | "today" | "upcoming">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -63,39 +67,13 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
 
   const today = todayKey();
 
-  const stats = useMemo(() => {
-    let overdue = 0;
-    let todayCount = 0;
-    let upcoming = 0;
-    for (const lead of leads) {
-      const key = dateKey(lead.follow_up_date);
-      if (key < today) overdue += 1;
-      else if (key === today) todayCount += 1;
-      else if (key > today) upcoming += 1;
-    }
-    return { overdue, today: todayCount, upcoming, total: leads.length };
-  }, [leads, today]);
-
-  const visible = useMemo(() => {
-    return [...leads]
-      .filter((lead) => {
-        const key = dateKey(lead.follow_up_date);
-        if (bucket === "overdue" && !(key < today)) return false;
-        if (bucket === "today" && key !== today) return false;
-        if (bucket === "upcoming" && !(key > today)) return false;
-        const term = query.trim().toLowerCase();
-        if (!term) return true;
-        return [lead.name, lead.phone ?? "", lead.disease, lead.status, lead.source, lead.assigned_to ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(term);
-      })
-      .sort((a, b) => {
-        const scoreDiff = getLeadPriorityScore(b) - getLeadPriorityScore(a);
-        if (scoreDiff !== 0) return scoreDiff;
-        return dateKey(a.follow_up_date).localeCompare(dateKey(b.follow_up_date));
-      });
-  }, [leads, bucket, query, today]);
+  const loadSequence=useRef(0);
+  async function load(nextBucket=bucket,nextQuery=query,nextPage=page){
+    const request=++loadSequence.current;setLoading(true);setRequestError("");
+    try{const response=await getTaskPage(nextBucket,nextQuery,nextPage);if(request!==loadSequence.current)return;if(response.success){const last=Math.max(1,Math.ceil(response.data.total/50));if(nextPage>last){await load(nextBucket,nextQuery,last);return;}setLeads(response.data.leads);setTotal(response.data.total);setStats(response.data.stats);setBucket(nextBucket);setPage(nextPage);}else setRequestError(response.error);}
+    catch{setRequestError("Follow-ups could not be loaded. Please retry.");}finally{if(request===loadSequence.current)setLoading(false);}
+  }
+  const visible=useMemo(()=>[...leads].sort((a,b)=>getLeadPriorityScore(b)-getLeadPriorityScore(a)||dateKey(a.follow_up_date).localeCompare(dateKey(b.follow_up_date))),[leads]);
 
   async function handleComplete(lead: TaskLead) {
     if (busyId) return;
@@ -113,6 +91,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
       toast.add({ title: "Unable to complete follow-up", description: result.error, type: "error" });
     } else {
       toast.add({ title: "Follow-up completed", description: lead.name, type: "success" });
+      await load();
     }
     setBusyId(null);
   }
@@ -121,13 +100,14 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
     setCallLead(lead);
     setCallOutcome("Connected");
     setCallNotes("");
-    setNextDate("");
+    setNextDate("");setNextTime("");
   }
 
-  async function handleLogCall() {
+  async function handleLogCall(moveNext=false) {
     if (!callLead || busyId) return;
     const lead = callLead;
     const previousDate = lead.follow_up_date;
+    trackLeadMutations(lead.id);
     setBusyId(callLead.id);
     if (nextDate) {
       setLeads((current) =>
@@ -141,6 +121,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
       outcome: callOutcome,
       notes: callNotes,
       next_follow_up_date: nextDate || null,
+      next_follow_up_time: nextTime || null,
     });
     if (!result.success) {
       if (nextDate) {
@@ -157,7 +138,9 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
         description: nextDate ? `Next follow-up set for ${displayDate(nextDate)}.` : "Call added to the activity timeline.",
         type: "success",
       });
-      setCallLead(null);
+      const next=visible[visible.findIndex(item=>item.id===lead.id)+1];
+      await load();
+      if(moveNext&&next)openCall(next);else setCallLead(null);
     }
     setBusyId(null);
   }
@@ -182,6 +165,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
       toast.add({ title: "Unable to reschedule", description: result.error, type: "error" });
     } else {
       toast.add({ title: "Follow-up rescheduled", description: `${lead.name} → ${displayDate(value)}`, type: "success" });
+      await load();
     }
     setBusyId(null);
   }
@@ -198,7 +182,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
           <button
             key={card.label}
             type="button"
-            onClick={() => setBucket(card.next)}
+            disabled={loading||Boolean(busyId)} onClick={() => void load(card.next,query,1)}
             className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-slate-400 ${card.active ? "border-slate-900 ring-1 ring-slate-900/10" : "border-slate-200"}`}
           >
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
@@ -210,9 +194,10 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search patient, phone, treatment, employee..." className="pl-9" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all follow-ups: patient, phone or agent" className="pl-9" onKeyDown={event=>{if(event.key==='Enter')void load(bucket,query,1);}} />
         </div>
-        <Button type="button" variant="outline" onClick={() => { setQuery(""); setBucket("all"); }}>
+        <Button disabled={loading} onClick={()=>void load(bucket,query,1)}>Search</Button>
+        <Button type="button" variant="outline" disabled={loading} onClick={() => { setQuery(""); void load("all","",1); }}>
           <RotateCcw aria-hidden="true" /> Reset
         </Button>
       </div>
@@ -262,7 +247,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div className={`font-semibold ${isOverdue ? "text-rose-600" : key === today ? "text-amber-600" : "text-slate-900"}`}>
-                        {displayDate(lead.follow_up_date)}
+                        {displayDate(lead.follow_up_date)}{lead.follow_up_at?` · ${new Date(lead.follow_up_at).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit"})}`:""}
                       </div>
                       <div className="mt-2 flex items-center gap-2">
                         <CalendarClock className="size-3.5 text-slate-400" />
@@ -298,7 +283,9 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
         </div>
       </div>
 
-      <Dialog open={Boolean(callLead)} onOpenChange={(open) => !open && setCallLead(null)}>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span role="status">{loading?"Loading...":`Page ${page} · ${total} matching follow-ups`}</span><div className="flex gap-2"><Button variant="outline" disabled={loading||page<=1} onClick={()=>void load(bucket,query,page-1)}>Previous</Button><Button variant="outline" disabled={loading||page*50>=total} onClick={()=>void load(bucket,query,page+1)}>Next</Button></div></div>
+      {requestError&&<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{requestError}</p>}
+      <Dialog open={Boolean(callLead)} onOpenChange={(open) => !open && !busyId && setCallLead(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Log call — {callLead?.name}</DialogTitle>
@@ -309,13 +296,7 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
               <Select value={callOutcome} onValueChange={(value) => setCallOutcome(String(value ?? ""))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Connected">Connected</SelectItem>
-                  <SelectItem value="No Answer">No Answer</SelectItem>
-                  <SelectItem value="DNP">DNP</SelectItem>
-                  <SelectItem value="RNR">RNR</SelectItem>
-                  <SelectItem value="Interested">Interested</SelectItem>
-                  <SelectItem value="Not Interested">Not Interested</SelectItem>
-                  <SelectItem value="Requested Callback">Requested Callback</SelectItem>
+                  {CALL_OUTCOMES.map(outcome=><SelectItem key={outcome} value={outcome}>{outcome}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -328,11 +309,13 @@ export function TaskCenter({ leads: initialLeads }: { leads: TaskLead[] }) {
               <Input id="next-follow-up" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} />
             </div>
           </div>
+          <label className="block text-sm">Callback time (IST)<Input type="time" value={nextTime} disabled={!nextDate} onChange={event=>setNextTime(event.target.value)}/></label>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCallLead(null)}>Cancel</Button>
             <Button type="button" disabled={!callLead || busyId === callLead.id} onClick={() => void handleLogCall()}>
               {busyId === callLead?.id ? "Saving..." : "Save Call"}
             </Button>
+            <Button type="button" variant="outline" disabled={!callLead || Boolean(busyId)} onClick={()=>void handleLogCall(true)}>Save & Next Lead</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

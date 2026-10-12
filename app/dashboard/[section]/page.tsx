@@ -4,6 +4,7 @@ import { Info } from "lucide-react";
 
 import {
   getAnalyticsLeads,
+  getLeadsPage,
   getEmployeeDirectory,
   getMyEmployeeProfile,
   getViewer,
@@ -207,7 +208,7 @@ function LeadListCard({
   const capped = rows.length > limit;
   return (
     <SectionCard
-      title={`${title} (${rows.length})`}
+      title={`${title} · recent records`}
       description={
         capped
           ? `${description} — showing the first ${limit}; the rest are in the Leads module.`
@@ -480,13 +481,14 @@ export default async function SectionPage({
   const [viewerResult, leadsResult, directoryResult] = await Promise.all([
     getViewer(),
     // Light projection (no `select('*')`) — only the columns the cards read.
-    getAnalyticsLeads(),
+    getAnalyticsLeads(query.from,query.to),
     getEmployeeDirectory(),
   ]);
 
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
-  const allRows = (leadsResult.success ? leadsResult.data : []).map(toAnalyticsLead);
+  if(!leadsResult.success) throw new Error(leadsResult.error);
+  const allRows = leadsResult.data.map(toAnalyticsLead);
   let employees = directoryResult.success ? directoryResult.data : [];
   let profileMessage: string | null = null;
   if (section === "agents" && viewer?.role === "employee") {
@@ -505,7 +507,9 @@ export default async function SectionPage({
   const metrics = resolveDashboardMetrics(allRows, range, employees);
   // Every lead list below must honour the window the screen opened on. Without
   // this a table would show patients the KPIs above it are not counting.
-  const rows = filterLeadsByRange(allRows, range);
+  const stage = section === "consultations" ? "booked,attended,surgery" : section === "surgeries" ? "surgery" : section === "patients" ? "contacted,booked,attended,surgery,lost" : "";
+  const preview=await getLeadsPage(1,50,"","","",{stage,dateFrom:range.from,dateTo:range.to});
+  const rows=filterLeadsByRange((preview.success?preview.data.leads:[]).map(toAnalyticsLead),range);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4">

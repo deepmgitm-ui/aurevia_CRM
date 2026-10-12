@@ -17,10 +17,8 @@ import {
   applyFilters,
   buildDashboardMetrics,
   collectFilterOptions,
-  createSampleMetrics,
   effectiveRange,
   emptyFilters,
-  resolveDashboardMetrics,
   type AnalyticsLead,
   type DashboardFilters,
   type DateRange,
@@ -122,27 +120,10 @@ export function OverviewDashboard({
     setFilters((current) => ({ ...current, from: range.from, to: range.to }));
   }
 
-  const isSample = rows.length === 0;
-  const sampleMetrics = useMemo(() => createSampleMetrics(range), [range]);
+  const isSample = false;
   const filteredRows = useMemo(() => applyFilters(rows, filters), [rows, filters]);
-
-  const metrics = useMemo(
-    () =>
-      isSample
-        ? resolveDashboardMetrics(rows, range, employees)
-        : buildDashboardMetrics(filteredRows, employees, effectiveRange(range, filters)),
-    [isSample, rows, employees, range, filteredRows, filters],
-  );
-
-  const options: FilterOptions = useMemo(() => {
-    if (!isSample) return collectFilterOptions(rows);
-    return {
-      cities: sampleMetrics.cities.map((city) => city.label),
-      sources: sampleMetrics.sources.map((source) => source.label),
-      treatments: sampleMetrics.treatmentSeries.map((entry) => entry.label),
-      agents: sampleMetrics.agents.map((agent) => agent.name),
-    };
-  }, [isSample, rows, sampleMetrics]);
+  const metrics = useMemo(()=>buildDashboardMetrics(filteredRows,employees,effectiveRange(range,filters)),[filteredRows,employees,range,filters]);
+  const options: FilterOptions = useMemo(()=>collectFilterOptions(rows),[rows]);
 
   const trendData = useMemo(() => bucketTrend(metrics.trend, granularity), [metrics.trend, granularity]);
 

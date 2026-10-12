@@ -9,6 +9,7 @@ import { getCalendarEditorLead, saveCalendarEntry, searchCalendarLeads, type Cal
 
 interface EditorProps {
   defaultDate: string; agents: string[]; leadId?: string; defaultKind?: CalendarEntryKind; label?: string;
+  appointmentId?:string;updatedAt?:string;status?:string;time?:string;notes?:string;
 }
 const inputClass = "mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-2 focus:outline-blue-500";
 const displayValue = (value?: string | null) => value && value !== "-" ? value : "";
@@ -27,7 +28,7 @@ export function AppointmentEditor(props: EditorProps) {
   );
 }
 
-function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, onSaving, onClose }: EditorProps & { onSaving: (value: boolean) => void; onClose: () => void }) {
+function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, appointmentId,updatedAt,status,time,notes, onSaving, onClose }: EditorProps & { onSaving: (value: boolean) => void; onClose: () => void }) {
   const router = useRouter();
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [selected, setSelected] = useState<CalendarEditorLead | null>(null);
@@ -37,6 +38,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, on
   const [loading, setLoading] = useState(Boolean(leadId));
   const [saving, setSaving] = useState(false);
   const saveLock = useRef(false);
+  const [appointmentStatus,setAppointmentStatus]=useState(status || (defaultKind==="opdDone"?"completed":"booked"));
   const [kind, setKind] = useState<CalendarEntryKind>(defaultKind);
   const [error, setError] = useState("");
   const [savedWarning, setSavedWarning] = useState("");
@@ -74,7 +76,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, on
       const response = await saveCalendarEntry({ mode, leadId: selected?.id, expectedUpdatedAt: selected?.updated_at,
         kind, date, name: String(data.get("name") ?? ""), phone: String(data.get("phone") ?? ""),
         city: String(data.get("city") ?? ""), remarks: String(data.get("remarks") ?? ""),
-        assignedTo: String(data.get("assignedTo") ?? ""), updateStatus: data.get("updateStatus") === "on" });
+        assignedTo: String(data.get("assignedTo") ?? ""), appointmentId,expectedAppointmentUpdatedAt:updatedAt,appointmentStatus:String(data.get("appointmentStatus")),time:String(data.get("time") ?? ""),appointmentNotes:String(data.get("appointmentNotes") ?? ""),updateStatus: data.get("updateStatus") === "on" });
       if (!response.success) { setError(response.error); return; }
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       router.push(`/dashboard/calendar?month=${date.slice(0, 7)}&date=${date}&view=${date < today ? "past" : "upcoming"}`);
@@ -90,7 +92,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, on
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
         <Button variant={mode === "existing" ? "default" : "outline"} disabled={loading || saving} onClick={() => { setMode("existing"); setError(""); }}>Existing patient / lead</Button>
-        <Button variant={mode === "new" ? "default" : "outline"} disabled={loading || saving} onClick={() => { setMode("new"); setError(""); }}>New patient / lead</Button>
+        <Button variant={mode === "new" ? "default" : "outline"} disabled={loading || saving || Boolean(appointmentId)} onClick={() => { setMode("new"); setError(""); }}>New patient / lead</Button>
       </div>
       {loading && <p role="status" className="text-sm text-slate-500">Loading patients...</p>}
       {mode === "existing" && !selected && <>
@@ -104,18 +106,21 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, on
       </>}
       {(mode === "new" || selected) && !loading && <form key={mode === "new" ? "new" : selected?.id} onSubmit={save} className="space-y-4">
         <fieldset disabled={saving} className="space-y-4">
-          {mode === "existing" && selected && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p>Current status: <strong>{selected.status}</strong> · Agent: {selected.assigned_to || "Unassigned"}</p><p className="mt-1">Current {CALENDAR_ENTRY_TYPES[kind].label} date: {selected[CALENDAR_ENTRY_TYPES[kind].column] || "Not set"}</p><button type="button" className="mt-2 font-semibold text-blue-700" onClick={() => { setSelected(null); setResults([]); setSearched(false); setError(""); }}>Choose / reload patient</button></div>}
+          {mode === "existing" && selected && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p>Current status: <strong>{selected.status}</strong> · Agent: {selected.assigned_to || "Unassigned"}</p><p className="mt-1">Current {CALENDAR_ENTRY_TYPES[kind].label} date: {selected[CALENDAR_ENTRY_TYPES[kind].column] || "Not set"}</p><button type="button" disabled={Boolean(appointmentId)} className="mt-2 font-semibold text-blue-700 disabled:hidden" onClick={() => { setSelected(null); setResults([]); setSearched(false); setError(""); }}>Choose / reload patient</button></div>}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-slate-600">Patient name<input name="name" required maxLength={200} defaultValue={mode === "existing" ? selected?.name : ""} className={inputClass} /></label>
             <label className="text-xs font-medium text-slate-600">Phone<input name="phone" type="tel" maxLength={30} defaultValue={mode === "existing" ? displayValue(selected?.phone) : ""} className={inputClass} /></label>
             <label className="text-xs font-medium text-slate-600">Appointment type<select value={kind} onChange={(event) => setKind(event.target.value as CalendarEntryKind)} className={inputClass}>{Object.entries(CALENDAR_ENTRY_TYPES).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
             <label className="text-xs font-medium text-slate-600">Appointment date<input type="date" name="date" required defaultValue={defaultDate} className={inputClass} /></label>
+            <label className="text-xs font-medium text-slate-600">Appointment status<select name="appointmentStatus" value={appointmentStatus} onChange={event=>setAppointmentStatus(event.target.value)} className={inputClass}>{["booked","confirmed","arrived","completed","cancelled","no_show"].map(value=><option key={value} value={value}>{value.replace('_',' ')}</option>)}</select></label>
+            <label className="text-xs font-medium text-slate-600">Time (IST, optional)<input type="time" name="time" defaultValue={time || ""} className={inputClass}/></label>
             <label className="text-xs font-medium text-slate-600">City<input name="city" maxLength={200} defaultValue={mode === "existing" ? displayValue(selected?.city) : ""} className={inputClass} /></label>
             {mode === "new" && <label className="text-xs font-medium text-slate-600">Assign to agent<select name="assignedTo" className={inputClass}><option value="">Unassigned</option>{agents.map((agent) => <option key={agent} value={agent}>{agent}</option>)}</select></label>}
           </div>
+          <label className="block text-xs font-medium text-slate-600">Appointment notes<textarea name="appointmentNotes" defaultValue={notes || ""} rows={2} maxLength={5000} className={inputClass}/></label>
           <label className="block text-xs font-medium text-slate-600">Patient notes<textarea name="remarks" maxLength={5000} rows={3} defaultValue={mode === "existing" ? displayValue(selected?.remarks) : ""} className={inputClass} /></label>
-          {mode === "existing" ? <label className="flex items-start gap-2 text-sm text-slate-600"><input name="updateStatus" type="checkbox" className="mt-1" /><span>Also change lead status to <strong>{CALENDAR_ENTRY_TYPES[kind].status}</strong></span></label> : <p className="text-xs text-slate-500">A new CRM lead will be created with status {CALENDAR_ENTRY_TYPES[kind].status} and this appointment date.</p>}
-          <p className="text-xs text-slate-500">Saving updates this appointment type’s date. Other appointment dates are preserved.</p>
+          {mode === "existing" && !["cancelled","no_show"].includes(appointmentStatus) ? <label className="flex items-start gap-2 text-sm text-slate-600"><input name="updateStatus" type="checkbox" className="mt-1" /><span>Also change lead status to <strong>{appointmentStatus==="completed"?(kind==="ipdDone"?"IPD Done":"OPD Done"):(kind==="ipdDone"?"IPD Booked":"OPD Booked")}</strong></span></label> : mode === "new" ? <p className="text-xs text-slate-500">A new CRM lead and a separate appointment record will be created.</p> : null}
+          <p className="text-xs text-slate-500">Earlier visits are preserved. Editing this appointment records its date and status history.</p>
         </fieldset>
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save appointment"}</Button></div>
       </form>}

@@ -1,3 +1,5 @@
+import { CrmOperationsPanel } from "./crm-operations-panel";
+import { getCapacity, getScheduler, getDuplicates, getSchedulerStatus } from "@/app/actions/crm-workflows";
 import { createClient } from "@/lib/supabase/server";
 import { getAllUsers } from "@/app/actions/users";
 import { getMasterData } from "@/app/actions/master-data";
@@ -24,9 +26,13 @@ export default async function SettingsPage() {
   const name = profile?.name?.trim() || user?.email?.split("@")[0] || "User";
   const role = profile?.role ?? "employee";
   const isTeamLead = role === "admin" || role === "manager";
-  const [usersResult, masterDataResult] = await Promise.all([
+  const [usersResult, masterDataResult, capacity, scheduler, duplicates, schedulerStatus] = await Promise.all([
     role === "admin" ? getAllUsers() : null,
     isTeamLead ? getMasterData() : null,
+    role === "admin" ? getCapacity() : null,
+    role === "admin" ? getScheduler() : null,
+    role === "admin" ? getDuplicates() : null,
+    role === "admin" ? getSchedulerStatus() : null,
   ]);
 
   return (
@@ -47,6 +53,7 @@ export default async function SettingsPage() {
         <MasterDataPanel initial={masterDataResult.data} />
       )}
       {isTeamLead && <AutomationPanel />}
+      {role === "admin" && <CrmOperationsPanel schedulerStatus={schedulerStatus} duplicateError={duplicates && !duplicates.success?duplicates.error:undefined} capacity={capacity} scheduler={scheduler} groups={duplicates?.success?duplicates.data.groups:[]} total={duplicates?.success?duplicates.data.total:0}/> }
     </div>
   );
 }

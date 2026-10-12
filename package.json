@@ -19,7 +19,10 @@
     "audit:db": "node scripts/audit-db.mts",
     "fix:data": "node scripts/fix-data-values.mts",
     "verify:timeline": "node scripts/verify-timeline.mts",
-    "cleanup:sources": "node scripts/cleanup-polluted-source.mts"
+    "cleanup:sources": "node scripts/cleanup-polluted-source.mts",
+    "verify:crm-migrations": "node scripts/verify-crm-migrations.cjs",
+    "verify:daily-work": "node scripts/verify-daily-work.mts",
+    "verify:calendar-entry": "node scripts/verify-calendar-entry.mts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

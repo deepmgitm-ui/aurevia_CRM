@@ -287,6 +287,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .single();
 
+    if(leadError?.code === "23505") return NextResponse.json({success:true,duplicate:true},{status:200});
     if (leadError || !lead) {
       console.error("[Meta Webhook][POST] Lead insertion failed", {
         requestId,

@@ -34,6 +34,7 @@ export const MASTER_DATA_SEED: Record<MasterDataListKey, string[]> = {
     // IPD Done → ipd_done_date. Picking one reveals its date box.
     "OPD Booked",
     "OPD Done",
+    "IPD Booked",
     "IPD Done",
     "Invalid Number",
     // "Won" is NOT here: it is a computed tag, shown whenever the status is

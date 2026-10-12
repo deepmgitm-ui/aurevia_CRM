@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CallingWorkspace } from "./calling-workspace";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -689,6 +690,10 @@ export function LeadsTable({
     }
     setIsPaging(false);
   }
+
+  const liveReload=useRef<()=>void>(()=>{});
+  liveReload.current=()=>{void fetchPage(page);};
+  useEffect(()=>{const reload=()=>liveReload.current();window.addEventListener("crm:leads-changed",reload);return()=>window.removeEventListener("crm:leads-changed",reload);},[]);
 
   async function handlePageChange(nextPage: number) {
     if (isPaging || nextPage < 1 || nextPage > serverTotalPages || nextPage === page) return;
@@ -1661,9 +1666,10 @@ export function LeadsTable({
               if (file) handleImport(file);
               event.target.value = "";
             }} />
+            <CallingWorkspace leads={leads} />
             {canBulkUpload && (
               <>
-                <Button type="button" variant="outline" disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
+            <Button type="button" variant="outline" disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
                   {isImporting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FileUp aria-hidden="true" />}
                   {isImporting ? "Importing..." : "Import CSV / Excel"}
                 </Button>

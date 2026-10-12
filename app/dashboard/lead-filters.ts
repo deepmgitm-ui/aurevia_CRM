@@ -5,6 +5,7 @@ import {
   TREATMENT_LABELS,
   UNRECORDED_TREATMENT_KEY,
   canonicalTreatment,
+  analyticsWeight,
   stageForStatus,
   type AnalyticsLead,
   type StageKey,
@@ -235,6 +236,8 @@ export function shortLeadAge(value: Date | string | null | undefined, today = ne
 // ---------------------------------------------------------------------------
 
 export interface LeadListFilters {
+  dateFrom?: string;
+  dateTo?: string;
   work?: DailyWorkKind | "";
   day?: string;
   /** Free-text search (name / phone / treatment). */
@@ -590,8 +593,8 @@ export function tallyTreatments(
     // fallback); `disease` is the second safety net.
     const { key, label } = canonicalTreatment(row.treatment || row.disease);
     const existing = counts.get(key);
-    if (existing) existing.count += 1;
-    else counts.set(key, { key, label, count: 1 });
+    if (existing) existing.count += analyticsWeight(row);
+    else counts.set(key, { key, label, count: analyticsWeight(row) });
   }
 
   return [...counts.values()].sort((left, right) => {

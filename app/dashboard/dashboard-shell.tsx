@@ -64,6 +64,9 @@ interface DashboardShellProps {
 // Sidebar modules, exactly as in the Aurevia HealthCare design reference.
 const navigation = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
+  { label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
+  { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
+  { label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
   { label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
   { label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
   { label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
@@ -128,9 +131,9 @@ function BrandLogo({
   );
 }
 
-function Navigation({ mobile = false }: { mobile?: boolean }) {
+function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string }) {
   const pathname = usePathname();
-  const items = navigation;
+  const items = role === "employee" ? navigation.filter(item=>["/dashboard","/dashboard/leads","/dashboard/tasks","/dashboard/calendar","/dashboard/attendance","/dashboard/agents"].includes(item.href)) : navigation;
 
   return (
     <nav className="space-y-1.5">
@@ -165,7 +168,7 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
         <BrandLogo className="h-11 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-4">
-        <Navigation />
+        <Navigation role={profile.role} />
       </div>
       {/* Faint brand watermark at the foot of the sidebar, as in the design. */}
       <div className="relative mt-auto overflow-hidden px-4 pt-6 pb-3">
@@ -217,7 +220,7 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
           <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
-          <Navigation mobile />
+          <Navigation mobile role={profile.role} />
           <SheetClose
             render={
               <Link
@@ -244,7 +247,7 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
   );
 }
 
-function TopTabs({ mobile = false }: { mobile?: boolean }) {
+function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) {
   const pathname = usePathname();
 
   return (
@@ -259,7 +262,7 @@ function TopTabs({ mobile = false }: { mobile?: boolean }) {
           : "w-fit max-w-full overflow-x-auto rounded-full border border-slate-200 bg-slate-50/80 p-1",
       )}
     >
-      {topTabs.map(({ label, href, exact }) => {
+      {(role === "employee" ? [{label:"My day",href:"/dashboard",exact:true},{label:"Leads",href:"/dashboard/leads",exact:false},{label:"Follow-ups",href:"/dashboard/tasks",exact:false},{label:"Calendar",href:"/dashboard/calendar",exact:false}] : topTabs).map(({ label, href, exact }) => {
         const isActive = isActivePath(pathname, href, exact);
         return (
           <Link
@@ -343,7 +346,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
           <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
             <MobileNavigation profile={profile} />
             <div className="hidden min-w-0 flex-1 items-center lg:flex">
-              <TopTabs />
+              <TopTabs role={profile.role} />
             </div>
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
@@ -351,7 +354,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
               <Link
                 href="/dashboard/tasks"
                 aria-label="Tasks"
-                className="hidden items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 sm:flex"
+                className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 sm:flex"
               >
                 <CheckSquare className="size-4" aria-hidden="true" />
                 <span className="hidden xl:inline">Tasks</span>
@@ -381,7 +384,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
           </div>
           {/* Tab row for phones / tablets, where the sidebar is collapsed. */}
           <div className="px-4 pb-3 sm:px-6 lg:hidden">
-            <TopTabs mobile />
+            <TopTabs mobile role={profile.role} />
           </div>
         </header>
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>

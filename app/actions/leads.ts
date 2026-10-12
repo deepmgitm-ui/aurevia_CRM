@@ -3,13 +3,12 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { cache } from "react";
+import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
 import { applyDailyWorkFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
-  andClauses,
-  blankColumnClause,
   EMPTY_LEAD_FILTERS,
   escapeLikePattern,
   monthFilterLabel,
@@ -18,8 +17,6 @@ import {
   isUnrecordedTreatment,
   stageFilterKeys,
   tallyTreatments,
-  treatmentOrExpression,
-  UNRECORDED_TREATMENT_VALUES,
   type AgeWindow,
   type LeadListFilters,
   type TreatmentTally,
@@ -29,9 +26,6 @@ import {
   SEGMENT_LEAD_LIMIT,
   STAGE_TARGET_STATUS,
   UNRECORDED_TREATMENT_KEY,
-  canonicalTreatment,
-  detectTreatmentName,
-  parseLeadDateText,
   resolveDashboardWindow,
   stageForStatus,
   toAnalyticsLead,
@@ -279,41 +273,6 @@ function parseLeadDate(value: unknown): string {
 //   temperature      → agent hot/warm/cold chips
 //   assigned_to      → agent roster + agent filter
 //   name, disease    → patients table / legacy treatment fallback
-const ANALYTICS_BASE_COLUMNS =
-  "id, name, city, disease, source, status, temperature, assigned_to, lead_date, created_at";
-
-// Every column that could hold the treatment / procedure text. Each candidate is
-// probed once per server process and ALL that exist are selected, so a CRM
-// whose treatment lives in `disease` (or a custom `surgery_type`) still feeds the
-// pipeline chart instead of rendering one solid "Other" bar.
-const ANALYTICS_TREATMENT_COLUMNS = [
-  "treatment_type",
-  "treatment",
-  "treatment_name",
-  "surgery_type",
-  "surgery",
-  "procedure",
-] as const;
-
-let treatmentColumnsCache: string[] | null = null;
-
-async function resolveTreatmentColumns(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<string[]> {
-  if (treatmentColumnsCache) return treatmentColumnsCache;
-  // Probed in parallel (then cached for the process) so the first dashboard load
-  // pays one round-trip, not six.
-  const results = await Promise.all(
-    ANALYTICS_TREATMENT_COLUMNS.map(async (candidate): Promise<string | null> => {
-      // PostgREST rejects unknown columns, so `error === null` means it exists.
-      const { error } = await supabase.from("leads").select(candidate).limit(1);
-      return error ? null : candidate;
-    }),
-  );
-  treatmentColumnsCache = results.filter((candidate): candidate is string => candidate !== null);
-  return treatmentColumnsCache;
-}
-
 /**
  * The window every dashboard screen should OPEN on, resolved once per request.
  *
@@ -326,13 +285,12 @@ async function resolveTreatmentColumns(
  * cached, and the page's own ?from/?to handling still wins when the user has
  * picked dates themselves.
  */
-export const getDashboardWindow = cache(
-  async (): Promise<{ range: { from: string; to: string }; note?: string }> => {
-    const result = await getAnalyticsLeads();
-    const rows = result.success ? result.data.map(toAnalyticsLead) : [];
-    return resolveDashboardWindow({}, rows);
-  },
-);
+export const getDashboardWindow = cache(async () => {
+ const supabase=await createClient();const [first,last]=await Promise.all([
+ supabase.from("leads").select("lead_day,created_at").order("lead_day").limit(1),supabase.from("leads").select("lead_day,created_at").order("lead_day",{ascending:false}).limit(1)]);
+ if(first.error||last.error)throw new Error("Dashboard dates could not be loaded.");
+ return resolveDashboardWindow({},[...(first.data??[]),...(last.data??[])].map(row=>toAnalyticsLead({...row,lead_date:row.lead_day} as unknown as Lead)));
+});
 
 /**
  * All leads (RLS-scoped) for the dashboard, projected to the analytics columns only.
@@ -344,39 +302,11 @@ export const getDashboardWindow = cache(
  * second caller reuses the first call's result. The scope is a single request
  * (never shared between users), so RLS stays exactly as strict as before.
  */
-export const getAnalyticsLeads = cache(async (): Promise<ActionResult<Lead[]>> => {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return { success: true, data: [] };
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("name, role")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) return { success: true, data: [] };
-    if (profile.role === "employee" && !profile.name?.trim()) return { success: true, data: [] };
-
-    // Select the base columns plus every treatment column the table actually has
-    // (treatment_type / treatment / treatment_name / surgery_type / ...). This is
-    // what feeds the LASIK / Cataract / ICL segments of the pipeline chart.
-    const treatmentColumns = await resolveTreatmentColumns(supabase);
-    const columns = [ANALYTICS_BASE_COLUMNS, ...treatmentColumns].join(", ");
-
-    let query = supabase.from("leads").select(columns).order("created_at", { ascending: false });
-    if (profile.role === "employee") query = query.ilike("assigned_to", profile.name);
-
-    const { data, error } = await query;
-    if (error) return { success: false, error: error.message };
-
-    return { success: true, data: (data ?? []) as unknown as Lead[] };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to fetch analytics leads.") };
-  }
+export const getAnalyticsLeads=cache(async(from?:string,to?:string):Promise<ActionResult<Lead[]>>=>{
+ try{const supabase=await createClient();const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to view analytics."};
+ const window=await getDashboardWindow();const range=isWorkDate(from??"")&&isWorkDate(to??"")&&from!<=to!?{from:from!,to:to!}:window.range;
+ const rows:Lead[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_analytics_groups",{p_from:range.from,p_to:range.to}).range(offset,offset+499);if(error)return {success:false,error:"Analytics could not be loaded. Please retry."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<500)break;}
+ return {success:true,data:rows};}catch(error){return {success:false,error:getErrorMessage(error,"Analytics unavailable.")};}
 });
 
 // Page size for server-side pagination. The table fetches 50 leads per page so
@@ -489,79 +419,26 @@ function buildLeadSearchFilter(search: string): string | null {
 // ---------------------------------------------------------------------------
 // Chart drill-down filters (?stage= &treatment= &age= &city= ... on
 // /dashboard/leads). Stage and treatment grouping reuse the SAME JS helpers the
-// charts use (stageForStatus / canonicalTreatment), fed by the distinct values
-// that currently exist in the table — so a drill-down list always agrees with
+// charts use (stageForStatus / canonicalTreatment), backed by indexed database treatment keys and scoped status groups — so a drill-down list always agrees with
 // the bar that was clicked.
 // ---------------------------------------------------------------------------
 
 type LeadsSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
-const DISTINCT_CACHE_TTL_MS = 60_000;
-const DISTINCT_ROW_LIMIT = 20_000;
-
-interface TreatmentValue {
-  column: string;
-  value: string;
-  /** Series key the charts group this raw text into. */
-  key: string;
-}
-
-// Deciding "which rows belong to this segment" needs the whole table's distinct
-// statuses / treatment texts, so those two lists are fetched once a minute
-// instead of once per page.
-let distinctStatusCache: { values: string[]; at: number } | null = null;
-let distinctTreatmentCache: { values: TreatmentValue[]; at: number } | null = null;
+// Stage filters use scoped distinct statuses; treatment filters use indexed keys.
 
 /** Distinct `status` values; `null` = query failed → the stage filter is skipped. */
 async function getDistinctStatuses(supabase: LeadsSupabaseClient): Promise<string[] | null> {
-  if (distinctStatusCache && Date.now() - distinctStatusCache.at < DISTINCT_CACHE_TTL_MS) {
-    return distinctStatusCache.values;
-  }
-  const { data, error } = await supabase.from("leads").select("status").limit(DISTINCT_ROW_LIMIT);
-  if (error) return distinctStatusCache?.values ?? null;
-  const values = [...new Set((data ?? []).map((row) => row.status?.trim() ?? ""))];
-  distinctStatusCache = { values, at: Date.now() };
-  return values;
-}
-
-/** Distinct treatment text per column, each mapped to its chart series key. */
-async function getDistinctTreatmentValues(supabase: LeadsSupabaseClient): Promise<TreatmentValue[] | null> {
-  if (distinctTreatmentCache && Date.now() - distinctTreatmentCache.at < DISTINCT_CACHE_TTL_MS) {
-    return distinctTreatmentCache.values;
-  }
-  const treatmentColumns = await resolveTreatmentColumns(supabase);
-  const columns = [...new Set(["disease", "remarks", ...treatmentColumns])];
-  const { data, error } = await supabase.from("leads").select(columns.join(", ")).limit(DISTINCT_ROW_LIMIT);
-  if (error) return distinctTreatmentCache?.values ?? null;
-  const seen = new Set<string>();
-  const values: TreatmentValue[] = [];
-  for (const row of data ?? []) {
-    // The select string is built at runtime, so Supabase types each cell as a
-    // parse-error sentinel — read them as plain records instead.
-    const record = row as unknown as Record<string, unknown>;
-    for (const column of columns) {
-      const cell = record[column];
-      const raw = typeof cell === "string" ? cell.trim() : "";
-      const id = column + "|" + raw;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      if (column === "remarks") {
-        // Free-text notes only ever contribute a RECOGNISED treatment name —
-        // the chart never lets a random remark become its own series.
-        const detected = detectTreatmentName(raw);
-        if (detected) values.push({ column, value: raw, key: canonicalTreatment(detected).key });
-        continue;
-      }
-      values.push({ column, value: raw, key: canonicalTreatment(raw).key });
-    }
-  }
-  distinctTreatmentCache = { values, at: Date.now() };
+  const { data, error } = await supabase.rpc("crm_status_values");
+  if (error) return null;
+  const values = (data ?? []) as string[];
   return values;
 }
 
 /** The resolved drill-down filters, ready to chain onto any leads query. */
 interface ResolvedLeadFilters {
   work: DailyWorkKind | null;
+  workIds?: string[];
   day: string;
   /** No row can match — the caller short-circuits with an empty page. */
   empty: boolean;
@@ -614,22 +491,18 @@ interface LeadFilterQuery<Q> {
  * one silently win. `null` bounds mean "open", so the overlap is the tighter of
  * the two on each side.
  */
-function intersectWindows(a: AgeWindow | null, b: AgeWindow | null): AgeWindow | null {
-  if (!a) return b;
-  if (!b) return a;
-  const fromIso = a.fromIso && b.fromIso ? (a.fromIso > b.fromIso ? a.fromIso : b.fromIso) : (a.fromIso ?? b.fromIso);
-  const toIso = a.toIso && b.toIso ? (a.toIso < b.toIso ? a.toIso : b.toIso) : (a.toIso ?? b.toIso);
-  return { fromIso, toIso };
-}
 
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
-  if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
+  if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
+  else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
   // (stage AND treatment AND age ...).
   for (const expression of resolved.orExpressions) filtered = filtered.or(expression);
-  const dateWindow = intersectWindows(resolved.ageWindow, resolved.monthWindow);
+  const dateWindow = resolved.ageWindow;
+  if(resolved.monthWindow?.fromIso)filtered=filtered.gte("lead_day",new Date(resolved.monthWindow.fromIso).toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}));
+  if(resolved.monthWindow?.toIso)filtered=filtered.lt("lead_day",new Date(resolved.monthWindow.toIso).toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}));
   if (dateWindow) {
     if (dateWindow.fromIso) filtered = filtered.gte("created_at", dateWindow.fromIso);
     if (dateWindow.toIso) filtered = filtered.lt("created_at", dateWindow.toIso);
@@ -658,9 +531,15 @@ async function resolveLeadFilters(
 ): Promise<ResolvedLeadFilters> {
   const resolved = emptyResolvedFilters();
   if (!filters) return resolved;
+  if(isWorkDate(filters.dateFrom??""))resolved.orExpressions.push(`lead_day.gte.${filters.dateFrom}`);
+  if(isWorkDate(filters.dateTo??""))resolved.orExpressions.push(`lead_day.lte.${filters.dateTo}`);
   if (isDailyWorkKind(filters.work ?? "") && isWorkDate(filters.day ?? "")) {
     resolved.work = filters.work as DailyWorkKind;
     resolved.day = filters.day!;
+    if(resolved.work!=="assigned"){
+      const ids:string[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_daily_lead_ids",{p_kind:resolved.work,p_day:resolved.day}).range(offset,offset+499);if(error)throw new Error("Daily appointment leads unavailable");ids.push(...(data??[]).map((row:{id:string})=>row.id));if(!data||data.length<500)break;}
+      resolved.workIds=ids;resolved.empty=ids.length===0;
+    }
   }
 
   const stageKeys = stageFilterKeys(filters.stage ?? "");
@@ -715,59 +594,12 @@ async function resolveLeadFilters(
   // is user input, and `monthWindow` returns null for anything malformed.
   if (month) resolved.monthWindow = monthWindow(month);
 
-  // --- Treatment: map raw treatment text onto the chart's series key.
-  if (treatment && !resolved.empty) {
-    const treatmentColumns = await resolveTreatmentColumns(supabase);
-    // Same priority order resolveTreatmentText() walks: candidates first, `disease` last.
-    const priorityColumns = [...new Set([...treatmentColumns, "disease"])];
-    const values = await getDistinctTreatmentValues(supabase);
-
-    if (isUnrecordedTreatment(treatment)) {
-      // "Not Recorded" = every treatment column still a placeholder AND the
-      // remarks name no treatment.
-      const clauses = priorityColumns.map(
-        (column) => `or(${column}.is.null,${column}.in.(${inListExpression(UNRECORDED_TREATMENT_VALUES)}))`,
-      );
-      const remarksWithTreatment = (values ?? [])
-        .filter((entry) => entry.column === "remarks")
-        .map((entry) => entry.value);
-      if (remarksWithTreatment.length > 0) {
-        clauses.push(`or(remarks.is.null,not.or(remarks.in.(${inListExpression(remarksWithTreatment)}))))`);
-      }
-      resolved.orExpressions.push(clauses.length === 1 ? clauses[0] : `and(${clauses.join(",")})`);
-    } else if (values) {
-      const except = new Set((filters.except ?? "").split(",").map((key) => key.trim()).filter(Boolean));
-      const wanted = (key: string) =>
-        treatment === "other" ? key !== UNRECORDED_TREATMENT_KEY && !except.has(key) : key === treatment;
-      const byColumn = new Map<string, string[]>();
-      const remarks: string[] = [];
-      for (const entry of values) {
-        if (!wanted(entry.key)) continue;
-        if (entry.column === "remarks") remarks.push(entry.value);
-        else byColumn.set(entry.column, [...(byColumn.get(entry.column) ?? []), entry.value]);
-      }
-      const clauses: string[] = [];
-      priorityColumns.forEach((column, index) => {
-        const matches = byColumn.get(column);
-        if (!matches?.length) return;
-        // A row only reads this column when every HIGHER-priority column is blank.
-        const guards = priorityColumns.slice(0, index).map(blankColumnClause);
-        clauses.push(andClauses([`${column}.in.(${inListExpression(matches)})`, ...guards]));
-      });
-      if (remarks.length > 0) {
-        // A remark only counts when no treatment column has a real value.
-        clauses.push(
-          andClauses([`remarks.in.(${inListExpression(remarks)})`, ...priorityColumns.map(blankColumnClause)]),
-        );
-      }
-      if (clauses.length === 0) resolved.empty = true;
-      else resolved.orExpressions.push(clauses.length === 1 ? clauses[0] : `or(${clauses.join(",")})`);
-    } else {
-      // Distinct values unavailable → keyword fallback (best-effort SQL mirror).
-      const patterns = treatmentOrExpression(treatment, [...priorityColumns, "remarks"]);
-      if (patterns) resolved.orExpressions.push(patterns);
-      else resolved.empty = true;
-    }
+  // Match the same stored treatment key used by the grouped reports.
+  if(treatment && !resolved.empty){
+    if(treatment==='other'){
+      const except=[UNRECORDED_TREATMENT_KEY,...(filters.except??'').split(',').filter(Boolean)];
+      resolved.orExpressions.push(`not.or(treatment_key.in.(${inListExpression(except)}))`);
+    }else resolved.inFilters.push({column:'treatment_key',values:[isUnrecordedTreatment(treatment)?UNRECORDED_TREATMENT_KEY:treatment]});
   }
 
   // --- Exact-match filters: ilike without wildcards = case-insensitive equality.
@@ -925,7 +757,7 @@ export async function getLeadsForExport(
         : exportQuery.eq("status", effectiveStatus);
     }
     exportQuery = applyLeadFilters(exportQuery, resolved);
-    exportQuery = exportQuery.order("created_at", { ascending: false });
+    exportQuery = exportQuery.order("created_at", { ascending: false }).order("id");
 
     const rows: Lead[] = [];
     for (let from = 0; from < EXPORT_LIMIT; from += chunkSize) {
@@ -936,6 +768,7 @@ export async function getLeadsForExport(
       if (chunk.length < chunkSize) break;
     }
 
+    if(rows.length===EXPORT_LIMIT){const {data,error}=await exportQuery.range(EXPORT_LIMIT,EXPORT_LIMIT);if(error)return {success:false,error:error.message};if(data?.length)return {success:false,error:"More than 5,000 leads match. Narrow the date, agent or status filters before exporting; no partial export was created."};}
     return { success: true, data: rows };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to export leads.") };
@@ -954,29 +787,13 @@ export async function getLeadsForExport(
  * query; past that, move it into a Postgres aggregate (see
  * docs/GROWTH-AND-COSTS.md → "lead_rollup").
  */
-export async function getTreatmentTally(
-  filters?: Partial<LeadListFilters>,
-): Promise<ActionResult<TreatmentTally[]>> {
-  const result = await getAnalyticsLeads();
-  if (!result.success) return result;
-  const resolved: LeadListFilters = { ...EMPTY_LEAD_FILTERS, ...filters };
-  let rows = result.data.map(toAnalyticsLead);
-  if (resolved.assignmentStatus) {
-    const supabase = await createClient();
-    const { data: profiles, error } = await supabase.from("profiles").select("name");
-    if (error) return { success: false, error: `Unable to resolve lead assignments: ${error.message}` };
-    const assignedNames = new Set(
-      (profiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name)),
-    );
-    rows = rows.filter((row) => {
-      const isAssigned = assignedNames.has(row.assigned_to.trim());
-      return resolved.assignmentStatus === "assigned" ? isAssigned : !isAssigned;
-    });
-  }
-  return {
-    success: true,
-    data: tallyTreatments(rows, { ...resolved, assignmentStatus: "" }),
-  };
+export async function getTreatmentTally(filters?:Partial<LeadListFilters>):Promise<ActionResult<TreatmentTally[]>>{
+ try{const supabase=await createClient();const resolved={...EMPTY_LEAD_FILTERS,...filters};const p:Record<string,unknown>={...resolved};
+ const age=ageBucketWindow(resolved.age);if(age?.fromIso)p.from_created=age.fromIso;if(age?.toIso)p.to_created=age.toIso;
+ if(resolved.month){p.from_day=resolved.month+"-01";p.to_day=new Date(Number(resolved.month.slice(0,4)),Number(resolved.month.slice(5)),0).toLocaleDateString("en-CA");}
+ const keys=stageFilterKeys(resolved.stage);if(keys.length)p.statuses=(await getDistinctStatuses(supabase)??[]).filter(status=>keys.includes(stageForStatus(status)));
+ const rows:Lead[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_treatment_groups",{p}).range(offset,offset+499);if(error)return {success:false,error:"Treatment counts could not be loaded."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<500)break;}
+ return {success:true,data:tallyTreatments(rows.map(toAnalyticsLead))};}catch(error){return {success:false,error:getErrorMessage(error,"Treatment counts unavailable.")};}
 }
 
 export interface LeadMonthTally {
@@ -996,46 +813,9 @@ export interface LeadMonthTally {
  * ignored while building the list (otherwise selecting March would hide every
  * other month from the dropdown and trap the user with no way back).
  */
-export async function getLeadMonthTally(): Promise<ActionResult<LeadMonthTally[]>> {
-  const result = await getAnalyticsLeads();
-  if (!result.success) return result;
+export async function getLeadMonthTally():Promise<ActionResult<LeadMonthTally[]>>{const supabase=await createClient();const {data,error}=await supabase.rpc("crm_lead_months");if(error)return {success:false,error:"Lead months could not be loaded."};return {success:true,data:(data??[]).map((row:{key:string;count:number})=>({key:row.key,label:monthFilterLabel(row.key),count:Number(row.count)}))};}
 
-  const counts = new Map<string, number>();
-  for (const row of result.data.map(toAnalyticsLead)) {
-    // toAnalyticsLead already falls back to created_at when lead_date is unusable.
-    const date = parseLeadDateText(row.lead_date);
-    if (!date) continue;
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-
-  const tally = [...counts.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([key, count]) => ({ key, label: monthFilterLabel(key), count }));
-
-  return { success: true, data: tally };
-}
-
-export async function getDailyWorkCounts(day = clinicDate()): Promise<ActionResult<Record<DailyWorkKind, number>>> {
-  try {
-    if (!isWorkDate(day)) return { success: false, error: "Invalid work date." };
-    const viewerResult = await getViewer();
-    const viewer = viewerResult.success ? viewerResult.data : null;
-    if (!viewer?.name.trim()) return { success: false, error: "Sign in to see your daily work." };
-    const supabase = await createClient();
-    const kinds: DailyWorkKind[] = ["assigned", "opd", "ipd", "opdDone"];
-    const results = await Promise.all(kinds.map((kind) =>
-      applyDailyWorkFilter(
-        buildScopedLeadsQuery(supabase, viewer.role, viewer.name, true, viewer.name), kind, day,
-      ),
-    ));
-    const failed = results.find((result) => result.error);
-    if (failed?.error) return { success: false, error: "Daily work is unavailable. Please contact your administrator." };
-    return { success: true, data: { assigned: results[0].count ?? 0, opd: results[1].count ?? 0, ipd: results[2].count ?? 0, opdDone: results[3].count ?? 0 } };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to load daily work.") };
-  }
-}
+export async function getDailyWorkCounts(day=clinicDate()):Promise<ActionResult<Record<DailyWorkKind,number>>>{if(!isWorkDate(day))return {success:false,error:"Invalid work date."};const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to see daily work."};const supabase=await createClient();const {data,error}=await supabase.rpc("crm_daily_work_counts",{p_day:day});return error?{success:false,error:"Daily work could not be loaded."}:{success:true,data:data as Record<DailyWorkKind,number>};}
 
 /** Current status of every lead assigned to the viewer on the selected day. */
 export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<ActionResult<{ status: string | null; count: number }[]>> {
@@ -1503,33 +1283,32 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
     const chunkSize = 1000;
     let from = 0;
     for (;;) {
-      const { data, error } = await supabase
-        .from("leads")
-        .select("assigned_to, status, temperature")
+      const { data, error } = await supabase.rpc("crm_team_groups")
         .range(from, from + chunkSize - 1);
       if (error) return { success: false, error: error.message };
 
       const rows = data ?? [];
       for (const row of rows) {
-        total += 1;
+        const weight=Number(row.count ?? 1);
+        total += weight;
         const assignedName = typeof row.assigned_to === "string" ? row.assigned_to.trim() : "";
         const stats = assignedName ? statsByName.get(assignedName) : undefined;
         if (!stats) {
-          unassigned += 1;
+          unassigned += weight;
           continue;
         }
-        stats.total += 1;
+        stats.total += weight;
         const temperature = typeof row.temperature === "string" ? row.temperature.trim().toLowerCase() : "";
-        if (temperature.startsWith("hot")) stats.hot += 1;
-        else if (temperature.startsWith("warm")) stats.warm += 1;
-        else if (temperature.startsWith("cold")) stats.cold += 1;
+        if (temperature.startsWith("hot")) stats.hot += weight;
+        else if (temperature.startsWith("warm")) stats.warm += weight;
+        else if (temperature.startsWith("cold")) stats.cold += weight;
         const status = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
-        if (status === "new") stats.newLeads += 1;
-        else if (status === "won") stats.won += 1;
-        else if (status === "lost") stats.lost += 1;
-        else if (status === "opd done") stats.opdDone += 1;
-        else if (status === "opd booked") stats.opdBooked += 1;
-        else if (status === "ipd done") stats.ipd += 1;
+        if (status === "new") stats.newLeads += weight;
+        else if (status === "won") stats.won += weight;
+        else if (status === "lost") stats.lost += weight;
+        else if (status === "opd done") stats.opdDone += weight;
+        else if (status === "opd booked") stats.opdBooked += weight;
+        else if (status === "ipd done") stats.ipd += weight;
       }
       if (rows.length < chunkSize) break;
       from += chunkSize;
@@ -3430,57 +3209,14 @@ export async function rescheduleFollowUp(
 }
 
 export async function logLeadCall(
-  input: { lead_id: string; outcome: string; notes?: string | null; next_follow_up_date?: string | null },
+  input: { lead_id: string; outcome: string; notes?: string | null; next_follow_up_date?: string | null; next_follow_up_time?: string | null },
 ): Promise<ActionResult<LeadActivity>> {
-  if (!input.lead_id || !input.outcome.trim()) {
-    return { success: false, error: "Lead and call outcome are required." };
-  }
-
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) return { success: false, error: "You must be signed in." };
-
-    let nextDate = "";
-    if (input.next_follow_up_date?.trim()) {
-      nextDate = parseStoredDateKey(input.next_follow_up_date);
-      if (!nextDate) return { success: false, error: "Invalid next follow-up date." };
-    }
-
-    const parts = [`Outcome: ${input.outcome.trim()}`];
-    if (input.notes?.trim()) parts.push(`Notes: ${input.notes.trim()}`);
-    if (nextDate) parts.push(`Next follow-up: ${nextDate}`);
-
-    const { data, error } = await supabase
-      .from("lead_activities")
-      .insert({
-        lead_id: input.lead_id,
-        user_id: user.id,
-        action_type: "Call",
-        description: parts.join(" — "),
-      })
-      .select()
-      .single();
-
-    if (error) return { success: false, error: error.message };
-
-    if (nextDate) {
-      const { error: followUpError } = await supabase
-        .from("leads")
-        .update({ follow_up_date: nextDate })
-        .eq("id", input.lead_id);
-      if (followUpError) return { success: false, error: followUpError.message };
-    }
-
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/tasks");
-    return { success: true, data: data as LeadActivity };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to log call.") };
-  }
+  try{const outcome=normaliseCallOutcome(input.outcome);if(!input.lead_id||!outcome)return {success:false,error:"Choose a valid call outcome."};
+ const date=input.next_follow_up_date?parseStoredDateKey(input.next_follow_up_date):null;if(date&&!isWorkDate(date))return {success:false,error:"Choose a valid callback date."};
+ const time=input.next_follow_up_time?.trim()||null;if(time&&(!date||!isCallTime(time)))return {success:false,error:"Choose a callback date and time."};
+ const supabase=await createClient();const {data,error}=await supabase.rpc("crm_log_call",{p_lead:input.lead_id,p_outcome:outcome,p_notes:input.notes?.trim()||"",p_next:date,p_time:time});if(error)return {success:false,error:error.message};
+ revalidatePath("/dashboard");revalidatePath("/dashboard/tasks");return {success:true,data:data as LeadActivity};
+ }catch(error){return {success:false,error:getErrorMessage(error,"Unable to log call.")};}
 }
 
 export async function getPipelineInsights(): Promise<ActionResult<PipelineInsights>> {

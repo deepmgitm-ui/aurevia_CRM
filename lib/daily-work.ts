@@ -1,14 +1,15 @@
-export type DailyWorkKind = "assigned" | "opd" | "opdDone" | "ipd";
+export type DailyWorkKind = "assigned" | "opd" | "opdDone" | "ipd" | "ipdDone";
 
 export const DAILY_WORK_LABELS: Record<DailyWorkKind, string> = {
   assigned: "New assignments",
   opd: "OPD appointments",
   opdDone: "OPD completed",
   ipd: "IPD appointments",
+  ipdDone: "IPD completed",
 };
 
 export function isDailyWorkKind(value: string): value is DailyWorkKind {
-  return value === "assigned" || value === "opd" || value === "opdDone" || value === "ipd";
+  return value === "assigned" || value === "opd" || value === "opdDone" || value === "ipd" || value === "ipdDone";
 }
 
 export function isWorkDate(value: string): boolean {

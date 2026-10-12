@@ -139,11 +139,12 @@ export default async function DashboardPage({
   if (isTeamLead) {
     const [leadsResult, directoryResult, teamResult] = await Promise.all([
       // Light projection (no `select('*')`) — only the columns the cards read.
-      getAnalyticsLeads(),
+      getAnalyticsLeads(query.from, query.to),
       getEmployeeDirectory(),
       getTeamStats(),
     ]);
-    const leads = leadsResult.success ? leadsResult.data : [];
+    if(!leadsResult.success) throw new Error(leadsResult.error);
+    const leads = leadsResult.data;
     const employees = directoryResult.success ? directoryResult.data : [];
     const team = teamResult.success ? teamResult.data : emptyTeam;
     const rows = leads.map(toAnalyticsLead);
@@ -164,7 +165,7 @@ export default async function DashboardPage({
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 
-        <LeadAssignmentTabs team={team} />
+        {teamResult.success ? <LeadAssignmentTabs team={team} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
         {insights && <PipelineInsights insights={insights} />}
       </div>
@@ -187,12 +188,13 @@ export default async function DashboardPage({
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const isToday = day === today;
-  const dailyCards = [
+  const dailyCards: {key:DailyWorkKind;label:string;detail:string;icon:typeof UserPlus;tone:string}[] = [
     { key: "assigned" as const, label: "Leads assigned", detail: "New calling assignments received on this date", icon: UserPlus, tone: "border-blue-200 bg-blue-50 text-blue-800" },
     { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
     { key: "opdDone" as const, label: "OPD Done", detail: "Patients whose recorded OPD completion date is this day", icon: CircleCheck, tone: "border-teal-200 bg-teal-50 text-teal-800" },
-    { key: "ipd" as const, label: "IPD managed", detail: "Patients with a recorded IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
+    { key: "ipd" as const, label: "IPD appointments", detail: "Patients with a recorded IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
   ];
+  dailyCards.push({ key: "ipdDone", label: "IPD Done", detail: "Patients whose IPD appointment was completed on this day", icon: CircleCheck, tone: "border-purple-200 bg-purple-50 text-purple-800" });
   const selectedCard = dailyCards.find((card) => card.key === work)!;
 
   return (
@@ -216,7 +218,7 @@ export default async function DashboardPage({
         </form>
       </div>
 
-      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {dailyCards.map(({ key, label, detail, icon: Icon, tone }) => (
           <Link key={key} href={`/dashboard?work=${key}&day=${day}#today-leads`} aria-current={work === key ? "page" : undefined}
             className={`rounded-2xl border p-5 shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${tone} ${work === key ? "ring-2 ring-current ring-offset-2" : ""}`}>

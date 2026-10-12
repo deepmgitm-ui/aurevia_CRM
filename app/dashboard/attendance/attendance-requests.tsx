@@ -59,8 +59,10 @@ export function AttendanceRequests({
   }, []);
 
   useEffect(() => {
-    void loadRequests();
-  }, [loadRequests]);
+    let active=true;
+    void getAttendanceRequests().then(response=>{if(!active)return;if(response.success){setRequests(response.data);setLoadError("");}else setLoadError(response.error);setIsLoading(false);}).catch(()=>{if(active){setLoadError("Attendance requests could not be loaded. Please retry.");setIsLoading(false);}});
+    return()=>{active=false;};
+  }, []);
 
   async function submitRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

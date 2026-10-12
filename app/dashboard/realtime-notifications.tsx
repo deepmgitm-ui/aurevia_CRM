@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 
 import { getViewer } from "@/app/actions/leads";
@@ -38,6 +39,7 @@ const BATCH_WINDOW_MS = 1_000;
 //   assigned_to field changes to (or arrives as) their own name.
 // Notification bell + activity dropdown are rendered for admins only.
 export function RealtimeNotifications() {
+  const router = useRouter();
   const [isActive, setIsActive] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
@@ -55,6 +57,14 @@ export function RealtimeNotifications() {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastRefresh = 0;
+    function refreshOnce() {
+      if(refreshTimer || document.visibilityState !== "visible") return;
+      refreshTimer=setTimeout(()=>{refreshTimer=null;if(document.querySelector('[role="dialog"]')){refreshOnce();return;}lastRefresh=Date.now();window.dispatchEvent(new Event("crm:leads-changed"));router.refresh();},1500);
+    }
+    const onVisible=()=>{if(document.visibilityState === "visible" && Date.now()-lastRefresh>30000) refreshOnce();};
+    document.addEventListener("visibilitychange",onVisible);
     type RealtimeClient = ReturnType<typeof createClient>;
     type RealtimeChannel = ReturnType<RealtimeClient["channel"]>;
     let supabase: RealtimeClient | null = null;
@@ -141,11 +151,12 @@ export function RealtimeNotifications() {
         .channel("leads-realtime-notifications")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "leads" },
+          { event: "INSERT", schema: "public", table: "leads", ...(isEmployee ? {filter:`assigned_to=eq.${viewerName}`} : {}) },
           (payload: { new?: LeadPayload }) => {
             const row = payload.new ?? {};
             const leadId = asText(row.id);
             if (!leadId) return;
+            if(!isRecentSelfMutation(leadId)) refreshOnce();
             const who = asText(row.assigned_to);
             const leadName = asText(row.name);
             const whoLabel = who && who !== "-" ? who : null;
@@ -183,12 +194,13 @@ export function RealtimeNotifications() {
         )
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "leads" },
+          { event: "UPDATE", schema: "public", table: "leads", ...(isEmployee ? {filter:`assigned_to=eq.${viewerName}`} : {}) },
           (payload: { old?: LeadPayload; new?: LeadPayload }) => {
             const newRow = payload.new ?? {};
             const oldRow = payload.old ?? {};
             const leadId = asText(newRow.id);
             if (!leadId) return;
+            if(!isRecentSelfMutation(leadId)) refreshOnce();
             // Correct old/new comparison to detect assignment changes. Note:
             // payload.old only carries full values with REPLICA IDENTITY FULL.
             const newAssigned = asText(newRow.assigned_to);
@@ -245,9 +257,12 @@ export function RealtimeNotifications() {
 
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange",onVisible);
+      if(refreshTimer) clearTimeout(refreshTimer);
+      if(pendingRef.current.timer) clearTimeout(pendingRef.current.timer);
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [router]);
 
   if (!isActive) return null;
 

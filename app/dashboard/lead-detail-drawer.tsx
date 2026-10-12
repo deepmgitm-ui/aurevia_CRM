@@ -4,6 +4,7 @@
 // edits + activity + call + follow-up — no separate "edit page" needed).
 "use client";
 
+import { trackLeadMutations } from "./lead-mutation-tracker";
 import { useCallback, useEffect, useState } from "react";
 
 import { CalendarDays, Loader2, MessageSquareText, PhoneCall, TimerReset, X } from "lucide-react";
@@ -27,6 +28,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 
+import { CALL_OUTCOMES } from "@/lib/calls";
 import { relativeLeadAge } from "./lead-filters";
 import { getMasterData } from "@/app/actions/master-data";
 import { seedMasterData, withCurrentValue } from "@/lib/master-data";
@@ -49,10 +51,10 @@ const STATUS_OPTIONS = [
   "Dropped",
 ] as const;
 
-const OUTCOME_OPTIONS = ["Connected", "DNP", "RNR", "Call Back Later", "Switched Off", "Not Reachable"] as const;
+const OUTCOME_OPTIONS = CALL_OUTCOMES;
 
 function emptyCallDraft() {
-  return { outcome: "Connected", notes: "", nextDate: "" };
+  return { outcome: "Connected", notes: "", nextDate: "", nextTime: "" };
 }
 
 function toDateInput(value: string | null | undefined): string {
@@ -255,13 +257,15 @@ export function LeadDetailDrawer({
   }
 
   async function handleLogCall() {
-    if (!lead) return;
+    if (!lead || saving) return;
+    trackLeadMutations(lead.id);
     setSaving(true);
     const response = await logLeadCall({
       lead_id: lead.id,
       outcome: callDraft.outcome,
       notes: callDraft.notes.trim() || null,
       next_follow_up_date: callDraft.nextDate || null,
+      next_follow_up_time: callDraft.nextTime || null,
     });
     setSaving(false);
     if (!response.success) {
@@ -353,6 +357,7 @@ export function LeadDetailDrawer({
           onChange={(event) => setCallDraft((current) => ({ ...current, nextDate: event.target.value }))}
         />
       </div>
+      <label className="block text-sm">Callback time (IST)<Input type="time" disabled={!callDraft.nextDate} value={callDraft.nextTime} onChange={event=>setCallDraft(current=>({...current,nextTime:event.target.value}))} /></label>
       <Button type="button" className="w-full" onClick={() => void handleLogCall()} disabled={saving}>
         {saving ? "Saving…" : "Save call"}
       </Button>

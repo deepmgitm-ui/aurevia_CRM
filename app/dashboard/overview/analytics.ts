@@ -21,6 +21,7 @@ export interface DateRange {
  * string (treatment_type → treatment → disease) used for treatment grouping.
  */
 export interface AnalyticsLead {
+  weight?: number;
   id: string;
   name: string;
   city: string;
@@ -571,6 +572,7 @@ export function toAnalyticsLead(lead: Lead): AnalyticsLead {
   const rawLeadDate = textValue(lead.lead_date);
   const createdAt = textValue(lead.created_at);
   return {
+    weight: typeof record.aggregate_count === "number" ? record.aggregate_count : Number(record.aggregate_count ?? 1),
     id: lead.id,
     name: lead.name ?? "",
     city: lead.city ?? "-",
@@ -592,6 +594,10 @@ function textValue(value: unknown): string {
 }
 
 /** A lead counts as "consultation booked" once it reaches the booked stage or beyond. */
+export function analyticsWeight(row: AnalyticsLead): number {
+  return Number.isFinite(row.weight) && (row.weight ?? 0) > 0 ? row.weight! : 1;
+}
+
 export function reachedConsultation(stage: StageKey): boolean {
   return stage === "booked" || stage === "attended" || stage === "surgery";
 }
@@ -647,10 +653,11 @@ function groupByMonth(rows: AnalyticsLead[], range: DateRange): TrendPoint[] {
       buckets.set(key, point);
     }
     const stage = stageForStatus(row.status);
-    point.leads += 1;
-    if (reachedConsultation(stage)) point.consultations += 1;
-    if (stage === "surgery") point.surgeries += 1;
-    if (stage === "lost") point.lost += 1;
+    const weight = analyticsWeight(row);
+    point.leads += weight;
+    if (reachedConsultation(stage)) point.consultations += weight;
+    if (stage === "surgery") point.surgeries += weight;
+    if (stage === "lost") point.lost += weight;
   }
 
   return [...buckets.entries()]
@@ -669,11 +676,11 @@ function emptyBucket(): StageBucket {
   return { leads: 0, consultations: 0, surgeries: 0, lost: 0 };
 }
 
-function accumulate(bucket: StageBucket, stage: StageKey): void {
-  bucket.leads += 1;
-  if (reachedConsultation(stage)) bucket.consultations += 1;
-  if (stage === "surgery") bucket.surgeries += 1;
-  if (stage === "lost") bucket.lost += 1;
+function accumulate(bucket: StageBucket, stage: StageKey, weight = 1): void {
+  bucket.leads += weight;
+  if (reachedConsultation(stage)) bucket.consultations += weight;
+  if (stage === "surgery") bucket.surgeries += weight;
+  if (stage === "lost") bucket.lost += weight;
 }
 
 function toBreakdownRow(label: string, bucket: StageBucket): BreakdownRow {
@@ -768,44 +775,45 @@ export function buildDashboardMetrics(
 
   for (const row of rows) {
     const stage = stageForStatus(row.status);
-    stageTotals[stage] += 1;
+    const weight = analyticsWeight(row);
+    stageTotals[stage] += weight;
 
     // Pipeline: group by BOTH status and treatment (case-insensitive).
     if (PIPELINE_STAGE_KEYS.has(stage)) {
       const treatment = canonicalTreatment(row.treatment || row.disease);
       const stageMap = countsByStage.get(stage) ?? new Map<string, number>();
       countsByStage.set(stage, stageMap);
-      stageMap.set(treatment.key, (stageMap.get(treatment.key) ?? 0) + 1);
-      treatmentTotals.set(treatment.key, (treatmentTotals.get(treatment.key) ?? 0) + 1);
+      stageMap.set(treatment.key, (stageMap.get(treatment.key) ?? 0) + weight);
+      treatmentTotals.set(treatment.key, (treatmentTotals.get(treatment.key) ?? 0) + weight);
       if (!treatmentLabels.has(treatment.key)) treatmentLabels.set(treatment.key, treatment.label);
-      funnelTotal += 1;
-      if (treatment.key !== UNRECORDED_TREATMENT_KEY) funnelRecorded += 1;
+      funnelTotal += weight;
+      if (treatment.key !== UNRECORDED_TREATMENT_KEY) funnelRecorded += weight;
     }
 
     const city = (row.city || "-").trim() || "-";
     const cityBucket = cityBuckets.get(city) ?? emptyBucket();
     cityBuckets.set(city, cityBucket);
-    accumulate(cityBucket, stage);
+    accumulate(cityBucket, stage, weight);
 
     const source = (row.source || "Manual").trim() || "Manual";
     const sourceBucket = sourceBuckets.get(source) ?? emptyBucket();
     sourceBuckets.set(source, sourceBucket);
-    accumulate(sourceBucket, stage);
+    accumulate(sourceBucket, stage, weight);
 
     const assigned = (row.assigned_to || "").trim();
     if (assigned && assigned !== "-") {
       const agentKey = assigned.toLowerCase();
       const stat = agents.get(agentKey) ?? emptyAgentStat(`lead-${agentKey}`, assigned, "employee");
       agents.set(agentKey, stat);
-      stat.leads += 1;
-      if (stage === "new") stat.newLeads += 1;
-      if (reachedConsultation(stage)) stat.consultations += 1;
-      if (stage === "surgery") stat.surgeries += 1;
-      if (stage === "lost") stat.lost += 1;
+      stat.leads += weight;
+      if (stage === "new") stat.newLeads += weight;
+      if (reachedConsultation(stage)) stat.consultations += weight;
+      if (stage === "surgery") stat.surgeries += weight;
+      if (stage === "lost") stat.lost += weight;
       const temperature = (row.temperature || "").trim().toLowerCase();
-      if (temperature.startsWith("hot")) stat.hot += 1;
-      else if (temperature.startsWith("cold")) stat.cold += 1;
-      else stat.warm += 1;
+      if (temperature.startsWith("hot")) stat.hot += weight;
+      else if (temperature.startsWith("cold")) stat.cold += weight;
+      else stat.warm += weight;
     }
   }
 
@@ -880,7 +888,7 @@ export function buildDashboardMetrics(
     };
   });
 
-  const totalLeads = rows.length;
+  const totalLeads = rows.reduce((sum, row) => sum + analyticsWeight(row), 0);
   const consultations = stageTotals.booked + stageTotals.attended + stageTotals.surgery;
   const surgeries = stageTotals.surgery;
   const lostLeads = stageTotals.lost;
@@ -1092,10 +1100,7 @@ export function resolveDashboardMetrics(
   range: DateRange,
   employees: EmployeeDirectoryEntry[] = [],
 ): DashboardMetrics {
-  if (rows.length > 0) return buildDashboardMetrics(rows, employees, range);
-  const sample = createSampleMetrics(range);
-  if (employees.length === 0) return sample;
-  return { ...sample, agents: buildDashboardMetrics([], employees, range).agents };
+  return buildDashboardMetrics(rows, employees, range);
 }
 
 // ---------------------------------------------------------------------------

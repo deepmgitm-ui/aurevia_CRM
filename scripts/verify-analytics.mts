@@ -122,7 +122,8 @@ assert.ok(sample.kpis.some((kpi) => kpi.key === "lostLeads"));
 assert.ok(!JSON.stringify(sample).toLowerCase().includes("revenue"));
 assert.equal(sample.pipeline[0].total, 640, "sample funnel totals stay intact");
 const resolvedEmpty = resolveDashboardMetrics([], RANGE, []);
-assert.equal(resolvedEmpty.isSample, true, "empty database falls back to preview data");
+assert.equal(resolvedEmpty.isSample, false, "empty production database must show real zeros");
+assert.equal(resolvedEmpty.totals.leads,0);
 
 // ---------------------------------------------------------------------------
 // 8. Treatment resolution reads EVERY plausible column. This is the regression
@@ -424,6 +425,8 @@ assert.ok(
   "the full-history window includes the older leads instead of showing zeroes",
 );
 
+const weighted=buildDashboardMetrics([{...lead("group","LASIK","New"),weight:1205}],[],RANGE);
+assert.equal(weighted.pipeline.reduce((sum,row)=>sum+row.total,0),1205,"aggregate weights preserve exact totals");
 console.log("✓ all analytics assertions passed");
 console.log("  treatment series:", labels.join(", "));
 console.log("  kpi keys:", kpiKeys.join(", "));
