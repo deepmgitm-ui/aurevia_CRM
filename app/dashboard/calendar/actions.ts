@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { calendarAgendaWindow } from "@/lib/calendar-entry";
 import {
   appointmentForStatus,
   normaliseAppointmentDate,
@@ -78,6 +79,7 @@ export interface MonthDays {
   warning?: string;
   /** Upcoming entries: next 90 days on the page, displayed interval on month navigation. */
   upcoming: CalendarAppointment[];
+  past: CalendarAppointment[];
 }
 
 const APPOINTMENT_COLUMNS_MISSING_WARNING =
@@ -222,13 +224,11 @@ export async function getMonthDays(month?: string, includeUpcoming = false): Pro
     const viewerName = viewer.name.trim().toLowerCase();
     const isTeamView = viewer.role === "admin" || viewer.role === "manager";
 
-    const horizon = new Date(today + "T00:00:00Z");
-    horizon.setUTCDate(horizon.getUTCDate() + 89);
-    const upcomingEnd = horizon.toISOString().slice(0, 10);
-    // Navigation loads only one calendar; the initial page also loads the next 90 days.
+    const { pastStart, upcomingEnd } = calendarAgendaWindow(today);
+    // Navigation loads one calendar; the page also loads past and upcoming agendas.
     const dateFilter = APPOINTMENT_FIELDS.flatMap(({ column }) => [
       `and(${column}.gte.${from},${column}.lte.${to})`,
-      ...(includeUpcoming ? [`and(${column}.gte.${today},${column}.lte.${upcomingEnd})`] : []),
+      ...(includeUpcoming ? [`and(${column}.gte.${pastStart},${column}.lte.${upcomingEnd})`] : []),
     ]).join(",");
     const leadRows: LeadAppointmentRow[] = [];
     let warning: string | undefined;
@@ -253,10 +253,12 @@ export async function getMonthDays(month?: string, includeUpcoming = false): Pro
 
     const byDay = new Map<string, CalendarAppointment[]>();
     const upcoming: CalendarAppointment[] = [];
+    const past: CalendarAppointment[] = [];
     for (const row of (leadRows ?? []) as LeadAppointmentRow[]) {
       if (!isTeamView && (row.assigned_to ?? "").trim().toLowerCase() !== viewerName) continue;
       for (const entry of toCalendarAppointments(row, today)) {
         if (includeUpcoming && entry.date >= today && entry.date <= upcomingEnd) upcoming.push(entry);
+        if (includeUpcoming && entry.date >= pastStart && entry.date < today) past.push(entry);
         if (entry.date < from || entry.date > to) continue;
         const bucket = byDay.get(entry.date) ?? [];
         bucket.push(entry);
@@ -268,13 +270,14 @@ export async function getMonthDays(month?: string, includeUpcoming = false): Pro
     upcoming.sort((a, b) =>
       a.date === b.date ? a.leadName.localeCompare(b.leadName) : a.date.localeCompare(b.date),
     );
+    past.sort((a, b) => b.date.localeCompare(a.date) || a.leadName.localeCompare(b.leadName));
 
     const days: CalendarDay[] = cells.map((cell) => ({
       ...cell,
       reminders: byDay.get(cell.iso) ?? [],
     }));
     // The page agenda spans the next 90 days independently of the displayed month.
-    return { success: true, data: { month: target, days, upcoming, warning } };
+    return { success: true, data: { month: target, days, upcoming, past, warning } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load the calendar.") };
   }

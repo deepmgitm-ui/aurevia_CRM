@@ -1,6 +1,6 @@
 // Aurevia CRM — monthly OPD/IPD appointment calendar.
 //
-// Appointment dates are read-only here and are set from the Leads page.
+// Admins can add and edit patient appointments directly from the calendar.
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
 import { buildMonthCells, ensureArray } from "./month-grid";
+import { AppointmentEditor } from "./appointment-editor";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -69,6 +70,9 @@ export function PlanCalendar({
   month,
   todayIso,
   warning,
+  canEdit = false,
+  agents = [],
+  selectedDate,
 }: {
   /** Every rendered day cell (42 Monday-first cells from the server). */
   days: CalendarDay[];
@@ -78,9 +82,12 @@ export function PlanCalendar({
   todayIso: string;
   /** Database migration needed to show appointment dates, if any. */
   warning?: string;
+  canEdit?: boolean;
+  agents?: string[];
+  selectedDate?: string;
 }) {
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
-  const [selectedIso, setSelectedIso] = useState(month === todayIso.slice(0, 7) ? todayIso : `${month}-01`);
+  const [selectedIso, setSelectedIso] = useState(selectedDate || (month === todayIso.slice(0, 7) ? todayIso : `${month}-01`));
   // Month-key cache: `days` always belongs to `monthKey`, so "fetching another
   // month" is a DERIVED flag â€” no setState needed inside the fetch effect.
   const [itemsFor, setItemsFor] = useState<{ monthKey: string; days: CalendarDay[] }>(() => ({
@@ -268,6 +275,7 @@ export function PlanCalendar({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {canEdit && !loadingMonth && !calendarError && <AppointmentEditor agents={agents} defaultDate={selectedIso} label="Add appointment for this day" />}
             <section aria-label="Appointments" className="space-y-2">
               <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
                 Appointments ({ensureArray(selected?.reminders).length})
@@ -295,6 +303,8 @@ export function PlanCalendar({
                 <ReminderCard
                   key={`${reminder.leadId}-${reminder.kind}`}
                   reminder={reminder}
+                  canEdit={canEdit}
+                  agents={agents}
                 />
               ))}
             </section>
@@ -310,8 +320,12 @@ export function PlanCalendar({
 
 function ReminderCard({
   reminder,
+  canEdit,
+  agents,
 }: {
   reminder: CalendarAppointment;
+  canEdit: boolean;
+  agents: string[];
 }) {
   return (
     <article className="rounded-xl border border-slate-200 p-3">
@@ -327,6 +341,7 @@ function ReminderCard({
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
       {reminder.phone !== "-" && <a href={`tel:${reminder.phone.replace(/[^+\d]/g, "")}`} className="mt-2 inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Call {reminder.phone}</a>}
+      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} label="Edit appointment" /></div>}
     </article>
   );
 }
