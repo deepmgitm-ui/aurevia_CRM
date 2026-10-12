@@ -42,3 +42,13 @@ Sources: [Supabase pricing](https://supabase.com/pricing), [Supabase Cron](https
 Run the existing analytics, filter, calendar, appointment, Meta, import and automation scripts, plus `node scripts/verify-daily-work.mts` and `node scripts/verify-calendar-entry.mts`, TypeScript, targeted lint and production build.
 
 For isolated migration testing, install the verification-only runtime with `npm install --prefix .crm-verification --no-save --package-lock=false @electric-sql/pglite`, then run `node scripts/verify-crm-migrations.cjs`. This ignored runtime is not an application dependency and the test never connects to the live database. It covers SQL syntax, ownership permissions, atomic calls and IST times, multiple visits, stale edits, more than 1,000 records, duplicate guards, bounded/idempotent/paused automation, actor attribution and merge recovery. Only the platform-specific Cron extension setup is skipped.
+
+## Team activity
+
+Admin/manager dashboards show Active, Idle and Offline staff, estimated active/open duration today, current session and last seen. Agents see only themselves. Daily Team Report supports a selected date. Activity is sampled about once per minute only while the CRM tab is visible. Active means an interaction was seen within approximately five minutes; no heartbeat for more than 150 seconds means offline, reflected on the next refresh. Hidden/closed tabs and long network gaps receive no credited duration. Current session is elapsed session time; daily totals credit successful short heartbeat intervals. Multiple tabs share one locked record, so they do not double duration. This is approximate CRM usage, not attendance, payroll or proof of calls. No key contents, patient data or click details are collected. Tracking starts when this feature is deployed.
+
+One record per user per IST date keeps storage small (about 7,300 records/year for 20 staff). Only an activity boolean is writable; timestamps, date and totals are set by the database. Dashboard reads are limited to authorized staff and paused in hidden tabs. No extra Realtime channel or per-event history is created.
+
+Deploy this feature after applying `supabase/migrations/20261012110114_team_activity_presence.sql`. Verify with `npm run verify:team-activity`, targeted lint and a production build. Status clocks come from the database rather than the staff member's computer clock.
+
+Apply `supabase/migrations/20261012112004_team_activity_tab_signal.sql` immediately after the activity migration; it preserves a fresh interaction signal from another tab without double-crediting duration.

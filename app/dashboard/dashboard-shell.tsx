@@ -37,6 +37,7 @@ import { logout } from "@/app/login/actions";
 import { currentQuarterRange, type DateRange } from "./overview/analytics";
 import { DashboardDateRangeProvider } from "./dashboard-date-range";
 import { RealtimeNotifications } from "./realtime-notifications";
+import { ActivityTracker } from "./activity-tracker";
 import { AssistantChat } from "./assistant-chat";
 
 interface DashboardProfile {
@@ -340,6 +341,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
 
   return (
     <div className="flex min-h-screen bg-slate-50">
+      <ActivityTracker />
       <Sidebar profile={profile} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">

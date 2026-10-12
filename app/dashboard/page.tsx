@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { TeamActivityPanel } from "./team-activity-panel";
 import { LeadsTable } from "./leads-table";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
@@ -157,6 +158,7 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
+        <TeamActivityPanel day={clinicDate()} />
         <OverviewDashboard
           rows={rows}
           employees={employees}
@@ -200,6 +202,7 @@ export default async function DashboardPage({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <TeamActivityPanel key={day} day={day} own />
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">

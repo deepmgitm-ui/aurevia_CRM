@@ -2,6 +2,7 @@ import { getViewer } from "@/app/actions/leads";
 import { getAgentDailyReport } from "@/app/actions/crm-workflows";
 import { clinicDate } from "@/lib/attendance";
 import { isWorkDate } from "@/lib/daily-work";
+import { TeamActivityPanel } from "../team-activity-panel";
 import { DailyReportTable } from "./report-table";
 export default async function DailyReportPage({
   searchParams,
@@ -43,6 +44,7 @@ export default async function DailyReportPage({
           View report
         </button>
       </form>
+      <TeamActivityPanel key={day} day={day} />
       {result.success ? (
         <DailyReportTable rows={result.data} day={day} />
       ) : (

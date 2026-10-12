@@ -10,6 +10,8 @@ import {
   getViewer,
   type EmployeeDirectoryEntry,
 } from "@/app/actions/leads";
+import { clinicDate } from "@/lib/attendance";
+import { TeamActivityPanel } from "../team-activity-panel";
 import { AgentSection } from "../overview/agent-section";
 import { LeadListTable } from "../overview/lead-list-table";
 import { PipelineDetail } from "../overview/pipeline-detail";
@@ -344,6 +346,7 @@ function renderSection(
                 : "View and update your own profile. Other employees' private HR details are not shown."
             }
           />
+          <TeamActivityPanel day={clinicDate()} own={!isTeamLead} />
           <AgentSection
             employees={employees}
             agents={agentMetrics}

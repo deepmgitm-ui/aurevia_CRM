@@ -22,7 +22,8 @@
     "cleanup:sources": "node scripts/cleanup-polluted-source.mts",
     "verify:crm-migrations": "node scripts/verify-crm-migrations.cjs",
     "verify:daily-work": "node scripts/verify-daily-work.mts",
-    "verify:calendar-entry": "node scripts/verify-calendar-entry.mts"
+    "verify:calendar-entry": "node scripts/verify-calendar-entry.mts",
+    "verify:team-activity": "node scripts/verify-team-activity.mts && node scripts/verify-team-activity.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
