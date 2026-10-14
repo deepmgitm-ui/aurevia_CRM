@@ -1,69 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aurevia CRM
 
-## Getting Started
+Aurevia CRM is a clinic operations CRM built with Next.js 16, React 19,
+TypeScript and Supabase. It supports lead management and imports, Meta lead
+forms, daily agent work, appointments, attendance, analytics, follow-ups and
+team activity. The interface is English-first; the help assistant can reply in
+English or Hinglish.
 
-First, run the development server:
+## Local development
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. Install dependencies with `npm install`.
+2. Copy `.env.example` to `.env.local` and fill in the values needed for the
+   features you want to run.
+3. Start the app with `npm run dev` and open <http://localhost:3000>.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Do not commit `.env.local`, access tokens, service-role keys or Meta app
+secrets. Server-only secrets must never use a `NEXT_PUBLIC_` prefix.
 
-## Supabase setup and Vercel
+## Database changes
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and either `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-or `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` for local development and in
-Vercel's Environment Variables for each deployment environment. Restart the local
-server after changing `.env.local`, and redeploy after changing Vercel variables.
+Apply SQL files in `supabase/migrations/` to Supabase before deploying code
+that depends on them. The October 12 workflow migrations are required for
+appointments, calling, reporting and daily automation. The latest Meta and
+function-hardening migration makes Meta delivery writes idempotent and removes
+anonymous RPC access to trigger helpers. Review [CRM operations](docs/CRM-OPERATIONS.md)
+for rollout order, backups, capacity and verification.
 
-The dashboard assistant uses Cloudflare Workers AI only to explain CRM features
-and workflows. Set `CLOUDFLARE_ACCOUNT_ID` and a server-side
-`CLOUDFLARE_API_TOKEN` with Workers AI permission in `.env.local` and in Vercel's
-Environment Variables, then restart/redeploy. Do not prefix these values with
-`NEXT_PUBLIC_` or expose them in the browser. The assistant receives a fixed CRM
-help guide and the user's chat messages only; it does not query or send lead or
-attendance records to the AI provider. The free allocation is limited to 10,000
-Neurons per day, so the guide may pause after that quota is reached.
+## Meta lead forms
 
-Database migrations are run in Supabase, not by deploying to Vercel. If the OPD/IPD
-appointment-date columns have not been added yet, run `supabase-master-data-migration.sql`
-in the Supabase SQL Editor. The calendar no longer uses the personal-events table.
-To make employee attendance strictly read-only in an existing database, also run
-`supabase-attendance-readonly-migration.sql` in the Supabase SQL Editor. Admins and
-managers retain attendance editing, and employee sign-in still records attendance.
+The CRM receives Meta Lead Ads through `/api/meta-webhook`. Setup requires a
+Meta developer app, a Page connected to the lead form, a Page access token with
+lead retrieval access, the Meta app secret and a private verification token.
+The webhook rejects deliveries unless the Meta app secret is configured, then
+verifies `X-Hub-Signature-256` before fetching or saving patient details. See
+[Meta lead setup](docs/META-LEADS.md) for the exact dashboard steps.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verification
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The employee dashboard opens on daily assignments with date-based OPD/IPD patient lists.
-Run `supabase-agent-daily-work-migration.sql` in Supabase for assignment timestamps.
-It tracks new assignments from activation onwards, including imports and automation;
-historical assignment dates remain unknown and are not inferred from lead creation dates.
-Daily boundaries use Asia/Kolkata. Verify with `node scripts/verify-daily-work.mts`.
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
-## Daily-work and capacity update
-
-See [CRM operations](docs/CRM-OPERATIONS.md) for appointment lifecycle, daily reports, calling, duplicate review, Supabase daily automation, deployment order and free-tier capacity limitations. Apply both October 12 migrations before deploying the corresponding application changes.
+Run `npm run lint`, `npm run build` and the relevant feature checks, including
+`npm run verify:meta` and `npm run verify:crm-migrations`. The local migration
+verification uses an isolated database and never connects to production.

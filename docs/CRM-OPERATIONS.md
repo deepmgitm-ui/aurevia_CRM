@@ -1,4 +1,4 @@
-# CRM operations and rollout — 12 October 2026
+# CRM operations and rollout — October 2026
 
 ## Rollout order
 
@@ -6,10 +6,18 @@ Apply these migrations in order before deploying the application changes:
 
 1. `supabase/migrations/20261012051120_crm_experience_and_capacity.sql`
 2. `supabase/migrations/20261012051646_crm_workflows_reports_and_schedule.sql`
+3. `supabase/migrations/20261012110114_team_activity_presence.sql`
+4. `supabase/migrations/20261012112004_team_activity_tab_signal.sql`
+5. `supabase/migrations/20261014062939_employee_assigned_lead_details.sql`
+6. `supabase/migrations/20261014064741_employee_generated_lead_keys.sql`
+7. `supabase/migrations/20261014082713_harden_meta_and_helper_functions.sql`
+8. `supabase/migrations/20261014083014_pin_security_definer_search_paths.sql`
+9. `supabase/migrations/20261014084911_index_foreign_key_columns.sql`
+10. `supabase/migrations/20261014084919_cache_rls_identity_checks.sql`
 
 They add normalized date/treatment columns and indexes, appointment and assignment history, calling/report RPCs, duplicate guards, merge recovery records, and a daily database job. Existing leads are retained. Existing appointment dates become baseline visits; unknown historical actors and assignment dates are not invented. These migrations are not an instruction to merge any live duplicates. An admin must review each merge in Settings and type the matching phone number.
 
-The source changes depend on these RPCs. Do not deploy them against an unmigrated database. The initial live migration attempt was rejected by automatic approval review; the rollout requires explicit approval for these exact database changes. Native Cron configuration cannot be verified by the isolated WASM database test.
+The source changes depend on these RPCs. Do not deploy them against an unmigrated database. Native Cron configuration cannot be verified by the isolated WASM database test. The hardening migration revokes API execution from the profile-creation trigger and automatic-RLS event-trigger helpers; PostgreSQL still invokes them through their triggers. It also pins the profile trigger's search path and adds a unique Meta lead ID for retry-safe delivery.
 
 ## Daily use
 
@@ -52,3 +60,14 @@ One record per user per IST date keeps storage small (about 7,300 records/year f
 Deploy this feature after applying `supabase/migrations/20261012110114_team_activity_presence.sql`. Verify with `npm run verify:team-activity`, targeted lint and a production build. Status clocks come from the database rather than the staff member's computer clock.
 
 Apply `supabase/migrations/20261012112004_team_activity_tab_signal.sql` immediately after the activity migration; it preserves a fresh interaction signal from another tab without double-crediting duration.
+
+## Meta Lead Ads
+
+Configure the server-only values and Meta Developer settings in [Meta lead setup](META-LEADS.md). Production webhook posts are rejected with 503 until `META_APP_SECRET` is configured, and invalid request signatures are rejected before Graph API lookup or database writes. `META_ACCESS_TOKEN` must be a Page token authorized to retrieve that Page's lead forms. Meta retries are idempotent by `leadgen_id`; phone-based duplicate checks remain an additional safeguard.
+
+## Security and recovery
+
+- Keep Supabase service-role credentials, Meta tokens and Meta app secrets in Vercel server-side environment variables. Do not put them in client bundles or Git.
+- In Supabase Auth settings, enable leaked-password protection. This is an Auth dashboard setting and is not changed by SQL migrations.
+- Take a regular database export and practice restoring it to a separate test project before depending on it as a recovery plan. Settings' lead-recovery snapshots are not a full database backup.
+- Re-run Supabase security and performance advisors after database migrations. Review each `SECURITY DEFINER` grant individually; do not revoke application RPC permissions broadly without checking role behavior.

@@ -12,6 +12,9 @@ let db;
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table public.profiles(id uuid primary key,name text,role text);
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
+create function public.handle_new_user() returns trigger language plpgsql security definer as $$begin return new;end$$;
+create function public.rls_auto_enable() returns void language plpgsql security definer as $$begin return;end$$;
+create function public.set_updated_at() returns trigger language plpgsql as $$begin new.updated_at:=now();return new;end$$;
 create function public.current_user_role() returns text language sql stable security definer set search_path='' as $$select role from public.profiles where id=auth.uid()$$;
 create type public.lead_temp as enum ('Hot','Warm','Cold');
 create table public.leads(id uuid primary key default gen_random_uuid(),name text not null,phone text,email text,source text not null default 'Manual',status text not null default 'New',temperature public.lead_temp not null default 'Warm',created_at timestamptz not null default now(),updated_at timestamptz not null default now(),gender text,city text,disease text,insurance_status text,remarks text,lead_date text,assigned_to text,follow_up_date text,opd_booked_date text,opd_done_date text,ipd_done_date text,assigned_at timestamptz,source_batch_id uuid,source_batch_label text,source_batch_created_at timestamptz);
@@ -36,6 +39,32 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     );
     console.log("Migration syntax passed:", file);
   }
+  const hardened = (await db.query(`select
+    has_function_privilege('anon','public.handle_new_user()','execute') as anon_handle,
+    has_function_privilege('authenticated','public.handle_new_user()','execute') as auth_handle,
+    has_function_privilege('anon','public.rls_auto_enable()','execute') as anon_rls,
+    has_function_privilege('authenticated','public.rls_auto_enable()','execute') as auth_rls,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.handle_new_user()'::regprocedure) as empty_handle_path,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.current_user_role()'::regprocedure) as empty_role_path,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_scheduler_status()'::regprocedure) as empty_scheduler_path,
+    (select proconfig @> array['search_path=pg_catalog'] from pg_proc where oid='public.set_updated_at()'::regprocedure) as pinned_updated_path,
+    exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
+  `)).rows[0];
+  assert.deepEqual(hardened, {
+    anon_handle: false,
+    auth_handle: false,
+    anon_rls: false,
+    auth_rls: false,
+    empty_handle_path: true,
+    empty_role_path: true,
+    empty_scheduler_path: true,
+    pinned_updated_path: true,
+    has_meta_id: true,
+  });
+  await db.query(`insert into public.leads(name,phone,meta_leadgen_id) values('Meta retry fixture','1111111111','meta-test-id')`);
+  await assert.rejects(
+    db.query(`insert into public.leads(name,phone,meta_leadgen_id) values('Meta duplicate fixture','2222222222','meta-test-id')`),
+  );
   await db.exec(
     `set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`,
   );

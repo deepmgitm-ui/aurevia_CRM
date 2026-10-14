@@ -145,12 +145,20 @@ export async function POST(request: NextRequest) {
   console.log("[Meta Webhook][POST] Request received", { requestId });
 
   try {
+    // Lead details contain patient contact data. Never accept public writes
+    // when Meta's request-signing secret has not been configured.
+    if (!META_APP_SECRET) {
+      console.error("[Meta Webhook][POST] META_APP_SECRET is not configured", { requestId });
+      return NextResponse.json(
+        { success: false, error: "Meta webhook signature verification is not configured." },
+        { status: 503 },
+      );
+    }
+
     // The signature covers the RAW body, so read the text first and parse it by
     // hand (request.json() would consume the stream and leave nothing to hash).
     const rawBody = await request.text();
-    if (!META_APP_SECRET) {
-      console.warn("[Meta Webhook][POST] META_APP_SECRET not set — signature check skipped", { requestId });
-    } else if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+    if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
       console.warn("[Meta Webhook][POST] Invalid X-Hub-Signature-256 — payload rejected", { requestId });
       return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 401 });
     }
@@ -198,6 +206,7 @@ export async function POST(request: NextRequest) {
     // second API call.
     const graphResponse = await fetch(
       `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
+      { signal: AbortSignal.timeout(12_000) },
     );
     const graphResult = (await graphResponse.json()) as JsonValue;
     const graphObject = getObject(graphResult);
@@ -265,6 +274,7 @@ export async function POST(request: NextRequest) {
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .insert({
+        meta_leadgen_id: leadgenId,
         name: leadData.name,
         phone: leadData.phone,
         email: leadData.email,
