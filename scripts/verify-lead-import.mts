@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  cleanImportedLeadRemarks,
   findLeadImportHeaderRow,
   findLeadImportValue,
   getUnmappedLeadImportValues,
@@ -54,6 +55,16 @@ assert.equal(
   findLeadImportValue({ "Preferred Time": "Evening" }, "remarks"),
   "Evening",
 );
+assert.equal(
+  cleanImportedLeadRemarks("Record Id: zcrm_123 | Lead Stage: Pre OPD | SR Number: 1234567890 | Lead DID: L123 | Called patient, asked to call tomorrow"),
+  "Called patient, asked to call tomorrow",
+  "CRM export metadata is removed while a human note is kept",
+);
+assert.equal(
+  cleanImportedLeadRemarks("Patient prefers morning calls | Lead Stage: Pre OPD"),
+  "Patient prefers morning calls",
+);
+assert.equal(cleanImportedLeadRemarks("Patient needs a follow-up tomorrow."), "Patient needs a follow-up tomorrow.");
 assert.equal(findLeadImportValue({ "Lead Stage": "Pre OPD" }, "status"), undefined);
 assert.deepEqual(getUnmappedLeadImportValues({ "Preferred Time": "Evening", "Lead Stage": "Pre OPD" }), [
   "Lead Stage: Pre OPD",

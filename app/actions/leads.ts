@@ -42,6 +42,7 @@ import {
 } from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
 import {
+  cleanImportedLeadRemarks,
   findLeadImportValue,
   normalizeImportedLeadStatus,
 } from "@/lib/lead-import";
@@ -1519,7 +1520,7 @@ export async function bulkInsertLeads(
       // The sheet's own source column wins whenever it has one.
       const importedSource = text("source");
       const importedStatus = text("status");
-      const importedRemarks = text("remarks");
+      const importedRemarks = cleanImportedLeadRemarks(text("remarks"));
 
       records.push({
         name: dashIfEmpty(name),

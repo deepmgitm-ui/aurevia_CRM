@@ -283,6 +283,33 @@ export function getUnmappedLeadImportValues(record: Record<string, unknown>): st
     .map(([header, value]) => `${header.trim()}: ${String(value).trim()}`);
 }
 
+const NON_REMARK_IMPORT_FIELDS = new Set([
+  "record id",
+  "lead id",
+  "lead stage",
+  "sr number",
+  "sr no",
+  "lead did",
+  "zcrm id",
+]);
+
+/** Keep human notes while removing CRM export metadata copied into Remarks. */
+export function cleanImportedLeadRemarks(value: unknown): string {
+  if (typeof value !== "string") return "";
+
+  return value
+    .split(/\s*\|\s*|\r?\n/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => {
+      const colon = chunk.indexOf(":");
+      if (colon < 0) return true;
+      const label = normalizeLeadImportHeader(chunk.slice(0, colon));
+      return !NON_REMARK_IMPORT_FIELDS.has(label);
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
 export function getRecognizedLeadImportFields(headers: string[]): string[] {
   return LEAD_IMPORT_PREVIEW_FIELDS.filter(({ field }) =>
     headers.some((header) => headerMatchesField(header, field)),
