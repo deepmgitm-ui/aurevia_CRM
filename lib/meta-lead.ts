@@ -275,25 +275,10 @@ export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
   const disease =
     metaFieldValue(fields, META_FIELD_ALIASES.disease) ?? metaFieldMatching(fields, META_FIELD_KEYWORDS.disease);
   const insuranceStatus = metaFieldValue(fields, META_FIELD_ALIASES.insuranceStatus);
-  // Anything the form asked that we have no column for is worth keeping — it is
-  // usually a remark or custom question such as "preferred time".
-  const knownLabels = new Set<string>(
-    Object.entries(META_FIELD_ALIASES)
-      .filter(([column]) => column !== "remarks")
-      .flatMap(([, labels]) => [...labels]),
-  );
-  const extras = fields
-    .filter((field) => {
-      const label = metaFieldLabel(field);
-      if (!label || knownLabels.has(label)) return false;
-      return Boolean(metaString(field?.values?.[0]));
-    })
-    .map((field) => {
-      const label = metaFieldLabel(field).replace(/_/g, " ");
-      return `${label}: ${metaString(field?.values?.[0]) ?? ""}`;
-    });
-
-  const remarks = extras.join(" | ");
+  const answersForTreatment = fields
+    .map((field) => metaString(field?.values?.[0]))
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
   const resolvedDisease = dashIfEmpty(disease);
 
   return {
@@ -305,8 +290,8 @@ export function extractMetaLead(fields: MetaField[]): MetaLeadFields {
     city: dashIfEmpty(city),
     // Nothing usable in the treatment question? Try the free-text answers before
     // giving up, so the pipeline chart does not grow another "Not Recorded" bar.
-    disease: resolvedDisease === "-" && remarks ? detectTreatmentInText(remarks) : resolvedDisease,
+    disease: resolvedDisease === "-" ? detectTreatmentInText(answersForTreatment) : resolvedDisease,
     insuranceStatus: dashIfEmpty(insuranceStatus),
-    remarks: dashIfEmpty(remarks),
+    remarks: "",
   };
 }

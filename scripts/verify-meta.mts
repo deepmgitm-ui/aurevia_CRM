@@ -37,7 +37,7 @@ assert.equal(standard.phone, "9876543210");
 assert.equal(standard.email, "ravi@example.com");
 assert.equal(standard.city, "Mumbai");
 assert.equal(standard.disease, "Cataract");
-assert.equal(standard.remarks, "-");
+assert.equal(standard.remarks, "");
 assert.match(standard.leadDate, /^\d{2}\/\d{2}\/\d{4}$/);
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ assert.equal(custom.name, "Neha");
 assert.equal(custom.phone, "9876543210");
 assert.equal(custom.city, "Pune", "a custom city question must still fill the city column");
 assert.equal(custom.disease, "Lasik", "a custom treatment question must still fill the treatment column");
-assert.ok(custom.remarks.includes("preferred call time: Evening"), "unknown questions are preserved in remarks");
+assert.equal(custom.remarks, "", "unknown Meta answers must not be copied into remarks");
 
 const splitNameForm = [
   { field_name: "first_name", values: ["Asha"] },
@@ -118,4 +118,4 @@ for (const [column, labels] of Object.entries(META_FIELD_ALIASES)) {
 
 console.log("✓ all Meta webhook parser assertions passed");
 console.log(`  custom treatment question → disease: ${custom.disease}`);
-console.log(`  extra answers kept in remarks: ${custom.remarks}`);
+console.log(`  generated remarks: ${custom.remarks}`);

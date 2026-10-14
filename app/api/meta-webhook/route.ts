@@ -230,12 +230,6 @@ export async function POST(request: NextRequest) {
     const leadData = extractLeadData(fields);
     const campaignName = getString(graphObject.campaign_name) ?? "-";
     const formId = getString(graphObject.form_id) ?? "-";
-    if (campaignName !== "-") {
-      // The campaign name is the most useful "where did this come from" signal
-      // the team can act on, so it is kept on the lead itself.
-      leadData.remarks =
-        leadData.remarks === "-" ? `[${campaignName}]` : `[${campaignName}] ${leadData.remarks}`;
-    }
     console.log("[Meta Webhook][POST] Lead data extracted from Graph API", {
       requestId,
       leadgenId,

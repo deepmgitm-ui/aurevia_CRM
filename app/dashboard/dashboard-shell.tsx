@@ -39,7 +39,7 @@ import { DashboardDateRangeProvider } from "./dashboard-date-range";
 import { RealtimeNotifications } from "./realtime-notifications";
 import { ActivityTracker } from "./activity-tracker";
 import { AssistantChat } from "./assistant-chat";
-import { QuickJump } from "./quick-jump";
+import { GlobalSearch } from "./global-search";
 
 interface DashboardProfile {
   name: string;
@@ -354,7 +354,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
               <RealtimeNotifications />
-              <QuickJump role={profile.role} />
+              <GlobalSearch role={profile.role} />
               <Link
                 href="/dashboard/tasks"
                 aria-label="Tasks"

@@ -43,7 +43,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import {
   findLeadImportValue,
-  getUnmappedLeadImportValues,
   normalizeImportedLeadStatus,
 } from "@/lib/lead-import";
 
@@ -412,8 +411,61 @@ function buildLeadSearchFilter(search: string): string | null {
   return [
     `name.ilike."%${safe}%"`,
     `phone.ilike."%${safe}%"`,
+    `email.ilike."%${safe}%"`,
     `disease.ilike."%${safe}%"`,
+    `city.ilike."%${safe}%"`,
+    `status.ilike."%${safe}%"`,
+    `source.ilike."%${safe}%"`,
+    `assigned_to.ilike."%${safe}%"`,
   ].join(",");
+}
+
+export interface GlobalLeadSearchResult {
+  id: string;
+  name: string;
+  phone: string;
+  city: string;
+  disease: string;
+  status: string;
+  assigned_to: string;
+}
+
+/** Small, authenticated search result for the dashboard-wide search. */
+export async function searchLeadsForGlobalSearch(
+  search: string,
+): Promise<ActionResult<GlobalLeadSearchResult[]>> {
+  const term = search.trim().slice(0, 100);
+  if (term.length < 2) return { success: true, data: [] };
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: true, data: [] };
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("id", user.id)
+      .single();
+    if (!profile || (profile.role === "employee" && !profile.name?.trim())) {
+      return { success: true, data: [] };
+    }
+
+    const searchFilter = buildLeadSearchFilter(term);
+    if (!searchFilter) return { success: true, data: [] };
+
+    let query = supabase
+      .from("leads")
+      .select("id, name, phone, city, disease, status, assigned_to")
+      .or(searchFilter);
+    if (profile.role === "employee") query = query.ilike("assigned_to", profile.name);
+
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(8);
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: (data ?? []) as GlobalLeadSearchResult[] };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to search leads.") };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1348,7 +1400,7 @@ export async function createLead(
         city: dashIfEmpty(input.city),
         disease: dashIfEmpty(input.disease),
         insurance_status: dashIfEmpty(input.insurance_status),
-        remarks: dashIfEmpty(input.remarks),
+        remarks: input.remarks?.trim() ?? "",
         lead_date: dashIfEmpty(input.lead_date) === "-" ? todayDate() : dashIfEmpty(input.lead_date),
         follow_up_date: dashIfEmpty(input.follow_up_date),
         source: "Manual",
@@ -1467,11 +1519,7 @@ export async function bulkInsertLeads(
       // The sheet's own source column wins whenever it has one.
       const importedSource = text("source");
       const importedStatus = text("status");
-      const additionalDetails = getUnmappedLeadImportValues(candidate);
-      const importedRemarks = [
-        text("remarks"),
-        ...additionalDetails,
-      ].filter(Boolean).join(" | ");
+      const importedRemarks = text("remarks");
 
       records.push({
         name: dashIfEmpty(name),
@@ -1482,7 +1530,7 @@ export async function bulkInsertLeads(
         city: dashIfEmpty(text("city")),
         disease: dashIfEmpty(text("disease")),
         insurance_status: dashIfEmpty(text("insurance")),
-        remarks: dashIfEmpty(importedRemarks),
+        remarks: importedRemarks,
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: importedSource || batchSource,
@@ -2939,7 +2987,7 @@ export async function updateLeadDetails(
   if (input.city !== undefined) updates.city = input.city.trim() || "-";
   if (input.disease !== undefined) updates.disease = input.disease.trim() || "-";
   if (input.insurance_status !== undefined) updates.insurance_status = input.insurance_status.trim() || "-";
-  if (input.remarks !== undefined) updates.remarks = input.remarks.trim() || "-";
+  if (input.remarks !== undefined) updates.remarks = input.remarks.trim();
   if (input.status !== undefined && input.status.trim()) updates.status = input.status.trim();
   if (input.temperature !== undefined && input.temperature.trim()) updates.temperature = input.temperature.trim();
   if (input.assigned_to !== undefined) updates.assigned_to = input.assigned_to.trim() || "-";
