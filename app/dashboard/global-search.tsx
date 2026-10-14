@@ -14,6 +14,7 @@ const destinations = [
   { label: "Follow-ups", href: "/dashboard/tasks", roles: ["admin", "manager", "employee"] },
   { label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "employee"] },
   { label: "Daily Team Report", href: "/dashboard/daily-report", roles: ["admin", "manager"] },
+  { label: "My Daily Summary", href: "/dashboard/daily-report", roles: ["employee"] },
   { label: "Leads", href: "/dashboard/leads", roles: ["admin", "manager", "employee"] },
   { label: "Pipeline Board", href: "/dashboard/board", roles: ["admin", "manager"] },
   { label: "Attendance", href: "/dashboard/attendance", roles: ["admin", "manager", "employee"] },

@@ -25,13 +25,14 @@ export type TaskLead = {
   name: string;
   phone: string | null;
   disease: string;
-  follow_up_date: string;
+  follow_up_date: string | null;
   status: string;
   temperature: string;
   assigned_to: string | null;
   source: string;
   remarks: string;
   follow_up_at?: string | null;
+  last_touched_at?: string;
 };
 
 function dateKey(value: string): string {
@@ -47,9 +48,9 @@ function todayKey(): string {
   return new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Kolkata"}).format(new Date());
 }
 
-function displayDate(value: string): string {
-  const key = dateKey(value);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return value;
+function displayDate(value: string | null): string {
+  const key = dateKey(value ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return value || "Not scheduled";
   const [y, m, d] = key.split("-");
   return `${d}/${m}/${y}`;
 }
@@ -58,7 +59,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
   const [leads, setLeads] = useState(initialLeads);
   const [page,setPage]=useState(1),[total,setTotal]=useState(initialPage.total),[stats,setStats]=useState(initialPage.stats),[loading,setLoading]=useState(false),[requestError,setRequestError]=useState(""),[nextTime,setNextTime]=useState("");
   const [query, setQuery] = useState("");
-  const [bucket, setBucket] = useState<"all" | "overdue" | "today" | "upcoming">("all");
+  const [bucket, setBucket] = useState<"all" | "overdue" | "today" | "upcoming" | "stale">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [callLead, setCallLead] = useState<TaskLead | null>(null);
   const [callOutcome, setCallOutcome] = useState("Connected");
@@ -73,7 +74,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
     try{const response=await getTaskPage(nextBucket,nextQuery,nextPage);if(request!==loadSequence.current)return;if(response.success){const last=Math.max(1,Math.ceil(response.data.total/50));if(nextPage>last){await load(nextBucket,nextQuery,last);return;}setLeads(response.data.leads);setTotal(response.data.total);setStats(response.data.stats);setBucket(nextBucket);setPage(nextPage);}else setRequestError(response.error);}
     catch{setRequestError("Follow-ups could not be loaded. Please retry.");}finally{if(request===loadSequence.current)setLoading(false);}
   }
-  const visible=useMemo(()=>[...leads].sort((a,b)=>getLeadPriorityScore(b)-getLeadPriorityScore(a)||dateKey(a.follow_up_date).localeCompare(dateKey(b.follow_up_date))),[leads]);
+  const visible=useMemo(()=>[...leads].sort((a,b)=>getLeadPriorityScore(b)-getLeadPriorityScore(a)||dateKey(a.follow_up_date ?? "").localeCompare(dateKey(b.follow_up_date ?? ""))),[leads]);
 
   async function handleComplete(lead: TaskLead) {
     if (busyId) return;
@@ -172,12 +173,13 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: "All follow-ups", value: stats.total, active: bucket === "all", next: "all" as const },
           { label: "Overdue", value: stats.overdue, active: bucket === "overdue", next: "overdue" as const },
           { label: "Due today", value: stats.today, active: bucket === "today", next: "today" as const },
           { label: "Upcoming", value: stats.upcoming, active: bucket === "upcoming", next: "upcoming" as const },
+          { label: "No update · 3+ days", value: stats.stale, active: bucket === "stale", next: "stale" as const },
         ].map((card) => (
           <button
             key={card.label}
@@ -209,7 +211,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
               <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Follow-up</th>
+                <th className="px-4 py-3">{bucket === "stale" ? "Last updated" : "Follow-up"}</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Owner</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -221,8 +223,9 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
               ) : visible.map((lead) => {
                 const score = getLeadPriorityScore(lead);
                 const priority = getPriorityLabel(score);
-                const key = dateKey(lead.follow_up_date);
-                const isOverdue = key < today;
+                const key = dateKey(lead.follow_up_date ?? "");
+                const isOverdue = bucket !== "stale" && key < today;
+                const lastTouched = lead.last_touched_at ? new Date(lead.last_touched_at) : null;
                 return (
                   <tr key={lead.id} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-4 py-3 align-top">
@@ -247,7 +250,10 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div className={`font-semibold ${isOverdue ? "text-rose-600" : key === today ? "text-amber-600" : "text-slate-900"}`}>
-                        {displayDate(lead.follow_up_date)}{lead.follow_up_at?` · ${new Date(lead.follow_up_at).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit"})}`:""}
+                        {bucket === "stale" && lastTouched
+                          ? lastTouched.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" })
+                          : lead.follow_up_date ? displayDate(lead.follow_up_date) : "Not scheduled"}
+                        {bucket !== "stale" && lead.follow_up_at?` · ${new Date(lead.follow_up_at).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit"})}`:""}
                       </div>
                       <div className="mt-2 flex items-center gap-2">
                         <CalendarClock className="size-3.5 text-slate-400" />

@@ -7,7 +7,7 @@ import type { TaskLead } from "@/app/dashboard/tasks/task-center";
 export interface TaskPageData {
   leads: TaskLead[];
   total: number;
-  stats: { total: number; overdue: number; today: number; upcoming: number };
+  stats: { total: number; overdue: number; today: number; upcoming: number; stale: number };
 }
 export async function getTaskPage(bucket = "all", search = "", page = 1) {
   const supabase = await createClient();
@@ -15,7 +15,7 @@ export async function getTaskPage(bucket = "all", search = "", page = 1) {
   if (!viewer.success || !viewer.data)
     return { success: false as const, error: "Sign in to view follow-ups." };
   const { data, error } = await supabase.rpc("crm_task_page", {
-    p_bucket: ["all", "overdue", "today", "upcoming"].includes(bucket)
+    p_bucket: ["all", "overdue", "today", "upcoming", "stale"].includes(bucket)
       ? bucket
       : "all",
     p_search: search.trim().slice(0, 120),

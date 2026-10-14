@@ -13,9 +13,11 @@ const columns = [
 export function DailyReportTable({
   rows,
   day,
+  personal = false,
 }: {
   rows: AgentDailyRow[];
   day: string;
+  personal?: boolean;
 }) {
   function download() {
     const cell = (value: unknown) =>
@@ -25,7 +27,7 @@ export function DailyReportTable({
         .replace(/"/g, '""') +
       '"';
     const text = [
-      ["Agent", ...columns.map(([, label]) => label)],
+      [personal ? "Your activity" : "Agent", ...columns.map(([, label]) => label)],
       ...rows.map((row) => [row.name, ...columns.map(([key]) => row[key])]),
     ]
       .map((row) => row.map(cell).join(","))
@@ -35,7 +37,7 @@ export function DailyReportTable({
       ),
       a = document.createElement("a");
     a.href = url;
-    a.download = `daily-team-report-${day}.csv`;
+    a.download = `${personal ? "my-daily-summary" : "daily-team-report"}-${day}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -48,7 +50,7 @@ export function DailyReportTable({
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b bg-slate-50">
-              <th className="p-3 text-left">Agent</th>
+              <th className="p-3 text-left">{personal ? "Your activity" : "Agent"}</th>
               {columns.map(([key, label]) => (
                 <th key={key} className="p-3 text-right">
                   {label}
@@ -60,10 +62,8 @@ export function DailyReportTable({
             {rows.map((row) => (
               <tr key={row.id} className="border-b">
                 <td className="p-3 font-medium">
-                  {row.name}
-                  <span className="ml-2 text-xs text-slate-400">
-                    {row.role}
-                  </span>
+                  {personal ? "My daily summary" : row.name}
+                  {!personal && <span className="ml-2 text-xs text-slate-400">{row.role}</span>}
                 </td>
                 {columns.map(([key]) => (
                   <td key={key} className="p-3 text-right tabular-nums">

@@ -135,7 +135,7 @@ function BrandLogo({
 
 function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string }) {
   const pathname = usePathname();
-  const items = role === "employee" ? navigation.filter(item=>["/dashboard","/dashboard/leads","/dashboard/tasks","/dashboard/calendar","/dashboard/attendance","/dashboard/agents"].includes(item.href)) : navigation;
+  const items = role === "employee" ? navigation.filter(item=>["/dashboard","/dashboard/leads","/dashboard/tasks","/dashboard/calendar","/dashboard/attendance","/dashboard/agents","/dashboard/daily-report"].includes(item.href)).map(item=>item.href==="/dashboard/daily-report"?{...item,label:"My Daily Summary"}:item) : navigation;
 
   return (
     <nav className="space-y-1.5">

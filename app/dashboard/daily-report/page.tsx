@@ -10,23 +10,24 @@ export default async function DailyReportPage({
   searchParams: Promise<{ day?: string }>;
 }) {
   const viewer = await getViewer();
-  if (!viewer.success || !viewer.data || viewer.data.role === "employee")
+  if (!viewer.success || !viewer.data)
     return (
       <p className="p-6">
-        Daily team reports are available to admins and managers.
+        Sign in to view the daily summary.
       </p>
     );
+  const personal = viewer.data.role === "employee";
   const params = await searchParams,
     day = isWorkDate(params.day ?? "") ? params.day! : clinicDate(),
     result = await getAgentDailyReport(day);
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold">Daily Team Report</h1>
+        <h1 className="text-2xl font-semibold">{personal ? "My Daily Summary" : "Daily Team Report"}</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Assignments follow their recorded history. Calls are credited to the
-          person who saved them; OPD/IPD completions to the person who recorded
-          completion.
+          {personal
+            ? "Review your assignments, calls, pending callbacks and completed appointments for the selected day."
+            : "Assignments follow their recorded history. Calls are credited to the person who saved them; OPD/IPD completions to the person who recorded completion."}
         </p>
       </div>
       <form className="flex items-end gap-2">
@@ -44,9 +45,9 @@ export default async function DailyReportPage({
           View report
         </button>
       </form>
-      <TeamActivityPanel key={day} day={day} />
+      <TeamActivityPanel key={day} day={day} own={personal} />
       {result.success ? (
-        <DailyReportTable rows={result.data} day={day} />
+        <DailyReportTable rows={result.data} day={day} personal={personal} />
       ) : (
         <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-700">
           {result.error}
