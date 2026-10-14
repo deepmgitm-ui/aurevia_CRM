@@ -10,6 +10,7 @@ import {
   normalizeMetaLabel,
   sanitizeMetaPhone,
 } from "../lib/meta-lead.ts";
+import { getLeadgenEvents } from "../lib/meta-webhook.ts";
 
 // ---------------------------------------------------------------------------
 // 1. Label normalisation — the whole point of the module.
@@ -20,6 +21,28 @@ assert.equal(normalizeMetaLabel("E-mail"), "e_mail");
 assert.equal(metaFieldLabel({ field_name: "full_name" }), "full_name");
 assert.equal(metaFieldLabel({ name: "FULL_NAME" }), "full_name"); // Graph API response shape
 assert.equal(metaFieldLabel({}), "");
+
+// Meta may batch several page changes into one signed webhook delivery.
+assert.deepEqual(
+  getLeadgenEvents({
+    object: "page",
+    entry: [
+      { changes: [
+        { field: "feed", value: { id: "ignored" } },
+        { field: "leadgen", value: { leadgen_id: "lead-1", page_id: "page-a" } },
+      ] },
+      { changes: [
+        { field: "leadgen", value: { leadgen_id: "lead-2", page_id: "page-b" } },
+        { field: "leadgen", value: { page_id: "page-b" } },
+      ] },
+    ],
+  }),
+  [
+    { leadgenId: "lead-1", pageId: "page-a" },
+    { leadgenId: "lead-2", pageId: "page-b" },
+  ],
+);
+assert.deepEqual(getLeadgenEvents({ object: "user", entry: [] }), []);
 
 // ---------------------------------------------------------------------------
 // 2. A textbook Meta form still maps 1:1.

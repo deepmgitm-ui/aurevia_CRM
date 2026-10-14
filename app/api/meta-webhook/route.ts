@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 import { extractMetaLead } from "@/lib/meta-lead";
+import { getLeadgenEvents } from "@/lib/meta-webhook";
 
 export const runtime = "nodejs";
 // Never cache the verification endpoint — Meta's "Verify and Save" must always hit the live handler.
@@ -19,9 +20,8 @@ const META_VERIFY_TOKEN =
   process.env.META_VERIFY_TOKEN?.trim() ||
   (process.env.NODE_ENV === "production" ? "" : "aurevia_super_secret_token_123");
 
-// Optional: enable the X-Hub-Signature-256 check (Meta app → Settings → Basic).
-// While it is unset the route logs a warning and keeps accepting leads, so
-// turning it on later is a config change, not a deploy.
+// Required for public lead writes. The POST handler returns 503 until this is
+// configured so unauthenticated webhook requests can never create patient data.
 const META_APP_SECRET = process.env.META_APP_SECRET?.trim();
 
 type JsonValue =
@@ -157,7 +157,14 @@ export async function POST(request: NextRequest) {
 
     // The signature covers the RAW body, so read the text first and parse it by
     // hand (request.json() would consume the stream and leave nothing to hash).
+    const contentLength = Number(request.headers.get("content-length") ?? 0);
+    if (contentLength > 1_000_000) {
+      return NextResponse.json({ success: false, error: "Webhook payload is too large." }, { status: 413 });
+    }
     const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody, "utf8") > 1_000_000) {
+      return NextResponse.json({ success: false, error: "Webhook payload is too large." }, { status: 413 });
+    }
     if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
       console.warn("[Meta Webhook][POST] Invalid X-Hub-Signature-256 — payload rejected", { requestId });
       return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 401 });
@@ -170,25 +177,16 @@ export async function POST(request: NextRequest) {
       console.warn("[Meta Webhook][POST] Invalid JSON payload", { requestId });
       return NextResponse.json({ success: false, error: "Invalid JSON payload." }, { status: 400 });
     }
-    const root = getObject(payload);
-    const entry = Array.isArray(root.entry) ? getObject(root.entry[0]) : {};
-    const changes = Array.isArray(entry.changes) ? getObject(entry.changes[0]) : {};
-    const value = getObject(changes.value);
-
-    const leadgenId = getString(value.leadgen_id);
-    const pageId = getString(value.page_id);
+    const events = getLeadgenEvents(payload);
     console.log("[Meta Webhook][POST] Payload parsed", {
       requestId,
-      object: getString(root.object),
-      entryCount: Array.isArray(root.entry) ? root.entry.length : 0,
-      leadgenId,
-      pageId,
+      eventCount: events.length,
     });
 
-    if (!leadgenId) {
-      console.warn("[Meta Webhook][POST] leadgen_id missing in payload", { requestId });
+    if (events.length === 0) {
+      console.warn("[Meta Webhook][POST] No leadgen events in payload", { requestId });
       return NextResponse.json(
-        { success: false, error: "leadgen_id is missing from the webhook payload." },
+        { success: false, error: "No leadgen events found in the webhook payload." },
         { status: 400 },
       );
     }
@@ -202,118 +200,95 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // `campaign_name` / `form_id` give every lead a traceable origin without a
-    // second API call.
-    const graphResponse = await fetch(
-      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
-      { signal: AbortSignal.timeout(12_000) },
-    );
-    const graphResult = (await graphResponse.json()) as JsonValue;
-    const graphObject = getObject(graphResult);
-
-    if (!graphResponse.ok || graphObject.error) {
-      console.error("[Meta Webhook][POST] Graph API request failed", {
-        requestId,
-        leadgenId,
-        status: graphResponse.status,
-        error: JSON.stringify(graphObject.error ?? null),
-      });
-      return NextResponse.json(
-        { success: false, error: "Unable to fetch lead details from the Meta Graph API." },
-        { status: 502 },
-      );
-    }
-
-    const fields: MetaField[] = Array.isArray(graphObject.field_data)
-      ? (graphObject.field_data as MetaField[])
-      : [];
-    const leadData = extractLeadData(fields);
-    const campaignName = getString(graphObject.campaign_name) ?? "-";
-    const formId = getString(graphObject.form_id) ?? "-";
-    console.log("[Meta Webhook][POST] Lead data extracted from Graph API", {
-      requestId,
-      leadgenId,
-      hasName: Boolean(leadData.name),
-      hasPhone: Boolean(leadData.phone),
-      hasEmail: Boolean(leadData.email),
-    });
-
     const supabase = getSupabaseAdmin();
+    const results: { leadId?: string; duplicate?: boolean }[] = [];
+    for (const { leadgenId } of events) {
+      // `campaign_name` / `form_id` give every lead a traceable origin without
+      // another API call.
+      const graphResponse = await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
+        { signal: AbortSignal.timeout(12_000) },
+      );
+      const graphResult = (await graphResponse.json()) as JsonValue;
+      const graphObject = getObject(graphResult);
 
-    // Meta retries webhooks, and people submit the same form twice. A lead that
-    // landed in the last 24h with the same number is the same person — link it
-    // instead of creating a duplicate row (which also burns a free-tier write).
-    if (leadData.phone && leadData.phone !== "-") {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: existing } = await supabase
-        .from("leads")
-        .select("id")
-        .ilike("phone", `%${leadData.phone}`)
-        .gte("created_at", since)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        console.log("[Meta Webhook][POST] Duplicate lead skipped", {
+      if (!graphResponse.ok || graphObject.error) {
+        console.error("[Meta Webhook][POST] Graph API request failed", {
           requestId,
-          leadgenId,
-          formId,
-          existingLeadId: existing[0].id,
+          status: graphResponse.status,
+          error: JSON.stringify(graphObject.error ?? null),
         });
         return NextResponse.json(
-          { success: true, leadId: existing[0].id, duplicate: true },
-          { status: 200 },
+          { success: false, error: "Unable to fetch lead details from the Meta Graph API." },
+          { status: 502 },
         );
       }
+
+      const fields: MetaField[] = Array.isArray(graphObject.field_data)
+        ? (graphObject.field_data as MetaField[])
+        : [];
+      const leadData = extractLeadData(fields);
+      const campaignName = getString(graphObject.campaign_name) ?? "-";
+      const formId = getString(graphObject.form_id) ?? "-";
+
+      // A retry is idempotent by Meta's unique leadgen ID. Same-phone leads
+      // remain deduplicated for the existing 24-hour window.
+      if (leadData.phone && leadData.phone !== "-") {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: existing } = await supabase
+          .from("leads")
+          .select("id")
+          .ilike("phone", `%${leadData.phone}`)
+          .gte("created_at", since)
+          .limit(1);
+        if (existing?.length) {
+          results.push({ leadId: existing[0].id, duplicate: true });
+          continue;
+        }
+      }
+
+      const { data: lead, error: leadError } = await supabase
+        .from("leads")
+        .insert({
+          meta_leadgen_id: leadgenId,
+          name: leadData.name,
+          phone: leadData.phone,
+          email: leadData.email,
+          lead_date: leadData.lead_date,
+          gender: leadData.gender,
+          city: leadData.city,
+          disease: leadData.disease,
+          insurance_status: leadData.insurance_status,
+          remarks: leadData.remarks,
+          source: "Meta Ads",
+          source_batch_id: requestId,
+          source_batch_label: `Meta Ads${campaignName !== "-" ? ` — ${campaignName}` : ""}${formId !== "-" ? ` · Form ${formId}` : ""}`.slice(0, 240),
+          source_batch_created_at: new Date().toISOString(),
+          status: "New",
+          temperature: "Hot",
+          assigned_to: "-",
+        })
+        .select("id")
+        .single();
+
+      if (leadError?.code === "23505") {
+        results.push({ duplicate: true });
+        continue;
+      }
+      if (leadError || !lead) {
+        console.error("[Meta Webhook][POST] Lead insertion failed", {
+          requestId,
+          error: leadError?.message ?? "No lead returned after insertion.",
+        });
+        return NextResponse.json(
+          { success: false, error: "Unable to create the lead." },
+          { status: 503 },
+        );
+      }
+      results.push({ leadId: lead.id });
     }
 
-    const { data: lead, error: leadError } = await supabase
-      .from("leads")
-      .insert({
-        meta_leadgen_id: leadgenId,
-        name: leadData.name,
-        phone: leadData.phone,
-        email: leadData.email,
-        lead_date: leadData.lead_date,
-        gender: leadData.gender,
-        city: leadData.city,
-        disease: leadData.disease,
-        insurance_status: leadData.insurance_status,
-        remarks: leadData.remarks,
-        source: "Meta Ads",
-        source_batch_id: requestId,
-        source_batch_label: `Meta Ads${campaignName !== "-" ? ` — ${campaignName}` : ""}${formId !== "-" ? ` · Form ${formId}` : ""}`.slice(0, 240),
-        source_batch_created_at: new Date().toISOString(),
-        status: "New",
-        // Stored as 'Hot' (the app's canonical value); the UI renders it as "Hot 🔥".
-        temperature: "Hot",
-        // '-' leaves the lead in the distribution pool for random/equal assignment.
-        assigned_to: "-",
-      })
-      .select("id")
-      .single();
-
-    if(leadError?.code === "23505") return NextResponse.json({success:true,duplicate:true},{status:200});
-    if (leadError || !lead) {
-      console.error("[Meta Webhook][POST] Lead insertion failed", {
-        requestId,
-        leadgenId,
-        error: leadError?.message ?? "No lead returned after insertion.",
-      });
-      return NextResponse.json(
-        { success: false, error: "Unable to create the lead." },
-        { status: 503 },
-      );
-    }
-
-    console.log("[Meta Webhook][POST] Lead inserted successfully", {
-      requestId,
-      leadId: lead.id,
-      leadgenId,
-    });
-
-    return NextResponse.json(
-      { success: true, leadId: lead.id },
-      { status: 200 },
-    );
+    return NextResponse.json({ success: true, processed: results.length, results }, { status: 200 });
   } catch (error) {
     console.error("[Meta Webhook][POST] Unexpected error", {
       requestId,

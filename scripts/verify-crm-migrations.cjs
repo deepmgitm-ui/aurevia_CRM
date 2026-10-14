@@ -92,14 +92,12 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
   } catch {
     denied = true;
   }
-  assert.equal(denied, true);
-  denied = false;
-  try {
-    await db.query(`select public.crm_agent_daily_report('2026-10-12')`);
-  } catch {
-    denied = true;
-  }
-  assert.equal(denied, true);
+  assert.equal(denied, true, "employees cannot create calendar entries");
+  const ownDailyReport = (
+    await db.query(`select public.crm_agent_daily_report('2026-10-12') x`)
+  ).rows[0].x;
+  assert.equal(ownDailyReport.length, 1, "employees only see their own daily report");
+  assert.equal(ownDailyReport[0].id, "00000000-0000-4000-8000-000000000002");
   await db.exec(
     `reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;`,
   );
