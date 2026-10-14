@@ -20,8 +20,8 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
     {
       role: "assistant",
       text: role === "employee"
-        ? "Hello! I can guide you through your leads, follow-ups, and attendance."
-        : "Hello! I can help you find CRM features such as lead assignments and reports.",
+        ? "Hello! Ask about your leads, follow-ups, or attendance in English or Hinglish."
+        : "Hello! Ask about CRM features, lead assignments, or reports in English or Hinglish.",
     },
   ]);
   const conversationEnd = useRef<HTMLDivElement>(null);
