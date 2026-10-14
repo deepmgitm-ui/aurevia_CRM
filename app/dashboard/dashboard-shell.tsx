@@ -247,12 +247,12 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
     <nav
       aria-label="Dashboard sections"
       className={cn(
-        "flex items-center gap-1",
+        "crm-tabs-scroll flex items-center gap-1 overflow-x-auto overflow-y-hidden",
         // Desktop: the tabs share ONE header row with the date button + icons, so
         // cap the strip and scroll it instead of sliding underneath them.
         mobile
-          ? "overflow-x-auto pb-1"
-          : "w-fit max-w-full overflow-x-auto border-b border-slate-200",
+          ? "pb-1"
+          : "w-fit max-w-full border-b border-slate-200",
       )}
     >
       {(role === "employee" ? [{label:"My day",href:"/dashboard",exact:true},{label:"Leads",href:"/dashboard/leads",exact:false},{label:"Follow-ups",href:"/dashboard/tasks",exact:false},{label:"Calendar",href:"/dashboard/calendar",exact:false}] : topTabs).map(({ label, href, exact }) => {

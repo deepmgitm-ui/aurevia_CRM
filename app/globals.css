@@ -63,6 +63,35 @@
   background: #f8faf8;
 }
 
+.crm-tabs-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d9e2db transparent;
+}
+
+.crm-tabs-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 4px;
+}
+
+.crm-tabs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.crm-tabs-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #d9e2db;
+}
+
+.crm-tabs-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b9c9bd;
+}
+
+.crm-tabs-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .crm-card-interactive:hover {
     border-color: #d7e2da;
