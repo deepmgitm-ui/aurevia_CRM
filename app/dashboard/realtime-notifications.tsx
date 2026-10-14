@@ -96,36 +96,23 @@ export function RealtimeNotifications() {
         pendingRef.current = { inserts: [], updates: [], assignments: [], assignedToYou: 0, timer: null };
         pushActivity([...batched.inserts, ...batched.updates, ...batched.assignments]);
 
-        // Admin: new leads added by teammates (never the admin themselves).
-        if (batched.inserts.length === 1) {
-          toast.add({ title: `🔔 ${batched.inserts[0].message}`, type: "success" });
-        } else if (batched.inserts.length > 1) {
-          toast.add({ title: `🔔 ${batched.inserts.length} new leads added!`, type: "success" });
-        }
-
-        // Admin: leads updated by teammates (assignment info when changed).
-        if (batched.updates.length === 1) {
+        // One summary per burst, even when it contains a mix of inserts,
+        // edits and assignments. Direct table actions already confirm saves.
+        if (isAdminUser) {
+          const assigned = batched.assignments.length;
+          const updated = batched.updates.length;
+          const summary = [
+            batched.inserts.length ? `${batched.inserts.length} added` : "",
+            assigned ? `${assigned} assigned` : "",
+            updated ? `${updated} updated` : "",
+          ].filter(Boolean).join(" · ");
+          if (summary) toast.add({ title: "Team activity", description: summary, type: "success" });
+        } else if (batched.assignedToYou > 0) {
           toast.add({
-            title: `📝 ${batched.updates[0].message}`,
-            description: batched.updates[0].detail || undefined,
-            type: "info",
+            title: "New leads assigned",
+            description: `${batched.assignedToYou} lead${batched.assignedToYou === 1 ? " was" : "s were"} assigned to you.`,
+            type: "success",
           });
-        } else if (batched.updates.length > 1) {
-          toast.add({ title: `📝 ${batched.updates.length} leads were updated!`, type: "info" });
-        }
-
-        // Admin: assignment confirmations — INCLUDING the admin's own actions.
-        if (batched.assignments.length === 1) {
-          toast.add({ title: `✅ ${batched.assignments[0].message}`, type: "success" });
-        } else if (batched.assignments.length > 1) {
-          toast.add({ title: `✅ ${batched.assignments.length} leads successfully assigned!`, type: "success" });
-        }
-
-        // Employee: leads assigned to me.
-        if (batched.assignedToYou === 1) {
-          toast.add({ title: "🔔 A new lead has been assigned to you!", type: "success" });
-        } else if (batched.assignedToYou > 1) {
-          toast.add({ title: `🔔 ${batched.assignedToYou} new leads have been assigned to you!`, type: "success" });
         }
       }
 
@@ -168,19 +155,8 @@ export function RealtimeNotifications() {
             }
 
             const self = isRecentSelfMutation(leadId);
-            if (self) {
-              // EXCEPTION: the admin's own INSERT assigned the lead to an
-              // employee → assignment confirmation. Other self-INSERTs stay silent.
-              if (isAdminUser && whoLabel) {
-                queue("assignment", {
-                  id: `ASSIGNMENT-${leadId}-${Date.now()}-${Math.random()}`,
-                  type: "ASSIGNMENT",
-                  message: `Lead successfully assigned to ${whoLabel}`,
-                  at: Date.now(),
-                });
-              }
-              return;
-            }
+            // Add/import flows show their own single result summary.
+            if (self) return;
 
             const suffix = whoLabel ? ` by ${whoLabel}` : "";
             const patientSuffix = leadName && leadName !== "-" ? ` (${leadName})` : "";
@@ -217,33 +193,23 @@ export function RealtimeNotifications() {
               return;
             }
 
-            const actor = newAssigned && newAssigned !== "-" ? newAssigned : "Someone";
-            const detail = assignmentChanged
-              ? `Assigned to ${newAssigned && newAssigned !== "-" ? newAssigned : "Unassigned"}`
-              : undefined;
-
             const self = isRecentSelfMutation(leadId);
-            if (self) {
-              // EXCEPTION: the admin's own UPDATE reassigned the lead →
-              // confirmation toast. All other self-edits stay silent.
-              if (isAdminUser && assignmentChanged && newAssigned && newAssigned !== "-") {
-                queue("assignment", {
-                  id: `ASSIGNMENT-${leadId}-${Date.now()}-${Math.random()}`,
-                  type: "ASSIGNMENT",
-                  message: `Lead successfully assigned to ${newAssigned}`,
-                  at: Date.now(),
-                });
-              }
+            if (self) return;
+
+            if (assignmentChanged) {
+              queue("assignment", {
+                id: `ASSIGNMENT-${leadId}-${Date.now()}-${Math.random()}`,
+                type: "ASSIGNMENT",
+                message: `Lead assigned to ${newAssigned && newAssigned !== "-" ? newAssigned : "Unassigned"}${patientSuffix}`,
+                at: Date.now(),
+              });
               return;
             }
 
-            // Teammate updated a lead (existing behaviour kept; assignment
-            // change surfaced via the toast description).
             queue("update", {
               id: `UPDATE-${leadId}-${Date.now()}-${Math.random()}`,
               type: "UPDATE",
-              message: `${actor} updated a lead${patientSuffix}!`,
-              detail,
+              message: `A teammate updated a lead${patientSuffix}.`,
               at: Date.now(),
             });
           },

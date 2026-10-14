@@ -63,7 +63,7 @@ const KPI_SUBTITLES: Partial<Record<KpiKey, string>> = {
 export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
   return (
     <section aria-label="Key performance indicators" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {kpis.map((kpi) => {
+      {kpis.map((kpi, index) => {
         const tone = KPI_TONES[kpi.key];
         const Icon = KPI_ICONS[kpi.key];
         const wentUp = !kpi.delta.startsWith("-");
@@ -75,7 +75,8 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
           : isGood
             ? "text-emerald-600"
             : "text-rose-600";
-        const cardClass = `flex flex-col justify-between rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md ${tone.card}`;
+        const cardClass = `crm-motion-in flex flex-col justify-between rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md ${tone.card}`;
+        const motionStyle = { animationDelay: `${index * 45}ms` };
         const drillHref = KPI_DRILL_HREF[kpi.key];
         const body = (
           <>
@@ -108,6 +109,7 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
               key={kpi.key}
               href={drillHref}
               aria-label={`View leads for ${kpi.label}`}
+              style={motionStyle}
               className={`${cardClass} ring-blue-300 focus-visible:outline-none focus-visible:ring-2`}
             >
               {body}
@@ -115,7 +117,7 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
           );
         }
         return (
-          <div key={kpi.key} className={cardClass}>
+          <div key={kpi.key} style={motionStyle} className={cardClass}>
             {body}
           </div>
         );

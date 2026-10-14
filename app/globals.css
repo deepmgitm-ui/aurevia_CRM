@@ -2,6 +2,19 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@keyframes crm-fade-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.crm-motion-in {
+  animation: crm-fade-up 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crm-motion-in { animation: none; }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

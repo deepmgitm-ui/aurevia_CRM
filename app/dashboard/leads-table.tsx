@@ -364,8 +364,8 @@ export function LeadsTable({
   // When set (admin drill-down), all fetching and bulk actions are scoped to
   // this employee's leads only (server-side assigned_to filter).
   assignedTo?: string;
-  // RBAC: employees cannot delete, bulk-import, see lead sources, or edit core
-  // lead data (only Status/Temp/Remarks). Computed once per render.
+  // Employees can edit patient details on their assigned leads. Team-lead-only
+  // controls remain assignment, source, import, deletion and team visibility.
   role?: ViewerRole;
   // Chart drill-down filters from the URL (?stage=&treatment=&age=&city=).
   // They travel with EVERY server call so paging/export stays filtered.
@@ -406,7 +406,8 @@ export function LeadsTable({
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadEdits, setLeadEdits] = useState({ city: "", disease: "", insurance_status: "", remarks: "" });
   const [isSavingEdits, setIsSavingEdits] = useState(false);
-  // "Edit Lead" modal: allows editing ALL fields of a single lead.
+  // "Edit Lead" modal: patient details are editable for every owner; source
+  // and assignment are restricted to admins/managers.
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [editForm, setEditForm] = useState({
     name: "",
@@ -499,10 +500,33 @@ export function LeadsTable({
   const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const successSummaryRef = useRef({ added: 0, assigned: 0, updated: 0, notes: 0, details: [] as string[], timer: null as ReturnType<typeof setTimeout> | null });
   // Guards against out-of-order responses when searches/pages change quickly —
   // only the most recently issued fetch is allowed to update the table.
   const fetchSequenceRef = useRef(0);
   const assignmentSuggestionSequenceRef = useRef(0);
+
+  function queueSuccessSummary(kind: "added" | "assigned" | "updated" | "notes", count = 1, detail?: string) {
+    const summary = successSummaryRef.current;
+    summary[kind] += count;
+    if (detail) summary.details.push(detail);
+    if (summary.timer) return;
+    summary.timer = setTimeout(() => {
+      const completed = { ...successSummaryRef.current };
+      successSummaryRef.current = { added: 0, assigned: 0, updated: 0, notes: 0, details: [], timer: null };
+      const parts = [
+        completed.added ? `${completed.added} lead${completed.added === 1 ? "" : "s"} added` : "",
+        completed.assigned ? `${completed.assigned} lead${completed.assigned === 1 ? "" : "s"} assigned` : "",
+        completed.updated ? `${completed.updated} lead${completed.updated === 1 ? "" : "s"} updated` : "",
+        completed.notes ? `${completed.notes} note${completed.notes === 1 ? "" : "s"} added` : "",
+      ].filter(Boolean);
+      if (parts.length) toast.add({ title: "CRM update complete", description: [parts.join(" · "), ...completed.details].join(" — "), type: "success" });
+    }, 650);
+  }
+
+  useEffect(() => () => {
+    if (successSummaryRef.current.timer) clearTimeout(successSummaryRef.current.timer);
+  }, []);
 
   function setLeadSaving(id: string, saving: boolean) {
     setSavingLeadIds((current) => {
@@ -771,33 +795,24 @@ export function LeadsTable({
       const proof = await getLeadsPage(1, 1, "", "", "", {});
       const serverTotal = proof.success ? proof.data.total : null;
       const filtersAreActive = Boolean(hasLeadFilters(filters) || activeSearch.trim() || activeStatusFilter.trim());
+      const assignedCount = Math.max(0, importedLeads.length - unassigned);
+      const importSummary = [
+        `${importedLeads.length.toLocaleString()} added`,
+        assignedCount ? `${assignedCount.toLocaleString()} assigned` : "",
+        skippedDuplicates ? `${skippedDuplicates.toLocaleString()} duplicates skipped` : "",
+        skippedRows ? `${skippedRows.toLocaleString()} invalid rows skipped` : "",
+        unassigned ? `${unassigned.toLocaleString()} need assignment` : "",
+        importedLeads.length > 0 && filtersAreActive ? "some new leads may be hidden by current filters" : "",
+      ].filter(Boolean).join(" · ");
 
       toast.add({
         title: "Import complete",
         description:
           importedLeads.length === 0
             ? `No new leads were added — all ${skippedDuplicates} phone numbers already exist in the database.${skippedRows > 0 ? ` ${skippedRows} invalid rows were also skipped.` : ""}`
-            : `${importedLeads.length} leads imported successfully.${serverTotal !== null ? ` The database now holds ${serverTotal.toLocaleString()} lead${serverTotal === 1 ? "" : "s"}.` : ""}${skippedDuplicates > 0 ? ` ${skippedDuplicates} duplicate${skippedDuplicates === 1 ? "" : "s"} skipped (phone number already exists).` : ""}${skippedRows > 0 ? ` ${skippedRows} invalid rows skipped.` : ""}`,
+            : `${importSummary}.${serverTotal !== null ? ` Database total: ${serverTotal.toLocaleString()}.` : ""}`,
         type: "success",
       });
-
-      if (importedLeads.length > 0 && filtersAreActive) {
-        toast.add({
-          title: "Some imported leads are hidden by your filters",
-          description:
-            "This list is filtered, so leads that do not match the active search / status / chart filters are not shown. Clear the filters to see every lead you just added.",
-          type: "error",
-        });
-      }
-
-      if (unassigned > 0) {
-        toast.add({
-          title: `${unassigned} imported lead${unassigned === 1 ? " has" : "s have"} no agent`,
-          description:
-            "Their spreadsheet had no matching \"Assigned To\" name, so they were saved as unassigned (\"-\"). Employees only see leads assigned to them — assign these from the table (tick the rows → Assign) so they reach the team.",
-          type: "error",
-        });
-      }
 
       router.refresh();
     } catch {
@@ -951,7 +966,7 @@ export function LeadsTable({
       setServerTotal((current) => current + 1);
       setIsAddLeadOpen(false);
       form.reset();
-      toast.add({ title: "Lead added", description: `${response.data.name} was added to your pipeline.`, type: "success" });
+      queueSuccessSummary("added");
     }
     setIsCreatingLead(false);
   }
@@ -967,7 +982,7 @@ export function LeadsTable({
       toast.add({ title: "Status update failed", description: response.error, type: "error" });
     } else {
       updateLeadLocally(response.data);
-      toast.add({ title: "Status saved", type: "success" });
+      queueSuccessSummary("updated");
       // Gamification: the surgery stage ("Won", "IPD Done", "Surgery Completed")
       // fires confetti + a reward toast — but only on the way IN, so toggling
       // between two winning statuses doesn't spam the celebration.
@@ -996,7 +1011,6 @@ export function LeadsTable({
     const field = appointmentForStatus(lead.status);
     if (!field) return null;
     const column = field.column;
-    const fieldLabel = field.label;
 
     const current = normaliseAppointmentDate((lead as unknown as Record<string, string>)[column]);
 
@@ -1014,7 +1028,7 @@ export function LeadsTable({
         return;
       }
       updateLeadLocally(response.data);
-      toast.add({ title: `${fieldLabel} saved`, type: "success" });
+      queueSuccessSummary("updated");
       setLeadSaving(lead.id, false);
     }
 
@@ -1045,7 +1059,7 @@ export function LeadsTable({
       toast.add({ title: "Assignment update failed", description: response.error, type: "error" });
     } else {
       updateLeadLocally(response.data);
-      toast.add({ title: "Assignment saved", type: "success" });
+      queueSuccessSummary("assigned");
     }
     setLeadSaving(lead.id, false);
   }
@@ -1061,7 +1075,7 @@ export function LeadsTable({
       toast.add({ title: "Temperature update failed", description: response.error, type: "error" });
     } else {
       updateLeadLocally(response.data);
-      toast.add({ title: "Temperature saved", type: "success" });
+      queueSuccessSummary("updated");
     }
     setLeadSaving(lead.id, false);
   }
@@ -1075,6 +1089,7 @@ export function LeadsTable({
   async function handleAssignSelected(employeeName: string | null) {
     if (!employeeName || employeeName === "-") return;
     setIsBulkActionPending(true);
+    trackLeadMutations(selectedLeads);
     const results = await Promise.all(selectedLeads.map((leadId) => updateLeadAssignment(leadId, employeeName)));
     const failed = results.find((result) => !result.success);
     if (failed && !failed.success) {
@@ -1083,13 +1098,14 @@ export function LeadsTable({
       setLeads((current) => current.map((lead) => selectedLeads.includes(lead.id) ? { ...lead, assigned_to: employeeName } : lead));
       setSelectedLeads([]);
       setIsSelectAllChecked(false);
-      toast.add({ title: "Leads assigned", description: `${selectedLeads.length} leads assigned successfully.`, type: "success" });
+      queueSuccessSummary("assigned", selectedLeads.length);
     }
     setIsBulkActionPending(false);
   }
 
   async function handleRandomAssign() {
     setIsBulkActionPending(true);
+    trackLeadMutations(selectedLeads);
     const response = await randomAssignLeads(selectedLeads);
     if (!response.success) {
       toast.add({ title: "Distribution failed", description: response.error, type: "error" });
@@ -1097,7 +1113,7 @@ export function LeadsTable({
       setSelectedLeads([]);
       setIsSelectAllChecked(false);
       router.refresh();
-      toast.add({ title: "Distribution complete", description: `${response.data.assigned} leads distributed equally.`, type: "success" });
+      queueSuccessSummary("assigned", response.data.assigned);
     }
     setIsBulkActionPending(false);
   }
@@ -1200,6 +1216,7 @@ export function LeadsTable({
     if (assignmentEmployeeNames.length === 0 || leadIdsToAssign.length === 0 || isBulkActionPending) return;
     setIsBulkActionPending(true);
     try {
+      trackLeadMutations(leadIdsToAssign);
       const response = await assignLeadsToEmployees({
         leadIds: leadIdsToAssign,
         employeeNames: assignmentEmployeeNames,
@@ -1215,11 +1232,8 @@ export function LeadsTable({
         }
         setIsAssignmentOpen(false);
         router.refresh();
-        toast.add({
-          title: `${response.data.assigned.toLocaleString()} leads assigned`,
-          description: response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · "),
-          type: "success",
-        });
+        const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
+        queueSuccessSummary("assigned", response.data.assigned, perEmployee);
       }
     } catch (error) {
       toast.add({
@@ -1503,7 +1517,7 @@ export function LeadsTable({
       if (selectedLead?.id === updatedLead.id) setSelectedLead(updatedLead);
       setQuickNoteLead(null);
       setQuickNote("");
-      toast.add({ title: "Note added", description: "The lead remarks were updated.", type: "success" });
+      queueSuccessSummary("notes");
     }
     setIsSavingQuickNote(false);
   }
@@ -1544,7 +1558,7 @@ export function LeadsTable({
     } else {
       const updated = response.data;
       updateLeadLocally(updated);
-      toast.add({ title: "Lead updated", description: "The lead details were saved.", type: "success" });
+      queueSuccessSummary("updated");
     }
     setIsSavingEdits(false);
   }
@@ -1574,15 +1588,24 @@ export function LeadsTable({
     if (!editingLead) return;
     trackLeadMutations(editingLead.id);
     setIsSavingEdit(true);
-    // RBAC: employees can only save Status / Temp / Remarks; core fields are
-    // read-only for them (also enforced server-side in updateLeadDetails).
+    // Patient details are editable for employees; only source and assignment
+    // remain server-side protected for their role.
     const payload = canEditCore
       ? { id: editingLead.id, ...editForm }
       : {
           id: editingLead.id,
+          name: editForm.name,
+          phone: editForm.phone,
+          email: editForm.email,
+          gender: editForm.gender,
+          city: editForm.city,
+          disease: editForm.disease,
+          insurance_status: editForm.insurance_status,
+          lead_date: editForm.lead_date,
+          follow_up_date: editForm.follow_up_date,
+          remarks: editForm.remarks,
           status: editForm.status,
           temperature: editForm.temperature,
-          remarks: editForm.remarks,
         };
     const optimisticLead: Lead = canEditCore
       ? {
@@ -1601,6 +1624,15 @@ export function LeadsTable({
         }
       : {
           ...editingLead,
+          name: editForm.name,
+          phone: editForm.phone || "-",
+          email: editForm.email || "-",
+          gender: editForm.gender || "-",
+          city: editForm.city || "-",
+          disease: editForm.disease || "-",
+          insurance_status: editForm.insurance_status || "-",
+          lead_date: editForm.lead_date || "-",
+          follow_up_date: editForm.follow_up_date || "-",
           status: editForm.status,
           temperature: editForm.temperature,
           remarks: editForm.remarks || "-",
@@ -1615,7 +1647,7 @@ export function LeadsTable({
       // Smooth refresh: swap the saved row into the table state — no page reload.
       updateLeadLocally(updated);
       setEditingLead(null);
-      toast.add({ title: "Lead updated", description: `${updated.name}'s details were saved.`, type: "success" });
+      queueSuccessSummary("updated");
       // Keep the server-rendered stat cards (New/Hot counts) in sync.
       router.refresh();
     }
@@ -1625,13 +1657,14 @@ export function LeadsTable({
   async function handleAddNote() {
     if (!selectedLead || !note.trim()) return;
     setIsAddingNote(true);
+    trackLeadMutations(selectedLead.id);
     const response = await addLeadActivity({ lead_id: selectedLead.id, action_type: "Note", description: note.trim() });
     if (!response.success) {
       toast.add({ title: "Unable to add note", description: response.error, type: "error" });
     } else {
       setActivities((currentActivities) => [response.data, ...currentActivities]);
       setNote("");
-      toast.add({ title: "Note added", description: "The lead timeline was updated.", type: "success" });
+      queueSuccessSummary("notes");
     }
     setIsAddingNote(false);
   }
@@ -1647,7 +1680,7 @@ export function LeadsTable({
       toast.add({ title: "Unable to update follow-up", description: response.error, type: "error" });
     } else {
       updateLeadLocally(response.data);
-      toast.add({ title: "Follow-up saved", type: "success" });
+      queueSuccessSummary("updated");
     }
     setLeadSaving(lead.id, false);
   }
@@ -2686,18 +2719,18 @@ export function LeadsTable({
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit lead</DialogTitle>
-            <DialogDescription>Modify any field for {editingLead?.name}. Changes save directly to the database.</DialogDescription>
+            <DialogDescription>Update patient and lead details for {editingLead?.name}.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1"><Label htmlFor="full-edit-name">Patient Name</Label><Input id="full-edit-name" value={editForm.name} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-phone">Contact (Phone Number)</Label><Input id="full-edit-phone" value={editForm.phone} inputMode="tel" disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, phone: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-email">Email</Label><Input id="full-edit-email" value={editForm.email} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-gender">Gender</Label><Input id="full-edit-gender" value={editForm.gender} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, gender: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-insurance">Insurance Status</Label><Input id="full-edit-insurance" value={editForm.insurance_status} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, insurance_status: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-city">City / Area</Label><Input id="full-edit-city" value={editForm.city} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, city: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-disease">Treatment / Disease</Label><Input id="full-edit-disease" value={editForm.disease} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, disease: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-date">Lead Date</Label><Input id="full-edit-date" type="date" value={editForm.lead_date} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, lead_date: event.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="full-edit-followup">Next Follow-Up Date</Label><Input id="full-edit-followup" type="date" value={editForm.follow_up_date} disabled={!canEditCore} onChange={(event) => setEditForm((current) => ({ ...current, follow_up_date: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-name">Patient Name</Label><Input id="full-edit-name" value={editForm.name} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-phone">Contact (Phone Number)</Label><Input id="full-edit-phone" value={editForm.phone} inputMode="tel" onChange={(event) => setEditForm((current) => ({ ...current, phone: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-email">Email</Label><Input id="full-edit-email" value={editForm.email} onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-gender">Gender</Label><Input id="full-edit-gender" value={editForm.gender} onChange={(event) => setEditForm((current) => ({ ...current, gender: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-insurance">Insurance Status</Label><Input id="full-edit-insurance" value={editForm.insurance_status} onChange={(event) => setEditForm((current) => ({ ...current, insurance_status: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-city">City / Area</Label><Input id="full-edit-city" value={editForm.city} onChange={(event) => setEditForm((current) => ({ ...current, city: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-disease">Treatment / Disease</Label><Input id="full-edit-disease" value={editForm.disease} onChange={(event) => setEditForm((current) => ({ ...current, disease: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-date">Lead Date</Label><Input id="full-edit-date" type="date" value={editForm.lead_date} onChange={(event) => setEditForm((current) => ({ ...current, lead_date: event.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="full-edit-followup">Next Follow-Up Date</Label><Input id="full-edit-followup" type="date" value={editForm.follow_up_date} onChange={(event) => setEditForm((current) => ({ ...current, follow_up_date: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-assigned">Assigned To</Label>
               <Select value={editForm.assigned_to || "unassigned"} onValueChange={(value) => setEditForm((current) => ({ ...current, assigned_to: value === "unassigned" ? "" : String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-assigned" disabled={!canEditCore}><SelectValue /></SelectTrigger>
@@ -2754,15 +2787,15 @@ export function LeadsTable({
                 <div className="flex items-center gap-2 text-slate-600"><UserRound className="size-4" aria-hidden="true" />{selectedLead.email}</div>
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Phone</p><p className="mt-1 text-slate-700">{selectedLead.phone}</p></div>
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Gender</p><p className="mt-1 text-slate-700">{selectedLead.gender}</p></div>
-                <div className="space-y-1"><Label htmlFor="edit-city">City</Label><Input id="edit-city" value={leadEdits.city} disabled={!canEditCore} onChange={(event) => setLeadEdits((current) => ({ ...current, city: event.target.value }))} placeholder="-" /></div>
-                <div className="space-y-1"><Label htmlFor="edit-disease">Treatment / Disease</Label><Input id="edit-disease" value={leadEdits.disease} disabled={!canEditCore} onChange={(event) => setLeadEdits((current) => ({ ...current, disease: event.target.value }))} placeholder="-" /></div>
-                <div className="space-y-1"><Label htmlFor="edit-insurance">Insurance Status</Label><Input id="edit-insurance" value={leadEdits.insurance_status} disabled={!canEditCore} onChange={(event) => setLeadEdits((current) => ({ ...current, insurance_status: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1"><Label htmlFor="edit-city">City</Label><Input id="edit-city" value={leadEdits.city} onChange={(event) => setLeadEdits((current) => ({ ...current, city: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1"><Label htmlFor="edit-disease">Treatment / Disease</Label><Input id="edit-disease" value={leadEdits.disease} onChange={(event) => setLeadEdits((current) => ({ ...current, disease: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1"><Label htmlFor="edit-insurance">Insurance Status</Label><Input id="edit-insurance" value={leadEdits.insurance_status} onChange={(event) => setLeadEdits((current) => ({ ...current, insurance_status: event.target.value }))} placeholder="-" /></div>
                 <div className="sm:col-span-2 space-y-1"><Label htmlFor="edit-remarks">Remarks</Label><Textarea id="edit-remarks" rows={3} value={leadEdits.remarks} onChange={(event) => setLeadEdits((current) => ({ ...current, remarks: event.target.value }))} placeholder="-" /></div>
                 <div className="flex items-center gap-2 sm:col-span-2">
                   <Button type="button" size="sm" onClick={() => void handleSaveLeadEdits()} disabled={isSavingEdits}>
                     {isSavingEdits ? "Saving..." : "Save Changes"}
                   </Button>
-                  <span className="text-xs text-slate-400">City, Treatment, Insurance and Remarks can be edited here.</span>
+                  <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>

@@ -2964,21 +2964,18 @@ export async function updateLeadDetails(
       return { success: false, error: "You must be signed in to edit leads." };
     }
 
-    // RBAC enforcement: employees may only update Status / Temperature /
-    // Remarks. Core fields (name, contact, email, city, treatment, dates,
-    // assignment) are stripped from their requests even if tampered with.
+    // Employees can edit patient details on rows RLS scopes to their own
+    // assignments. Keep assignment and source metadata under team-lead control.
     const { data: viewerProfile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .single();
     if (viewerProfile?.role === "employee") {
-      const allowed = new Set(["status", "temperature", "remarks"]);
-      for (const key of Object.keys(updates)) {
-        if (!allowed.has(key)) delete updates[key];
-      }
+      delete updates.assigned_to;
+      delete updates.source;
       if (Object.keys(updates).length === 0) {
-        return { success: false, error: "You can only update Status, Temperature and Remarks." };
+        return { success: false, error: "No editable lead details were provided." };
       }
     }
 
