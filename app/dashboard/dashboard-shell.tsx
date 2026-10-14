@@ -285,7 +285,7 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
   );
 }
 
-/** "Aaj: Present · 09:42" — proof that signing in marked the day. */
+/** "Today: Present · 09:42" — confirms that signing in marked the day. */
 function AttendanceChip({
   attendance,
 }: {

@@ -20,8 +20,8 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
     {
       role: "assistant",
       text: role === "employee"
-        ? "Namaste! CRM ke features kahan milte hain, main usmein help kar sakta hoon."
-        : "Namaste! CRM ke features, jaise lead assignment aur reports, kahan milte hain main bata sakta hoon.",
+        ? "Hello! I can guide you through your leads, follow-ups, and attendance."
+        : "Hello! I can help you find CRM features such as lead assignments and reports.",
     },
   ]);
   const conversationEnd = useRef<HTMLDivElement>(null);
@@ -131,7 +131,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="CRM feature kahan milega?"
+              placeholder="Where can I find a CRM feature?"
               aria-label="Message the CRM assistant"
               maxLength={1000}
               rows={2}
@@ -140,7 +140,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
             />
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] leading-4 text-slate-500">
-                Customer details mat bhejein. Sawal Cloudflare AI ko jayega; CRM records nahi.
+                Do not share patient or customer details. Your question is sent to Cloudflare AI; CRM records are not.
               </p>
               <Button type="submit" size="icon" aria-label="Send message" disabled={sending || !input.trim()}>
                 <Send aria-hidden="true" />

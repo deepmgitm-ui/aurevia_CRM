@@ -597,7 +597,7 @@ export function LeadsTable({
     }
   }
 
-  // Chained layers: Search (server-side) -> Source -> Temperature -> Date range (Lead Date ya Follow-Up Date pe) -> Sorting
+  // Chained layers: search (server-side) -> source -> temperature -> date range (Lead Date or Follow-up Date) -> sorting.
   // Memoized: filtering only reruns when the page data or one of the filters
   // actually changes (not on every keystroke-driven re-render).
   const filteredLeads = useMemo(() => leads.filter((lead) => {
