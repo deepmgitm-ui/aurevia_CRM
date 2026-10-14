@@ -134,7 +134,7 @@ export function GlobalSearch({ role }: { role: string }) {
                 ) : searchError ? (
                   <p role="status" className="px-3 py-5 text-sm text-rose-600">{searchError}</p>
                 ) : resultsFor === term && leads.length > 0 ? leads.map((lead) => (
-                  <Link key={lead.id} href={`/dashboard/leads?q=${encodeURIComponent(term)}`} onClick={closeSearch} className="group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50 focus-visible:bg-emerald-50 focus-visible:outline-none">
+                  <Link key={lead.id} href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50 focus-visible:bg-emerald-50 focus-visible:outline-none">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>

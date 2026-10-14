@@ -357,6 +357,7 @@ export function LeadsTable({
   assignedTo = "",
   role = "employee",
   filters = EMPTY_LEAD_FILTERS,
+  initialOpenLeadId = "",
 }: {
   leads: Lead[];
   initialTotal: number;
@@ -370,6 +371,7 @@ export function LeadsTable({
   // Chart drill-down filters from the URL (?stage=&treatment=&age=&city=).
   // They travel with EVERY server call so paging/export stays filtered.
   filters?: LeadListFilters;
+  initialOpenLeadId?: string;
 }) {
   const router = useRouter();
   // Role gates (plain booleans — zero runtime cost, standard conditional rendering).
@@ -404,6 +406,7 @@ export function LeadsTable({
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [savingLeadIds, setSavingLeadIds] = useState<Set<string>>(() => new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const autoOpenedLeadIdRef = useRef<string | null>(null);
   const [leadEdits, setLeadEdits] = useState({ city: "", disease: "", insurance_status: "", remarks: "" });
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   // "Edit Lead" modal: patient details are editable for every owner; source
@@ -1541,6 +1544,20 @@ export function LeadsTable({
     }
     setIsLoadingActivities(false);
   }
+
+  useEffect(() => {
+    if (!initialOpenLeadId || autoOpenedLeadIdRef.current === initialOpenLeadId) return;
+    const lead = leads.find((candidate) => candidate.id === initialOpenLeadId);
+    if (!lead) return;
+
+    // Defer opening until after the route's initial render to keep state changes
+    // out of the effect itself and ensure the populated Leads table is mounted.
+    const frame = window.requestAnimationFrame(() => {
+      autoOpenedLeadIdRef.current = initialOpenLeadId;
+      void handleViewLead(lead);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [initialOpenLeadId, leads]);
 
   async function handleSaveLeadEdits() {
     if (!selectedLead) return;

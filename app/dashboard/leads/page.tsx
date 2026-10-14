@@ -167,7 +167,9 @@ export default async function LeadsPage({
 }) {
   // Drill-down filters come straight from the URL (?stage=&treatment=&age=&city=)
   // so a chart click, a shared link and a page refresh all resolve identically.
-  const filters = parseLeadFilters(await searchParams);
+  const params = await searchParams;
+  const filters = parseLeadFilters(params);
+  const initialOpenLeadId = typeof params.openLead === "string" ? params.openLead : "";
   const isFiltered = hasLeadFilters(filters);
   const activeChips = isFiltered ? describeActiveFilters(filters) : [];
 
@@ -261,6 +263,7 @@ export default async function LeadsPage({
           leads={leadsPage.leads}
           initialTotal={leadsPage.total}
           initialTotalPages={leadsPage.totalPages}
+          initialOpenLeadId={initialOpenLeadId}
           role={viewer?.role ?? "employee"}
           filters={filters}
         />
