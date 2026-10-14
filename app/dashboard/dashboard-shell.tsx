@@ -138,7 +138,7 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
   const items = role === "employee" ? navigation.filter(item=>["/dashboard","/dashboard/leads","/dashboard/tasks","/dashboard/calendar","/dashboard/attendance","/dashboard/agents","/dashboard/daily-report"].includes(item.href)).map(item=>item.href==="/dashboard/daily-report"?{...item,label:"My Daily Summary"}:item) : navigation;
 
   return (
-    <nav className="space-y-1.5">
+    <nav aria-label="Workspace" className="space-y-1">
       {items.map(({ label, href, icon: Icon, exact }) => {
         const isActive = isActivePath(pathname, href, exact);
         const link = (
@@ -146,10 +146,10 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
             href={href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 hover:translate-x-0.5 focus-visible:outline-2 focus-visible:outline-emerald-600 motion-reduce:transform-none",
+              "flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
               isActive
-                ? "bg-gradient-to-r from-emerald-700 to-emerald-600 text-white shadow-md shadow-emerald-900/15 ring-1 ring-white/20"
-                : "text-slate-600 hover:bg-emerald-50/80 hover:text-emerald-800",
+                ? "border-emerald-700 bg-emerald-50 text-emerald-950"
+                : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
             )}
           >
             <Icon className="size-4.5" aria-hidden="true" />
@@ -165,28 +165,19 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
 
 function Sidebar({ profile }: { profile: DashboardProfile }) {
   return (
-    <aside className="hidden w-[248px] shrink-0 border-r border-emerald-950/10 bg-gradient-to-b from-white via-white/95 to-emerald-50/55 lg:flex lg:flex-col">
-      <div className="flex h-20 items-center justify-center border-b border-emerald-950/[0.045] px-4">
-        <BrandLogo className="h-11 w-auto object-contain bg-transparent" preload />
+    <aside className="hidden w-[232px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+      <div className="flex h-[4.25rem] items-center justify-start border-b border-slate-100 px-5">
+        <BrandLogo className="h-10 w-auto object-contain bg-transparent" preload />
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-4">
+      <div className="flex-1 overflow-y-auto px-3 py-5">
+        <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Workspace</p>
         <Navigation role={profile.role} />
-      </div>
-      {/* Faint brand watermark at the foot of the sidebar, as in the design. */}
-      <div className="relative mt-auto overflow-hidden px-4 pt-6 pb-3">
-        <div className="pointer-events-none absolute -bottom-4 left-1/2 size-40 -translate-x-1/2 opacity-[0.05]">
-          <BrandLogo className="h-40 w-auto object-contain" sizes="160px" />
-        </div>
-        <div className="relative flex flex-col items-center gap-0.5 text-center">
-          <p className="text-[11px] font-semibold text-slate-400">Aurevia HealthCare</p>
-          <p className="text-[10px] text-slate-300">Care you can Trust</p>
-        </div>
       </div>
       <div className="border-t border-slate-200 p-3">
         <Link
           href="/dashboard/agents?editProfile=1"
           aria-label="Open and edit your profile"
-          className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-blue-50"
+          className="flex items-center gap-3 rounded-lg p-2.5 transition-colors hover:bg-slate-50"
         >
           <Avatar size="sm">
             {profile.photo_url && <AvatarImage src={profile.photo_url} alt="" />}
@@ -261,7 +252,7 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
         // cap the strip and scroll it instead of sliding underneath them.
         mobile
           ? "overflow-x-auto pb-1"
-          : "w-fit max-w-full overflow-x-auto rounded-full border border-emerald-900/10 bg-white/65 p-1 shadow-inner shadow-emerald-950/[0.025] backdrop-blur",
+          : "w-fit max-w-full overflow-x-auto border-b border-slate-200",
       )}
     >
       {(role === "employee" ? [{label:"My day",href:"/dashboard",exact:true},{label:"Leads",href:"/dashboard/leads",exact:false},{label:"Follow-ups",href:"/dashboard/tasks",exact:false},{label:"Calendar",href:"/dashboard/calendar",exact:false}] : topTabs).map(({ label, href, exact }) => {
@@ -272,10 +263,10 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
             href={href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+              "-mb-px rounded-none border-b-2 border-transparent px-3.5 py-3 text-sm font-medium whitespace-nowrap transition-colors",
               isActive
-                ? "bg-gradient-to-r from-emerald-700 to-emerald-600 text-white shadow-md shadow-emerald-900/15"
-                : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800",
+                ? "border-emerald-700 text-emerald-900"
+                : "text-slate-600 hover:border-slate-300 hover:text-slate-950",
             )}
           >
             {label}
@@ -345,8 +336,8 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
       <ActivityTracker />
       <Sidebar profile={profile} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-emerald-950/10 bg-white/78 shadow-[0_8px_24px_-22px_rgba(6,78,59,0.38)] backdrop-blur-xl">
-          <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
+          <div className="flex min-h-[4.25rem] items-center gap-3 px-4 sm:px-6">
             <MobileNavigation profile={profile} />
             <div className="hidden min-w-0 flex-1 items-center lg:flex">
               <TopTabs role={profile.role} />
@@ -387,12 +378,12 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             </div>
           </div>
           {/* Tab row for phones / tablets, where the sidebar is collapsed. */}
-          <div className="px-4 pb-3 sm:px-6 lg:hidden">
+          <div className="overflow-hidden px-4 sm:px-6 lg:hidden">
             <TopTabs mobile role={profile.role} />
           </div>
         </header>
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>
-          <main className="crm-main-content flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
+          <main className="crm-main-content flex-1 p-4 sm:p-6 lg:px-8 lg:py-7">{children}</main>
         </DashboardDateRangeProvider>
         <AssistantChat role={profile.role} />
       </div>

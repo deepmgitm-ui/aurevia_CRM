@@ -3,69 +3,70 @@
 @import "shadcn/tailwind.css";
 
 @keyframes crm-fade-up {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .crm-motion-in {
-  animation: crm-fade-up 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: crm-fade-up 240ms ease-out both;
 }
 
 .crm-card-interactive {
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 180ms ease, border-color 180ms ease;
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.crm-app-shell .crm-card-interactive {
+  border-color: #e5eae6;
+  border-radius: 0.875rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
 }
 
 .crm-app-shell {
-  background:
-    radial-gradient(ellipse at 82% 0%, oklch(0.94 0.045 158 / 55%), transparent 34rem),
-    radial-gradient(ellipse at 4% 76%, oklch(0.96 0.025 190 / 42%), transparent 30rem),
-    oklch(0.985 0.008 158);
+  background: #f7f9f7;
 }
 
 .crm-app-shell [data-slot="card"] {
-  border-color: oklch(0.91 0.018 158 / 85%);
-  background: oklch(1 0 0 / 88%);
-  box-shadow: 0 1px 2px oklch(0.28 0.045 158 / 4%), 0 12px 28px -22px oklch(0.28 0.045 158 / 24%);
-  backdrop-filter: blur(12px);
+  border-color: #e5eae6;
+  border-radius: 0.875rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
 }
 
-.crm-app-shell .rounded-2xl.border.bg-white,
-.crm-app-shell .rounded-xl.border.bg-white {
-  border-color: oklch(0.91 0.018 158 / 88%);
-  box-shadow: 0 1px 2px oklch(0.28 0.045 158 / 4%), 0 14px 32px -26px oklch(0.28 0.045 158 / 25%);
+.crm-app-shell .crm-surface {
+  border-color: #e5eae6;
+  border-radius: 0.875rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  backdrop-filter: none;
 }
 
 .crm-app-shell [data-slot="button"] {
-  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .crm-app-shell [data-slot="button"]:not(:disabled):hover {
-    transform: translateY(-1px);
-  }
+  transition: box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease;
 }
 
 .crm-app-shell table thead {
-  background: oklch(0.96 0.025 158 / 72%);
+  background: #f7f9f7;
 }
 
 .crm-app-shell table th {
-  color: oklch(0.42 0.045 158);
-  font-weight: 650;
+  color: #59665e;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
 }
 
 .crm-app-shell table tbody tr {
-  border-color: oklch(0.93 0.014 158);
+  border-color: #edf0ed;
 }
 
 .crm-app-shell table tbody tr:hover {
-  background: oklch(0.97 0.025 158 / 68%);
+  background: #f8faf8;
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .crm-card-interactive:hover {
-    transform: translateY(-2px);
+    border-color: #d7e2da;
+    box-shadow: 0 5px 14px rgb(15 23 42 / 5%);
   }
 }
 
@@ -75,16 +76,12 @@
   .crm-app-shell [data-slot="button"] { transition: none; }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .crm-app-shell [data-slot="card"] { backdrop-filter: none; background: white; }
-}
-
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-ibm-plex-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
