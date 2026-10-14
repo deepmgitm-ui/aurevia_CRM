@@ -77,10 +77,10 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="crm-surface rounded-2xl border border-emerald-950/[0.07] bg-white/85 p-5 shadow-sm backdrop-blur-sm">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-          <Icon className="size-4 text-blue-600" aria-hidden="true" />
+          <Icon className="size-4 text-emerald-700" aria-hidden="true" />
           {title}
         </h2>
         {action}

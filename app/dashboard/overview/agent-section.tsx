@@ -326,7 +326,7 @@ export function AgentSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="crm-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-950/[0.07] bg-white/85 p-4 shadow-sm backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <p className="flex items-center gap-2 text-xs text-slate-500">
             <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
@@ -363,8 +363,8 @@ export function AgentSection({
             aria-label={
               card.id === editableProfileId ? "Open and edit your agent profile" : `Open secure details for ${card.name}`
             }
-            className={`group flex flex-col items-center gap-3 rounded-2xl border bg-white p-4 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
-              isCrowned(card.name) ? "border-amber-200 ring-1 ring-amber-200" : "border-slate-200 hover:border-blue-200"
+            className={`crm-card-interactive group flex flex-col items-center gap-3 rounded-2xl border bg-white/90 p-4 text-center shadow-sm backdrop-blur-sm ${
+              isCrowned(card.name) ? "border-amber-200 ring-1 ring-amber-200" : "border-emerald-950/[0.07] hover:border-emerald-300"
             }`}
           >
             <span className="relative">

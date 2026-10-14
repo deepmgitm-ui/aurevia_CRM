@@ -29,12 +29,12 @@ export function StatTable({
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="bg-slate-50/80 text-left">
+          <tr className="bg-emerald-50/70 text-left">
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                className={`px-4 py-2.5 text-xs font-semibold tracking-wide text-slate-500 uppercase ${
+                className={`px-4 py-2.5 text-xs font-semibold tracking-wide text-emerald-900/70 uppercase ${
                   column.align === "right" ? "text-right" : ""
                 }`}
               >
@@ -52,7 +52,7 @@ export function StatTable({
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.key} className="border-t border-slate-100 hover:bg-slate-50/60">
+              <tr key={row.key} className="border-t border-emerald-950/[0.06] transition-colors hover:bg-emerald-50/60">
                 {columns.map((column) => (
                   <td
                     key={column.key}
@@ -82,8 +82,8 @@ export function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <section className="crm-surface overflow-hidden rounded-2xl border border-emerald-950/[0.07] bg-white/88 shadow-sm backdrop-blur-sm">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-950/[0.06] bg-gradient-to-r from-white to-emerald-50/45 px-5 py-4">
         <div>
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}

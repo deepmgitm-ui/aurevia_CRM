@@ -83,7 +83,7 @@ export function FilterBar({ filters, options, isSample, onChange, onReset }: Fil
     filters.agent !== ALL_FILTER_VALUE;
 
   return (
-    <section aria-label="Dashboard filters" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section aria-label="Dashboard filters" className="crm-surface rounded-2xl border border-emerald-950/[0.07] bg-white/85 p-4 shadow-sm backdrop-blur-sm">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <FilterSelect
           label="City"

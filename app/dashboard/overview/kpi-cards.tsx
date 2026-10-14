@@ -44,7 +44,7 @@ const KPI_ICONS: Record<KpiKey, LucideIcon> = {
 };
 
 const KPI_TONES: Record<KpiKey, { card: string; icon: string; bar: string }> = {
-  totalLeads: { card: "border-blue-100 bg-blue-50", icon: "bg-blue-100 text-blue-600", bar: "#3b82f6" },
+  totalLeads: { card: "border-emerald-100 bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", bar: "#10b981" },
   consultationsBooked: {
     card: "border-emerald-100 bg-emerald-50",
     icon: "bg-emerald-100 text-emerald-600",

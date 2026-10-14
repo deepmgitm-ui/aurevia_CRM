@@ -145,10 +145,10 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
             href={href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 hover:translate-x-0.5 focus-visible:outline-2 focus-visible:outline-emerald-600 motion-reduce:transform-none",
               isActive
-                ? "bg-[#1e3a8a] text-white shadow-sm"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                ? "bg-gradient-to-r from-emerald-700 to-emerald-600 text-white shadow-md shadow-emerald-900/15 ring-1 ring-white/20"
+                : "text-slate-600 hover:bg-emerald-50/80 hover:text-emerald-800",
             )}
           >
             <Icon className="size-4.5" aria-hidden="true" />
@@ -164,8 +164,8 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
 
 function Sidebar({ profile }: { profile: DashboardProfile }) {
   return (
-    <aside className="hidden w-[236px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-20 items-center justify-center px-4">
+    <aside className="hidden w-[248px] shrink-0 border-r border-emerald-950/10 bg-gradient-to-b from-white via-white/95 to-emerald-50/55 lg:flex lg:flex-col">
+      <div className="flex h-20 items-center justify-center border-b border-emerald-950/[0.045] px-4">
         <BrandLogo className="h-11 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-4">
@@ -260,7 +260,7 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
         // cap the strip and scroll it instead of sliding underneath them.
         mobile
           ? "overflow-x-auto pb-1"
-          : "w-fit max-w-full overflow-x-auto rounded-full border border-slate-200 bg-slate-50/80 p-1",
+          : "w-fit max-w-full overflow-x-auto rounded-full border border-emerald-900/10 bg-white/65 p-1 shadow-inner shadow-emerald-950/[0.025] backdrop-blur",
       )}
     >
       {(role === "employee" ? [{label:"My day",href:"/dashboard",exact:true},{label:"Leads",href:"/dashboard/leads",exact:false},{label:"Follow-ups",href:"/dashboard/tasks",exact:false},{label:"Calendar",href:"/dashboard/calendar",exact:false}] : topTabs).map(({ label, href, exact }) => {
@@ -273,8 +273,8 @@ function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) 
             className={cn(
               "rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors",
               isActive
-                ? "bg-[#1e3a8a] text-white shadow-sm"
-                : "text-slate-600 hover:bg-white hover:text-slate-900",
+                ? "bg-gradient-to-r from-emerald-700 to-emerald-600 text-white shadow-md shadow-emerald-900/15"
+                : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800",
             )}
           >
             {label}
@@ -340,11 +340,11 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="crm-app-shell flex min-h-screen">
       <ActivityTracker />
       <Sidebar profile={profile} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-emerald-950/10 bg-white/78 shadow-[0_8px_24px_-22px_rgba(6,78,59,0.38)] backdrop-blur-xl">
           <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
             <MobileNavigation profile={profile} />
             <div className="hidden min-w-0 flex-1 items-center lg:flex">
@@ -356,7 +356,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
               <Link
                 href="/dashboard/tasks"
                 aria-label="Tasks"
-                className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 sm:flex"
+                className="flex items-center gap-2 rounded-full border border-emerald-900/10 bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:flex"
               >
                 <CheckSquare className="size-4" aria-hidden="true" />
                 <span className="hidden xl:inline">Tasks</span>
@@ -390,7 +390,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
           </div>
         </header>
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>
-          <main className="flex-1 bg-slate-50 p-4 sm:p-6 lg:p-8">{children}</main>
+          <main className="crm-main-content flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
         </DashboardDateRangeProvider>
         <AssistantChat role={profile.role} />
       </div>

@@ -109,7 +109,7 @@ export function TeamActivityPanel({
   );
   return (
     <section
-      className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      className="crm-surface space-y-4 rounded-2xl border border-emerald-950/[0.07] bg-white/88 p-5 shadow-sm backdrop-blur-sm"
       aria-label={own ? "My CRM activity" : "Team activity"}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
