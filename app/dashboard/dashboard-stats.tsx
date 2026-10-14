@@ -19,8 +19,8 @@ export function DashboardStats({ counts }: { counts: LeadCounts }) {
 
   return (
     <section aria-label="Lead analytics" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {stats.map(({ label, value, icon: Icon, color, background, percent }) => (
-        <Card key={label} className="border-0 shadow-sm">
+      {stats.map(({ label, value, icon: Icon, color, background, percent }, index) => (
+        <Card key={label} style={{ animationDelay: `${index * 55}ms` }} className="crm-motion-in crm-card-interactive border border-slate-100 shadow-sm hover:shadow-lg">
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-slate-500">{label}</CardTitle>
             <span className={`flex size-9 items-center justify-center rounded-lg ${background} ${color}`}>

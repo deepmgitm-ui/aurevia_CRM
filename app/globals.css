@@ -11,8 +11,20 @@
   animation: crm-fade-up 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+.crm-card-interactive {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms ease, border-color 180ms ease;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .crm-card-interactive:hover {
+    transform: translateY(-2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .crm-motion-in { animation: none; }
+  .crm-card-interactive { transition: none; }
 }
 
 @custom-variant dark (&:is(.dark *));

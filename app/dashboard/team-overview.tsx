@@ -39,14 +39,15 @@ export function TeamOverview({
 
   return (
     <section aria-label="Team overview" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {team.employees.map((employee) => (
+      {team.employees.map((employee, index) => (
         <article
           key={employee.id}
-          className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-400 hover:shadow-md"
+          style={{ animationDelay: `${index * 55}ms` }}
+          className="crm-motion-in crm-card-interactive group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm hover:border-slate-300 hover:shadow-lg"
         >
           <Link href={`${leadsHref({ assigned: employee.name })}#lead-list`} className="flex items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-blue-600">
             <div className="flex items-center gap-3">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-semibold text-slate-700 ring-1 ring-slate-200/70 transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none">
                 {getInitials(employee.name)}
               </span>
               <div>
