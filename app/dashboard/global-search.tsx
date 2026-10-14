@@ -95,7 +95,7 @@ export function GlobalSearch({ role }: { role: string }) {
       </Button>
 
       <Dialog open={open} onOpenChange={(nextOpen) => nextOpen ? setOpen(true) : closeSearch()}>
-        <DialogContent className="max-h-[min(82dvh,42rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)_auto] h-[min(82dvh,42rem)] max-h-[min(82dvh,42rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="border-b border-emerald-950/10 px-5 py-4">
             <DialogTitle>Search Aurevia</DialogTitle>
             <DialogDescription>Find a lead or open any section in your workspace.</DialogDescription>
@@ -113,7 +113,7 @@ export function GlobalSearch({ role }: { role: string }) {
               />
             </div>
           </div>
-          <div className="overflow-y-auto p-2">
+          <div className="min-h-0 overflow-y-auto overscroll-y-contain p-2">
             {normalizedTerm && visibleDestinations.length > 0 && (
               <section aria-label="CRM sections" className="mb-2">
                 <h3 className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sections</h3>
