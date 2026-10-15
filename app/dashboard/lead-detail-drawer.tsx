@@ -490,8 +490,10 @@ export function LeadDetailDrawer({
                   </div>
                   <div className="col-span-2">
                     <Label htmlFor="drawer-detail-treatment">Treatment / Disease</Label>
-                    <Input
+                    <Textarea
                       id="drawer-detail-treatment"
+                      rows={4}
+                      className="max-h-64 resize-y whitespace-pre-wrap [overflow-wrap:anywhere]"
                       value={edits.treatment}
                       placeholder="For example: LASIK, Cataract"
                       onChange={(event) => setEdits((current) => ({ ...current, treatment: event.target.value }))}

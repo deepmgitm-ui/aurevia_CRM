@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { voiceBotTreatment } from "../lib/lead-treatment.ts";
+
+assert.equal(voiceBotTreatment("OPHTHALMOLOGY"), null);
+assert.equal(voiceBotTreatment("Voice Bot Details Patient Information : No"), "");
+assert.equal(voiceBotTreatment("Voice Bot Details\nPatient City : Virar West\nDetail Treatment : आँखों में से पानी निकलता है\nOpd Confirmation: Yes\nPrior Consultation: No"), "आँखों में से पानी निकलता है");
+assert.equal(voiceBotTreatment("Voice Bot Details Detail Treatment: Cataract Patient Confirmation: Yes"), "Cataract");
 import {
   cleanImportedLeadRemarks,
   findLeadImportHeaderRow,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CallingWorkspace } from "./calling-workspace";
+import { voiceBotTreatment } from "@/lib/lead-treatment";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -214,12 +215,15 @@ function formatLeadDateDisplay(value: string): string {
  * then collapsed to the canonical key + label. `detail` carries the raw disease
  * text so the row still shows exactly what was typed.
  */
-function treatmentCellData(lead: Lead): { key: string; label: string; detail: string } {
+function treatmentCellData(lead: Lead): { key: string; label: string; detail: string; hasSummary: boolean } {
   const resolved = resolveTreatmentText(lead as unknown as Record<string, unknown>) || lead.disease || "";
-  const { key, label } = canonicalTreatment(resolved);
   const raw = (lead.disease ?? "").trim();
-  const detail = raw && raw !== "-" && raw.toLowerCase() !== label.toLowerCase() ? raw : "";
-  return { key, label, detail };
+  const summaryTreatment = voiceBotTreatment(raw);
+  const treatmentText = summaryTreatment ?? resolved;
+  const { key, label } = canonicalTreatment(treatmentText);
+  const description = summaryTreatment ?? raw;
+  const detail = description && description !== "-" && description.toLowerCase() !== label.toLowerCase() ? description : "";
+  return { key, label, detail, hasSummary: summaryTreatment !== null || raw.length > 100 };
 }
 
 function compareLeads(a: Lead, b: Lead, key: string): number {
@@ -1972,7 +1976,7 @@ export function LeadsTable({
           </div>
         )}
         <CardContent>
-          <Table>
+          <Table className="min-w-[1480px] table-fixed">
             <TableHeader><TableRow>
               {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads" checked={isSelectAllChecked} onChange={(event) => { const checked = event.target.checked; setIsSelectAllChecked(checked); setSelectedLeads(checked ? [...new Set([...selectedLeads, ...sortedLeads.map((lead) => lead.id)])] : selectedLeads.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
@@ -2101,19 +2105,24 @@ export function LeadsTable({
                     </div>
                   </TableCell>
                   <TableCell className="w-[140px] max-w-[140px] py-3"><p className="break-words whitespace-normal text-sm text-slate-700">{lead.city}</p></TableCell>
-                  <TableCell className="w-[150px] max-w-[150px] py-3">
-                    <div className="flex items-start gap-1.5" title={treatment.detail || treatment.label}>
+                  <TableCell className="w-[150px] max-w-[150px] overflow-hidden py-3 whitespace-normal">
+                    <div className="flex min-w-0 items-start gap-1.5">
                       <span
                         className="mt-1 size-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: treatmentColor(treatment.key) }}
                         aria-hidden="true"
                       />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-800">{treatment.label}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-medium text-slate-800 [overflow-wrap:anywhere]">{treatment.label}</p>
                         {treatment.detail && (
-                          <p className="break-words whitespace-normal text-[11px] text-slate-500">
+                          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 [overflow-wrap:anywhere]">
                             {treatment.detail}
                           </p>
+                        )}
+                        {(treatment.hasSummary || treatment.label.length > 40 || treatment.detail.length > 60) && (
+                          <button type="button" onClick={() => handleViewLead(lead)} className="mt-1 rounded text-xs font-medium text-emerald-700 hover:underline focus-visible:outline-2 focus-visible:outline-emerald-700" aria-label={`View treatment details for ${lead.name}`}>
+                            View details
+                          </button>
                         )}
                       </div>
                     </div>
@@ -2805,7 +2814,7 @@ export function LeadsTable({
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Phone</p><p className="mt-1 text-slate-700">{selectedLead.phone}</p></div>
                 <div><p className="text-xs font-medium uppercase tracking-wide text-slate-400">Gender</p><p className="mt-1 text-slate-700">{selectedLead.gender}</p></div>
                 <div className="space-y-1"><Label htmlFor="edit-city">City</Label><Input id="edit-city" value={leadEdits.city} onChange={(event) => setLeadEdits((current) => ({ ...current, city: event.target.value }))} placeholder="-" /></div>
-                <div className="space-y-1"><Label htmlFor="edit-disease">Treatment / Disease</Label><Input id="edit-disease" value={leadEdits.disease} onChange={(event) => setLeadEdits((current) => ({ ...current, disease: event.target.value }))} placeholder="-" /></div>
+                <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-disease">Treatment / Disease</Label><Textarea id="edit-disease" rows={4} className="max-h-64 resize-y whitespace-pre-wrap [overflow-wrap:anywhere]" value={leadEdits.disease} onChange={(event) => setLeadEdits((current) => ({ ...current, disease: event.target.value }))} placeholder="-" /></div>
                 <div className="space-y-1"><Label htmlFor="edit-insurance">Insurance Status</Label><Input id="edit-insurance" value={leadEdits.insurance_status} onChange={(event) => setLeadEdits((current) => ({ ...current, insurance_status: event.target.value }))} placeholder="-" /></div>
                 <div className="sm:col-span-2 space-y-1"><Label htmlFor="edit-remarks">Remarks</Label><Textarea id="edit-remarks" rows={3} value={leadEdits.remarks} onChange={(event) => setLeadEdits((current) => ({ ...current, remarks: event.target.value }))} placeholder="-" /></div>
                 <div className="flex items-center gap-2 sm:col-span-2">
