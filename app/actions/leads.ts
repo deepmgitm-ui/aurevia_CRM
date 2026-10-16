@@ -967,20 +967,20 @@ export interface EmployeeLeadSummary {
   ipd: number;
 }
 
-/** Pipeline counts for the signed-in employee's own dashboard. */
-export async function getEmployeeLeadSummary(): Promise<ActionResult<EmployeeLeadSummary>> {
+/** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
+export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
   const empty: EmployeeLeadSummary = { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return { success: false, error: "Sign in to view your lead summary." };
     const { data: profile, error: profileError } = await supabase.from("profiles").select("name, role").eq("id", user.id).single();
-    if (profileError || !profile || profile.role !== "employee" || !profile.name?.trim()) {
+    if (profileError || !profile || (profile.role === "employee" && !profile.name?.trim())) {
       return { success: true, data: empty };
     }
 
     const count = (status?: string) => {
-      const query = buildScopedLeadsQuery(supabase, profile.role, profile.name, true);
+      const query = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo);
       return status ? query.eq("status", status) : query;
     };
     const [total, fresh, opdBooked, opdDone, ipd] = await Promise.all([

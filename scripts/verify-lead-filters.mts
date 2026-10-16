@@ -58,9 +58,19 @@ const parsed = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${hr
 assert.deepEqual(parsed, original, "round trip must preserve every filter");
 
 // Empty values are dropped; `except` only survives together with treatment=other.
-assert.equal(leadsHref({ city: "Pune" }), "/dashboard/leads?city=Pune");
-assert.equal(leadsHref({ except: "hair" }), "/dashboard/leads");
+assert.equal(leadsHref({ city: "Pune" }), "/dashboard/leads?month=all&city=Pune");
+assert.equal(leadsHref({ except: "hair" }), "/dashboard/leads?month=all");
 assert.equal(leadsHref(EMPTY_LEAD_FILTERS), "/dashboard/leads");
+
+// Pipeline cards intentionally open an all-time status list, scoped to the
+// selected agent when one is supplied.
+for (const status of ["New", "OPD Booked", "OPD Done", "IPD Done"]) {
+  const cardHref = leadsHref({ assigned: "Atul Pandey", status, age: "", month: "", allMonths: true });
+  const cardFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${cardHref}`).searchParams));
+  assert.equal(cardFilters.assigned, "Atul Pandey");
+  assert.equal(cardFilters.status, status);
+  assert.equal(cardFilters.allMonths, true);
+}
 
 // ---------------------------------------------------------------------------
 // 2. Stage keys: valid ones kept in canonical order, junk silently dropped.
@@ -75,9 +85,9 @@ assert.deepEqual(stageFilterKeys(" surgery , booked, junk"), ["booked", "surgery
 assert.equal(hasLeadFilters(EMPTY_LEAD_FILTERS), false);
 assert.equal(hasLeadFilters(parsed), true);
 assert.deepEqual(describeActiveFilters(parsed), [
-  "Consultation Booked",
-  "Consultation Attended",
-  "Surgery Completed",
+  "OPD Booked",
+  "OPD Done",
+  "Won",
   "Other",
   "Today",
   "Mar 2026",
@@ -95,7 +105,7 @@ assert.equal(
   "unsupported assignment filters are ignored",
 );
 assert.equal(prettifyFilterKey("eye-checkup"), "Eye checkup");
-assert.equal(filterChipLabels().surgery, "Surgery Completed");
+assert.equal(filterChipLabels().surgery, "Won");
 
 // ---------------------------------------------------------------------------
 // 4. Age windows: bounded single/open day ranges computed server-side.

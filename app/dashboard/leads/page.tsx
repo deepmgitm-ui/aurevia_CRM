@@ -5,7 +5,7 @@ import {
   getLeadCounts,
   getLeadMonthTally,
   getLeadsPage,
-  getEmployeeLeadSummary,
+  getLeadPipelineSummary,
   getTeamStats,
   getViewer,
   type LeadCounts,
@@ -130,7 +130,7 @@ export default async function LeadsPage({
     // can never land on an empty list.
     getLeadMonthTally(),
     getTeamStats(),
-    getEmployeeLeadSummary(),
+    getLeadPipelineSummary(filters.assigned),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
@@ -140,33 +140,9 @@ export default async function LeadsPage({
   const months: LeadMonthTally[] = monthsResult.success ? monthsResult.data : [];
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
-  const selectedEmployee = filters.assigned
-    ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())
-    : null;
-  const pipelineSummary = viewer?.role === "employee"
-    ? employeeSummaryResult.success
-      ? employeeSummaryResult.data
-      : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 }
-    : selectedEmployee
-      ? {
-          total: selectedEmployee.total,
-          fresh: selectedEmployee.newLeads,
-          opdBooked: selectedEmployee.opdBooked,
-          opdDone: selectedEmployee.opdDone,
-          ipd: selectedEmployee.ipd,
-        }
-      : team
-        ? team.employees.reduce(
-            (summary, employee) => ({
-              total: team.total,
-              fresh: summary.fresh + employee.newLeads,
-              opdBooked: summary.opdBooked + employee.opdBooked,
-              opdDone: summary.opdDone + employee.opdDone,
-              ipd: summary.ipd + employee.ipd,
-            }),
-            { total: team.total, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 },
-          )
-        : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
+  const pipelineSummary = employeeSummaryResult.success
+    ? employeeSummaryResult.data
+    : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the

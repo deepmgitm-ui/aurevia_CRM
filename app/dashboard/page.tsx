@@ -11,7 +11,7 @@ import {
   getViewer,
   getDailyWorkCounts,
   getDailyAssignmentStatuses,
-  getEmployeeLeadSummary,
+  getLeadPipelineSummary,
 } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -187,7 +187,7 @@ export default async function DashboardPage({
     getLeadsPage(1, 50, "", "", "", filters),
     getDailyWorkCounts(day),
     getDailyAssignmentStatuses(day),
-    getEmployeeLeadSummary(),
+    getLeadPipelineSummary(),
   ]);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
