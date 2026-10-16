@@ -101,9 +101,11 @@ function TreatmentBreakdown({
 function AgeStrip({
   filters,
   months,
+  currentMonth,
 }: {
   filters: LeadListFilters;
   months: LeadMonthTally[];
+  currentMonth: string;
 }) {
   // A month already covers every day, so the day/week chips would be noise.
   const ageLocked = filters.month.length > 0;
@@ -117,12 +119,12 @@ function AgeStrip({
         <h2 className="text-sm font-semibold text-slate-900">How old are these leads?</h2>
         {/* Client leaf: this page is a Server Component, so the navigating
             dropdown lives in its own file. */}
-      <LeadMonthPicker filters={filters} months={months} currentMonth={clinicDate().slice(0, 7)} />
+        <LeadMonthPicker filters={filters} months={months} currentMonth={currentMonth} />
       </div>
       <div className="flex flex-wrap gap-2">
         <Link
-          href={leadsHref({ ...filters, age: "", month: "" })}
-          aria-pressed={!filters.age && !ageLocked}
+          href={leadsHref({ ...filters, age: "", month: "", allMonths: true })}
+          aria-pressed={filters.allMonths}
           className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
             !filters.age && !ageLocked
               ? "border-blue-300 bg-blue-50 text-blue-800"
@@ -138,7 +140,7 @@ function AgeStrip({
               key={bucket.key}
               // Picking a day/week drops the month: they describe the same
               // "how old is this lead" question two different ways.
-              href={leadsHref({ ...filters, age: active ? "" : bucket.key, month: "" })}
+              href={leadsHref({ ...filters, age: active ? "" : bucket.key, month: "", allMonths: false })}
               aria-pressed={active}
               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                 active
@@ -169,7 +171,11 @@ export default async function LeadsPage({
   // Drill-down filters come straight from the URL (?stage=&treatment=&age=&city=)
   // so a chart click, a shared link and a page refresh all resolve identically.
   const params = await searchParams;
-  const filters = parseLeadFilters(params);
+  const currentMonth = clinicDate().slice(0, 7);
+  const parsedFilters = parseLeadFilters(params);
+  const filters = Object.keys(params).length === 0 && !parsedFilters.age && !parsedFilters.allMonths
+    ? { ...parsedFilters, month: currentMonth }
+    : parsedFilters;
   const initialOpenLeadId = typeof params.openLead === "string" ? params.openLead : "";
   const isFiltered = hasLeadFilters(filters);
   const activeChips = isFiltered ? describeActiveFilters(filters) : [];
@@ -246,7 +252,7 @@ export default async function LeadsPage({
             </p>
           </div>
           <Link
-            href="/dashboard/leads"
+            href="/dashboard/leads?month=all"
             className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
           >
             <X className="size-4" aria-hidden="true" />
@@ -255,7 +261,7 @@ export default async function LeadsPage({
         </div>
       )}
       <TreatmentBreakdown tally={tally} filters={filters} />
-      <AgeStrip filters={filters} months={months} />
+      <AgeStrip filters={filters} months={months} currentMonth={currentMonth} />
       {/* Key remounts on every filter change so the table drops its loaded page
           and refetches page 1 of the new result set. */}
       <section id="lead-list" className="scroll-mt-6" aria-label="Matching leads">

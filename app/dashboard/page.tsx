@@ -230,7 +230,7 @@ export default async function DashboardPage({
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {([
-            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, href: "/dashboard/leads", tone: "border-slate-200 bg-white text-slate-800" },
+            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, href: "/dashboard/leads?month=all", tone: "border-slate-200 bg-white text-slate-800" },
             { label: "Fresh leads", value: summaryResult.success ? summaryResult.data.fresh : null, href: "/dashboard/leads?status=New", tone: "border-blue-200 bg-blue-50 text-blue-800" },
             { label: "OPD booked", value: summaryResult.success ? summaryResult.data.opdBooked : null, href: "/dashboard/leads?status=OPD%20Booked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
             { label: "OPD done", value: summaryResult.success ? summaryResult.data.opdDone : null, href: "/dashboard/leads?status=OPD%20Done", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
@@ -281,7 +281,7 @@ export default async function DashboardPage({
           <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}{selectedStatus ? ` · ${selectedStatus}` : ""}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsPage.total.toLocaleString()} leads</p></div>
           <div className="flex gap-3 text-sm font-medium">
             {!isToday && <Link href="/dashboard" className="text-blue-700 hover:underline">Back to today</Link>}
-            <Link href="/dashboard/leads" className="text-blue-700 hover:underline">All my leads</Link>
+            <Link href="/dashboard/leads?month=all" className="text-blue-700 hover:underline">All my leads</Link>
           </div>
         </div>
         {work === "assigned" && <p className="text-xs text-slate-500">Assignments are tracked from the daily-work update onwards. Older assignments without a recorded date remain in All my leads.</p>}

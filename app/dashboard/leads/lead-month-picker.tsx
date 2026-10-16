@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { LeadMonthTally } from "@/app/actions/leads";
-import { leadsHref, type LeadListFilters } from "../lead-filters";
+import { leadsHref, monthFilterLabel, type LeadListFilters } from "../lead-filters";
 
 export function LeadMonthPicker({
   filters,
@@ -35,7 +35,7 @@ export function LeadMonthPicker({
           const month = value && value !== "all" ? value : "";
           // Month and day/week describe the same question, so picking one clears
           // the other instead of intersecting into an empty list.
-          router.push(leadsHref({ ...filters, month, age: month ? "" : filters.age }));
+          router.push(leadsHref({ ...filters, month, allMonths: !month, age: month ? "" : filters.age }));
         }}
       >
         <SelectTrigger id="lead-month-picker" size="sm" className="w-auto min-w-40 text-xs">
@@ -43,6 +43,9 @@ export function LeadMonthPicker({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All months</SelectItem>
+          {!months.some((item) => item.key === currentMonth) && (
+            <SelectItem value={currentMonth}>{monthFilterLabel(currentMonth)} · 0</SelectItem>
+          )}
           {months.map((item) => (
             <SelectItem key={item.key} value={item.key}>
               {item.label} · {item.count}
@@ -53,7 +56,7 @@ export function LeadMonthPicker({
       <button
         type="button"
         aria-pressed={filters.month === currentMonth}
-        onClick={() => router.push(leadsHref({ ...filters, month: currentMonth, age: "" }))}
+        onClick={() => router.push(leadsHref({ ...filters, month: currentMonth, allMonths: false, age: "" }))}
         className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${filters.month === currentMonth ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
       >
         This month

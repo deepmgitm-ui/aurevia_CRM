@@ -256,6 +256,8 @@ export interface LeadListFilters {
   age: string;
   /** Calendar month the lead was added, `2026-03` — the month picker. */
   month: string;
+  /** Explicit all-month selection prevents the page's default current month. */
+  allMonths: boolean;
   /** Exact city / source / agent + raw status, straight from the URL. */
   city: string;
   source: string;
@@ -273,6 +275,7 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   except: "",
   age: "",
   month: "",
+  allMonths: false,
   city: "",
   source: "",
   assigned: "",
@@ -297,6 +300,7 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     except: firstValue(params.except),
     age: firstValue(params.age),
     month: isMonthFilterKey(firstValue(params.month)) ? firstValue(params.month) : "",
+    allMonths: firstValue(params.month).toLowerCase() === "all",
     city: firstValue(params.city),
     source: firstValue(params.source),
     assigned: firstValue(params.assigned),
@@ -332,7 +336,11 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
 export function leadsHref(filters: Partial<LeadListFilters>): string {
   const params = new URLSearchParams();
   const treatment = String(filters.treatment ?? "").trim();
+  const allMonths = filters.allMonths || (filters.month === undefined && filters.age === undefined);
+  if (allMonths) params.set("month", "all");
   for (const [key, value] of Object.entries(filters)) {
+    if (key === "allMonths") continue;
+    if (key === "month" && allMonths) continue;
     const text = String(value ?? "").trim();
     if (!text) continue;
     // `except` only means anything together with treatment=other.
