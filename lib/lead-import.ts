@@ -1,4 +1,4 @@
-import { canonicalLeadStatus, isLeadStatusOption } from "@/lib/lead-status";
+import { canonicalLeadStatus, isLeadStatusOption } from "./lead-status.ts";
 
 export const LEAD_IMPORT_ALIASES = {
   name: [

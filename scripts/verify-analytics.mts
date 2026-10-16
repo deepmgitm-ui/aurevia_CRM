@@ -21,6 +21,11 @@ import {
   type DateRange,
 } from "../app/dashboard/overview/analytics.ts";
 import {
+  canonicalLeadStatus,
+  isLeadStatusOption,
+  LEAD_STATUS_OPTIONS,
+} from "../lib/lead-status.ts";
+import {
   cheerFor,
   greetingHeadline,
   partOfDay,
@@ -308,11 +313,15 @@ const stageCases: [string, string][] = [
   ["Lost", "lost"],
   ["Dropped", "lost"],
   ["Not Interested", "lost"],
+  ["Didn’t Enquired", "lost"],
   ["Invalid Number", "lost"],
   ["Non Surgical", "lost"],
   ["Budget Issue", "lost"],
   ["Location Issue", "lost"],
 ];
+assert.ok(LEAD_STATUS_OPTIONS.includes("Didn’t Enquired"), "the requested status must be selectable");
+assert.equal(canonicalLeadStatus("Didn't Enquired"), "Didn’t Enquired", "straight apostrophe imports should normalize");
+assert.equal(isLeadStatusOption("Didn’t Enquired"), true, "the requested status must pass server validation");
 for (const [status, expected] of stageCases) {
   assert.equal(stageForStatus(status), expected, `"${status}" must map to ${expected}`);
 }

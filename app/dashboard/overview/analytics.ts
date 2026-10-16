@@ -468,7 +468,7 @@ export function stageForStatus(status: string): StageKey {
   // 1. Explicit negatives / dead ends, checked FIRST so "Non Surgical" can never
   //    be read as "Surgery Completed" by the /surg/ rule further down.
   if (
-    /(lost|dropped|drop|cancel|no ?show|junk|dead|invalid|not interested|non[ -]?surg|budget issue|location issue|not reachable|refus)/.test(
+    /(lost|dropped|drop|cancel|no ?show|junk|dead|invalid|not interested|didn['’]?t enquir|non[ -]?surg|budget issue|location issue|not reachable|refus)/.test(
       value,
     )
   ) {

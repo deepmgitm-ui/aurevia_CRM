@@ -45,8 +45,10 @@ for (const record of [googleExport, facebookExport]) {
 }
 
 assert.equal(normalizeImportedLeadStatus("New Lead"), "New");
-assert.equal(normalizeImportedLeadStatus("Lost"), "Dropped");
-assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow Up");
+assert.equal(normalizeImportedLeadStatus("Lost"), "Lost");
+assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow-Up");
+assert.equal(normalizeImportedLeadStatus("Didn't Enquired"), "Didn’t Enquired");
+assert.equal(normalizeImportedLeadStatus("Didn’t Enquired"), "Didn’t Enquired");
 assert.equal(findLeadImportValue(googleExport, "status"), "New Lead");
 assert.equal(findLeadImportValue({ "First Name": "Asha", Surname: "Sharma" }, "name"), "Asha Sharma");
 assert.equal(
