@@ -157,7 +157,7 @@ export default async function LeadsPage({
             : "Review and manage every lead in your pipeline."}
         </p>
       </div>
-      <DashboardStats counts={counts} />
+      <DashboardStats total={leadsPage.total} />
       {canViewAssignments && team && (
         <>
           <AssignmentFilterTabs team={team} filters={filters} />
@@ -168,7 +168,7 @@ export default async function LeadsPage({
                 Tap a category to view that agent’s matching leads, or their name to view all assigned leads.
               </p>
             </div>
-            <TeamOverview team={team} />
+            <TeamOverview team={team} filters={filters} />
           </section>
         </>
       )}

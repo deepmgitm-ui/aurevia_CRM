@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 import type { TeamStats } from "@/app/actions/leads";
-import { leadsHref } from "./lead-filters";
+import { leadsHref, type LeadListFilters } from "./lead-filters";
 
 function getInitials(name: string): string {
   return name
@@ -26,20 +26,29 @@ function StatChip({ label, value, className, href, name }: { label: string; valu
 // Each metric opens the same agent's leads with the corresponding status.
 export function TeamOverview({
   team,
+  filters,
 }: {
   team: TeamStats;
+  filters?: Pick<LeadListFilters, "assigned">;
 }) {
-  if (team.employees.length === 0) {
+  const assignedFilter = filters?.assigned ?? "";
+  const employees = assignedFilter
+    ? team.employees.filter((employee) => employee.name.toLocaleLowerCase() === assignedFilter.toLocaleLowerCase())
+    : team.employees;
+
+  if (employees.length === 0) {
     return (
       <p className="text-sm text-slate-500">
-        No team members found yet. Add employees from the settings page to see their lead stats here.
+        {assignedFilter
+          ? "No matching agent summary is available for this selection."
+          : "No team members found yet. Add employees from the settings page to see their lead stats here."}
       </p>
     );
   }
 
   return (
     <section aria-label="Team overview" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {team.employees.map((employee, index) => (
+      {employees.map((employee, index) => (
         <article
           key={employee.id}
           style={{ animationDelay: `${index * 55}ms` }}
