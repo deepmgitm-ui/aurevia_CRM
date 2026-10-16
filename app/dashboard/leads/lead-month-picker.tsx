@@ -16,15 +16,16 @@ import { leadsHref, type LeadListFilters } from "../lead-filters";
 export function LeadMonthPicker({
   filters,
   months,
+  currentMonth,
 }: {
   filters: LeadListFilters;
   months: LeadMonthTally[];
+  currentMonth: string;
 }) {
   const router = useRouter();
-  if (months.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <label htmlFor="lead-month-picker" className="text-xs font-medium text-slate-600">
         Month
       </label>
@@ -49,6 +50,14 @@ export function LeadMonthPicker({
           ))}
         </SelectContent>
       </Select>
+      <button
+        type="button"
+        aria-pressed={filters.month === currentMonth}
+        onClick={() => router.push(leadsHref({ ...filters, month: currentMonth, age: "" }))}
+        className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${filters.month === currentMonth ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
+      >
+        This month
+      </button>
     </div>
   );
 }

@@ -37,11 +37,11 @@ export interface AnalyticsLead {
 export type StageKey = "new" | "contacted" | "booked" | "attended" | "surgery" | "lost";
 
 export const PIPELINE_STAGES: { key: StageKey; label: string }[] = [
-  { key: "new", label: "New Lead" },
-  { key: "contacted", label: "Contacted" },
-  { key: "booked", label: "Consultation Booked" },
-  { key: "attended", label: "Consultation Attended" },
-  { key: "surgery", label: "Surgery Completed" },
+  { key: "new", label: "New" },
+  { key: "contacted", label: "Follow-Up" },
+  { key: "booked", label: "OPD Booked" },
+  { key: "attended", label: "OPD Done" },
+  { key: "surgery", label: "Won" },
 ];
 
 export type TreatmentKey = "lasik" | "cataract" | "icl" | "other" | "unrecorded";
@@ -447,10 +447,10 @@ export function percentDelta(current: number, previous: number): string {
  */
 export const STAGE_TARGET_STATUS: Record<StageKey, string> = {
   new: "New",
-  contacted: "Contacted",
-  booked: "Consultation Booked",
-  attended: "Consultation Attended",
-  surgery: "Surgery Completed",
+  contacted: "Follow-Up",
+  booked: "OPD Booked",
+  attended: "OPD Done",
+  surgery: "Won",
   lost: "Lost",
 };
 

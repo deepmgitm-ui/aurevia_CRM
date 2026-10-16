@@ -25,7 +25,7 @@ import {
 const LIST_META: Record<MasterDataListKey, { title: string; hint: string }> = {
   statuses: {
     title: "Lead statuses",
-    hint: "Dropdown options for the Status column (and the pipeline board columns).",
+    hint: "Fixed clinic workflow used across all lead forms and filters.",
   },
   treatments: {
     title: "Treatments",
@@ -123,12 +123,12 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
                   id={`master-${key}`}
                   rows={Math.min(Math.max(values.length, 4), 12)}
                   value={drafts[key] ?? ""}
-                  readOnly={!snapshot.fromDatabase}
+                  readOnly={key === "statuses" || !snapshot.fromDatabase}
                   onChange={(event) =>
                     setDrafts((current) => ({ ...current, [key]: event.target.value }))
                   }
                 />
-                <Button
+                {key !== "statuses" && <Button
                   type="button"
                   size="sm"
                   variant="outline"
@@ -136,7 +136,7 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
                   onClick={() => void handleSave(key)}
                 >
                   {savingKey === key ? "Saving..." : "Save list"}
-                </Button>
+                </Button>}
               </div>
             );
           })}

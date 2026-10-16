@@ -41,6 +41,7 @@ import {
   normaliseAppointmentDate,
 } from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
+import { canonicalLeadStatus, isLeadStatusOption } from "@/lib/lead-status";
 import {
   cleanImportedLeadRemarks,
   findLeadImportValue,
@@ -958,6 +959,48 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
   }
 }
 
+export interface EmployeeLeadSummary {
+  total: number;
+  fresh: number;
+  opdBooked: number;
+  opdDone: number;
+  ipd: number;
+}
+
+/** Pipeline counts for the signed-in employee's own dashboard. */
+export async function getEmployeeLeadSummary(): Promise<ActionResult<EmployeeLeadSummary>> {
+  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: "Sign in to view your lead summary." };
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("name, role").eq("id", user.id).single();
+    if (profileError || !profile || profile.role !== "employee" || !profile.name?.trim()) {
+      return { success: true, data: empty };
+    }
+
+    const count = (status?: string) => {
+      const query = buildScopedLeadsQuery(supabase, profile.role, profile.name, true);
+      return status ? query.eq("status", status) : query;
+    };
+    const [total, fresh, opdBooked, opdDone, ipd] = await Promise.all([
+      count(), count("New"), count("OPD Booked"), count("OPD Done"), count("IPD Done"),
+    ]);
+    for (const result of [total, fresh, opdBooked, opdDone, ipd]) {
+      if (result.error) return { success: false, error: "Your lead summary could not be loaded." };
+    }
+    return { success: true, data: {
+      total: total.count ?? 0,
+      fresh: fresh.count ?? 0,
+      opdBooked: opdBooked.count ?? 0,
+      opdDone: opdDone.count ?? 0,
+      ipd: ipd.count ?? 0,
+    } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Your lead summary could not be loaded.") };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Kanban board
 // ---------------------------------------------------------------------------
@@ -1382,6 +1425,8 @@ export async function createLead(
   if (!input.name.trim()) {
     return { success: false, error: "Lead name is required." };
   }
+  const status = canonicalLeadStatus(input.status);
+  if (!isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
 
   try {
     const supabase = await createClient();
@@ -1410,7 +1455,7 @@ export async function createLead(
         source_batch_created_at: new Date().toISOString(),
         assigned_to: dashIfEmpty(profile?.name),
         temperature: dashIfEmpty(input.temperature),
-        status: dashIfEmpty(input.status),
+        status,
       })
       .select()
       .single();
@@ -1687,6 +1732,8 @@ export async function updateLeadStatus(
   if (!input.id) {
     return { success: false, error: "Lead ID is required." };
   }
+  const status = canonicalLeadStatus(input.status);
+  if (!isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
 
   try {
     const supabase = await createClient();
@@ -1704,7 +1751,7 @@ export async function updateLeadStatus(
     const { data, error } = await supabase
       .from("leads")
       .update({
-        status: input.status,
+        status,
         temperature: input.temperature,
       })
       .eq("id", input.id)
@@ -1716,8 +1763,8 @@ export async function updateLeadStatus(
     }
 
     const previousStatus = (before?.status ?? "").trim();
-    if (user && previousStatus && previousStatus !== input.status) {
-      await recordLeadActivity(supabase, input.id, user.id, "status", `${previousStatus} → ${input.status}`);
+    if (user && previousStatus && previousStatus !== status) {
+      await recordLeadActivity(supabase, input.id, user.id, "status", `${previousStatus} → ${status}`);
     }
 
     revalidatePath("/dashboard");
@@ -2979,6 +3026,8 @@ export async function updateLeadDetails(
   if (!input.id) {
     return { success: false, error: "Lead ID is required." };
   }
+  const status = input.status?.trim() ? canonicalLeadStatus(input.status) : undefined;
+  if (status && !isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
 
   const updates: Record<string, string> = {};
   if (input.name !== undefined) updates.name = input.name.trim() || "-";
@@ -2989,7 +3038,7 @@ export async function updateLeadDetails(
   if (input.disease !== undefined) updates.disease = input.disease.trim() || "-";
   if (input.insurance_status !== undefined) updates.insurance_status = input.insurance_status.trim() || "-";
   if (input.remarks !== undefined) updates.remarks = input.remarks.trim();
-  if (input.status !== undefined && input.status.trim()) updates.status = input.status.trim();
+  if (status) updates.status = status;
   if (input.temperature !== undefined && input.temperature.trim()) updates.temperature = input.temperature.trim();
   if (input.assigned_to !== undefined) updates.assigned_to = input.assigned_to.trim() || "-";
   if (input.lead_date !== undefined) updates.lead_date = input.lead_date.trim() || "-";

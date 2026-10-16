@@ -28,6 +28,7 @@ import { LeadsTable } from "../leads-table";
 import { TeamOverview } from "../team-overview";
 import { treatmentColor } from "../overview/analytics";
 import { AssignmentFilterTabs } from "./assignment-filter-tabs";
+import { clinicDate } from "@/lib/attendance";
 
 /**
  * Treatment-wise strip: "which lead wants which treatment / disease" — one chip
@@ -116,7 +117,7 @@ function AgeStrip({
         <h2 className="text-sm font-semibold text-slate-900">How old are these leads?</h2>
         {/* Client leaf: this page is a Server Component, so the navigating
             dropdown lives in its own file. */}
-        <LeadMonthPicker filters={filters} months={months} />
+      <LeadMonthPicker filters={filters} months={months} currentMonth={clinicDate().slice(0, 7)} />
       </div>
       <div className="flex flex-wrap gap-2">
         <Link

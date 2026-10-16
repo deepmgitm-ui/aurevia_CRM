@@ -57,6 +57,7 @@ import {
   normaliseAppointmentDate,
 } from "@/lib/appointments";
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
+import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
 import { getMasterData } from "@/app/actions/master-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -498,7 +499,11 @@ export function LeadsTable({
   const [selectedTemperature, setSelectedTemperature] = useState("all");
   // Advanced status filter (server-side): "" = all; Hot/Warm/Cold target the
   // temperature column, everything else targets the status column.
-  const [selectedStatus, setSelectedStatus] = useState(filters.status || "all");
+  const [selectedStatus, setSelectedStatus] = useState(() =>
+    filters.status && LEAD_STATUS_OPTIONS.some((status) => status === filters.status)
+      ? filters.status
+      : "all",
+  );
   const [activeStatusFilter, setActiveStatusFilter] = useState(filters.status);
   const [isExporting, setIsExporting] = useState(false);
   const [dateField, setDateField] = useState<DateFilterField>("lead_date");
@@ -561,7 +566,7 @@ export function LeadsTable({
   const sourceOptions = Array.from(new Set(leads.map((lead) => lead.source)));
   // Admin-editable picklists (master data) with the loaded page merged in, so a
   // filter/edit still offers whatever values leads actually carry.
-  const statuses = masterData.lists.statuses;
+  const statuses = LEAD_STATUS_OPTIONS;
   const temperatures = masterData.lists.temperatures;
   const masterSourceOptions = Array.from(
     new Set([...masterData.lists.sources, ...sourceOptions]),
@@ -1596,7 +1601,7 @@ export function LeadsTable({
       insurance_status: lead.insurance_status === "-" ? "" : lead.insurance_status,
       remarks: lead.remarks === "-" ? "" : lead.remarks,
       assigned_to: lead.assigned_to && lead.assigned_to !== "-" ? lead.assigned_to : "",
-      status: lead.status ?? "",
+      status: canonicalLeadStatus(lead.status),
       temperature: lead.temperature ?? "",
       // Date input needs ISO format; unparseable stored values start empty.
       lead_date: parseLeadDateForSort(lead.lead_date) || "",
@@ -2129,9 +2134,9 @@ export function LeadsTable({
                   </TableCell>
                   <TableCell className="w-[180px] py-3">
                     <div className="space-y-1.5">
-                      <Select value={lead.status} onValueChange={(value) => handleStatusChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
+                      <Select value={canonicalLeadStatus(lead.status)} onValueChange={(value) => handleStatusChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                         <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
-                        <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, lead.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+                        <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
                       </Select>
                       {savingLeadIds.has(lead.id) && (
                         <span className="text-[10px] text-blue-600" aria-live="polite">
@@ -2773,9 +2778,9 @@ export function LeadsTable({
               </Select>
             </div>
             <div className="space-y-1"><Label htmlFor="full-edit-status">Status</Label>
-              <Select value={editForm.status} onValueChange={(value) => setEditForm((current) => ({ ...current, status: String(value ?? "") }))}>
+              <Select value={canonicalLeadStatus(editForm.status)} onValueChange={(value) => setEditForm((current) => ({ ...current, status: String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-status"><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-72 overflow-y-auto">{[...new Set([...statuses, editForm.status])].map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1"><Label htmlFor="full-edit-temp">Temp</Label>

@@ -32,24 +32,9 @@ import { CALL_OUTCOMES } from "@/lib/calls";
 import { relativeLeadAge } from "./lead-filters";
 import { getMasterData } from "@/app/actions/master-data";
 import { seedMasterData, withCurrentValue } from "@/lib/master-data";
+import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
 
 export type LeadDetailTab = "info" | "activity" | "call";
-
-/**
- * Boot options only — the real list comes from the DB (Settings → Master Data)
- * and always includes whatever status this lead already has, so a saved value
- * can never silently reset to "New".
- */
-const STATUS_OPTIONS = [
-  "New",
-  "Contacted",
-  "DNP",
-  "Consultation Booked",
-  "Consultation Attended",
-  "Surgery Completed",
-  "Lost",
-  "Dropped",
-] as const;
 
 const OUTCOME_OPTIONS = CALL_OUTCOMES;
 
@@ -108,9 +93,6 @@ export function LeadDetailDrawer({
   // them for employees), so the UI asks who is looking instead of letting an
   // employee type into a field that would silently not save.
   const [canEditCore, setCanEditCore] = useState(false);
-  const [masterStatuses, setMasterStatuses] = useState<string[]>(() =>
-    Array.from(new Set([...seedMasterData().lists.statuses, ...STATUS_OPTIONS])),
-  );
   const [masterTemperatures, setMasterTemperatures] = useState<string[]>(
     () => seedMasterData().lists.temperatures,
   );
@@ -142,7 +124,7 @@ export function LeadDetailDrawer({
         gender: fresh.gender && fresh.gender !== "-" ? fresh.gender : "",
         city: fresh.city && fresh.city !== "-" ? fresh.city : "",
         insurance: fresh.insurance_status && fresh.insurance_status !== "-" ? fresh.insurance_status : "",
-        status: fresh.status && fresh.status !== "-" ? fresh.status : "New",
+        status: canonicalLeadStatus(fresh.status),
         temperature: fresh.temperature && fresh.temperature !== "-" ? fresh.temperature : "",
         treatment: fresh.disease && fresh.disease !== "-" ? fresh.disease : "",
         followUpDate: toDateInput(fresh.follow_up_date),
@@ -165,11 +147,10 @@ export function LeadDetailDrawer({
     return () => clearTimeout(handle);
   }, [open, leadId, load]);
 
-  // Master data (Settings → Master Data): admin's stage list replaces the seed.
+  // Temperatures remain editable in Master Data; lead statuses use a fixed clinic list.
   useEffect(() => {
     void getMasterData().then((result) => {
       if (result.success && result.data) {
-        setMasterStatuses(result.data.lists.statuses);
         setMasterTemperatures(result.data.lists.temperatures);
       }
     });
@@ -446,7 +427,7 @@ export function LeadDetailDrawer({
                   <div>
                     <Label htmlFor="drawer-detail-stage">Stage</Label>
                     <Select
-                      value={edits.status}
+                      value={canonicalLeadStatus(edits.status)}
                       onValueChange={(value) =>
                         setEdits((current) => ({ ...current, status: value ?? current.status }))
                       }
@@ -455,7 +436,7 @@ export function LeadDetailDrawer({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="max-h-72 overflow-y-auto">
-                        {withCurrentValue(masterStatuses, edits.status).map((option) => (
+                        {LEAD_STATUS_OPTIONS.map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
                           </SelectItem>

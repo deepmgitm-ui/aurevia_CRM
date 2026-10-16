@@ -49,6 +49,9 @@ export async function getMasterData(): Promise<MasterDataResponse> {
     for (const row of data as Record<string, unknown>[]) {
       const key = String(row.key ?? "") as MasterDataListKey;
       if (!MASTER_DATA_LISTS.includes(key)) continue;
+      // Lead statuses are a fixed clinic workflow. Other master-data lists stay
+      // editable, while old/custom DB entries cannot leak back into selectors.
+      if (key === "statuses") continue;
       const stored = Array.isArray(row.options) ? row.options.map((value) => String(value ?? "").trim()) : [];
       const seen = new Set(lists[key].map((value) => value.toLowerCase()));
       const merged = [...lists[key]];
@@ -75,6 +78,7 @@ export async function saveMasterDataList(
   options: string[],
 ): Promise<MasterDataSaveResponse> {
   if (!MASTER_DATA_LISTS.includes(key)) return { success: false, error: "Unknown list." };
+  if (key === "statuses") return { success: false, error: "Lead statuses are fixed to the clinic workflow." };
   try {
     const supabase = await createClient();
     const role = await getViewerRole(supabase);

@@ -1,3 +1,5 @@
+import { canonicalLeadStatus, isLeadStatusOption } from "@/lib/lead-status";
+
 export const LEAD_IMPORT_ALIASES = {
   name: [
     "full name",
@@ -353,8 +355,6 @@ export function leadImportGridToRecords(grid: unknown[][]): Record<string, unkno
 }
 
 export function normalizeImportedLeadStatus(value: string): string {
-  const normalized = value.trim().toLocaleLowerCase();
-  if (normalized === "new lead") return "New";
-  if (normalized === "lost") return "Dropped";
-  return value.trim();
+  const canonical = canonicalLeadStatus(value);
+  return isLeadStatusOption(canonical) ? canonical : "New";
 }

@@ -11,6 +11,7 @@ import {
   getViewer,
   getDailyWorkCounts,
   getDailyAssignmentStatuses,
+  getEmployeeLeadSummary,
 } from "@/app/actions/leads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -182,10 +183,11 @@ export default async function DashboardPage({
   const work: DailyWorkKind = isDailyWorkKind(query.work ?? "") ? query.work as DailyWorkKind : "assigned";
   const selectedStatus = work === "assigned" ? (query.status ?? "").trim() : "";
   const filters = { ...EMPTY_LEAD_FILTERS, work, day, status: selectedStatus };
-  const [leadsResult, dailyResult, statusResult] = await Promise.all([
+  const [leadsResult, dailyResult, statusResult, summaryResult] = await Promise.all([
     getLeadsPage(1, 50, "", "", "", filters),
     getDailyWorkCounts(day),
     getDailyAssignmentStatuses(day),
+    getEmployeeLeadSummary(),
   ]);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
@@ -220,6 +222,29 @@ export default async function DashboardPage({
           <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">View day</button>
         </form>
       </div>
+
+      <section aria-label="My lead pipeline" className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-950">My lead pipeline</h2>
+          <p className="mt-1 text-sm text-slate-500">Tap a count to open the matching leads in your table.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {([
+            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, href: "/dashboard/leads", tone: "border-slate-200 bg-white text-slate-800" },
+            { label: "Fresh leads", value: summaryResult.success ? summaryResult.data.fresh : null, href: "/dashboard/leads?status=New", tone: "border-blue-200 bg-blue-50 text-blue-800" },
+            { label: "OPD booked", value: summaryResult.success ? summaryResult.data.opdBooked : null, href: "/dashboard/leads?status=OPD%20Booked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
+            { label: "OPD done", value: summaryResult.success ? summaryResult.data.opdDone : null, href: "/dashboard/leads?status=OPD%20Done", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+            { label: "IPD", value: summaryResult.success ? summaryResult.data.ipd : null, href: "/dashboard/leads?status=IPD%20Done", tone: "border-violet-200 bg-violet-50 text-violet-800" },
+          ] as const).map((card) => (
+            <Link key={card.label} href={`${card.href}#lead-list`} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}>
+              <p className="text-xs font-semibold">{card.label}</p>
+              <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
+              <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium">View leads <ArrowRight className="size-3" aria-hidden="true" /></span>
+            </Link>
+          ))}
+        </div>
+        {!summaryResult.success && <p role="alert" className="text-sm text-amber-700">Lead summary could not be loaded. Refresh to try again.</p>}
+      </section>
 
       <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {dailyCards.map(({ key, label, detail, icon: Icon, tone }) => (
