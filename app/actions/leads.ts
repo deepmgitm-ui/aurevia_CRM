@@ -432,7 +432,7 @@ export interface GlobalLeadSearchResult {
   assigned_to: string;
 }
 
-/** Small, authenticated search result for the dashboard-wide search. */
+/** Small, RLS-scoped search result for the dashboard-wide search. */
 export async function searchLeadsForGlobalSearch(
   search: string,
 ): Promise<ActionResult<GlobalLeadSearchResult[]>> {
@@ -441,28 +441,18 @@ export async function searchLeadsForGlobalSearch(
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: true, data: [] };
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("name, role")
-      .eq("id", user.id)
-      .single();
-    if (!profile || (profile.role === "employee" && !profile.name?.trim())) {
-      return { success: true, data: [] };
-    }
-
     const searchFilter = buildLeadSearchFilter(term);
     if (!searchFilter) return { success: true, data: [] };
 
-    let query = supabase
+    // The leads RLS policies scope employees to their own assigned records and
+    // admins/managers to the team. Query RLS directly so each keystroke needs
+    // one database round trip instead of auth → profile → leads sequentially.
+    const { data, error } = await supabase
       .from("leads")
       .select("id, name, phone, city, disease, status, assigned_to")
-      .or(searchFilter);
-    if (profile.role === "employee") query = query.ilike("assigned_to", profile.name);
-
-    const { data, error } = await query.order("created_at", { ascending: false }).limit(8);
+      .or(searchFilter)
+      .order("created_at", { ascending: false })
+      .limit(8);
     if (error) return { success: false, error: error.message };
     return { success: true, data: (data ?? []) as GlobalLeadSearchResult[] };
   } catch (error) {

@@ -61,7 +61,7 @@ export function GlobalSearch({ role }: { role: string }) {
         setLeads([]);
         setSearchError("Search could not be completed. Please try again.");
       }
-    }, 220);
+    }, 180);
 
     return () => {
       cancelled = true;
