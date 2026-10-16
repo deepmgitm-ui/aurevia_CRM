@@ -2067,12 +2067,24 @@ export function LeadsTable({
                 // Fresh leads get a green row + NEW pill; every row carries the
                 // "Added yesterday / 2 days ago / 1 week ago" label.
                 const isNew = isNewLead(lead.lead_date);
+                const leadStatus = canonicalLeadStatus(lead.status);
+                const statusBadgeClass = leadStatus === "New"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : leadStatus.startsWith("OPD")
+                    ? "border-sky-200 bg-sky-50 text-sky-700"
+                    : leadStatus.startsWith("IPD")
+                      ? "border-violet-200 bg-violet-50 text-violet-700"
+                      : leadStatus === "Won"
+                        ? "border-green-200 bg-green-50 text-green-700"
+                        : leadStatus === "Lost"
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : "border-slate-200 bg-slate-50 text-slate-600";
                 const ageLabel = relativeLeadAge(lead.lead_date);
                 const treatment = treatmentCellData(lead);
                 return (
                 <TableRow key={lead.id} className={isNew ? "bg-emerald-50/50" : undefined}>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button>{isNew && (<Badge className="shrink-0 border-emerald-200 bg-emerald-100 text-emerald-800">NEW</Badge>)}<button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <div className="flex flex-col items-start gap-1.5">
                       <span className="font-medium">{lead.phone}</span>
