@@ -166,8 +166,8 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
 function Sidebar({ profile }: { profile: DashboardProfile }) {
   return (
     <aside className="hidden w-[232px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-[4.25rem] items-center justify-start border-b border-slate-100 px-5">
-        <BrandLogo className="h-10 w-auto object-contain bg-transparent" preload />
+      <div className="flex h-[4.75rem] items-center justify-start border-b border-slate-100 px-5">
+        <BrandLogo className="h-12 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-5">
         <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Workspace</p>
@@ -206,7 +206,7 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
       <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
         <SheetHeader className="border-b border-slate-200 px-6 py-5">
           <SheetTitle className="flex items-center">
-            <BrandLogo className="h-9 w-auto object-contain bg-transparent" sizes="120px" />
+            <BrandLogo className="h-11 w-auto object-contain bg-transparent" sizes="140px" />
           </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col px-4 py-6">
