@@ -5,6 +5,7 @@ import {
   getLeadCounts,
   getLeadMonthTally,
   getLeadsPage,
+  getEmployeeLeadSummary,
   getTeamStats,
   getViewer,
   type LeadCounts,
@@ -121,7 +122,7 @@ export default async function LeadsPage({
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, countsResult, viewerResult, monthsResult, teamResult] = await Promise.all([
+  const [leadsResult, countsResult, viewerResult, monthsResult, teamResult, employeeSummaryResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getLeadCounts(),
     getViewer(),
@@ -129,6 +130,7 @@ export default async function LeadsPage({
     // can never land on an empty list.
     getLeadMonthTally(),
     getTeamStats(),
+    getEmployeeLeadSummary(),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
@@ -138,6 +140,34 @@ export default async function LeadsPage({
   const months: LeadMonthTally[] = monthsResult.success ? monthsResult.data : [];
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
+  const selectedEmployee = filters.assigned
+    ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())
+    : null;
+  const pipelineSummary = viewer?.role === "employee"
+    ? employeeSummaryResult.success
+      ? employeeSummaryResult.data
+      : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 }
+    : selectedEmployee
+      ? {
+          total: selectedEmployee.total,
+          fresh: selectedEmployee.newLeads,
+          opdBooked: selectedEmployee.opdBooked,
+          opdDone: selectedEmployee.opdDone,
+          ipd: selectedEmployee.ipd,
+        }
+      : team
+        ? team.employees.reduce(
+            (summary, employee) => ({
+              total: team.total,
+              fresh: summary.fresh + employee.newLeads,
+              opdBooked: summary.opdBooked + employee.opdBooked,
+              opdDone: summary.opdDone + employee.opdDone,
+              ipd: summary.ipd + employee.ipd,
+            }),
+            { total: team.total, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 },
+          )
+        : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
+  const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
   // filtered result — the difference is what the filters are hiding. When that is
@@ -157,8 +187,8 @@ export default async function LeadsPage({
             : "Review and manage every lead in your pipeline."}
         </p>
       </div>
-      <DashboardStats total={leadsPage.total} />
-      {canViewAssignments && team && (
+      <DashboardStats summary={pipelineSummary} assignedTo={cardAssignedTo} />
+      {canViewAssignments && team && !filters.assigned && (
         <>
           <AssignmentFilterTabs team={team} filters={filters} />
           <section aria-label="Leads by team member" className="space-y-3">
