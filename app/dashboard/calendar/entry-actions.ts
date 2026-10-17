@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getLeadsPage, getViewer } from "@/app/actions/leads";
 import { createClient } from "@/lib/supabase/server";
-import { validateCalendarEntry, type CalendarEntryInput } from "@/lib/calendar-entry";
+import { shouldSyncLeadStatus, validateCalendarEntry, type CalendarEntryInput } from "@/lib/calendar-entry";
 import type { CalendarResult } from "./actions";
 
 export interface CalendarEditorLead {
@@ -44,7 +44,7 @@ export async function saveCalendarEntry(input: CalendarEntryInput): Promise<Cale
  try {
   if(!await calendarAdmin()) return {success:false,error:"Only admins can edit calendar appointments."};
   const validation=validateCalendarEntry(input);if(validation)return {success:false,error:validation};
-  const supabase=await createClient();const {data,error}=await supabase.rpc("crm_save_calendar_entry",{p:input});
+  const supabase=await createClient();const normalizedInput={...input,updateStatus:input.mode==="existing"?shouldSyncLeadStatus(input.appointmentStatus):input.updateStatus};const {data,error}=await supabase.rpc("crm_save_calendar_entry",{p:normalizedInput});
   if(error)return {success:false,error:error.message};
   revalidatePath("/dashboard","layout");return {success:true,data};
  }catch{return {success:false,error:"Appointment could not be saved. Please retry."};}

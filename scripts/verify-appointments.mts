@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   APPOINTMENT_COLUMNS,
   appointmentForStatus,
-  isCurrentStatusAppointment,
+  selectCurrentStatusAppointments,
   isWonStatus,
   normaliseAppointmentDate,
 } from "../lib/appointments.ts";
@@ -60,10 +60,14 @@ for (const status of ["Not Interested", "Budget Issue", "DNP", "Dropped", "Inval
 assert.equal(appointmentForStatus("opd booked")?.kind, "opdBooked", "lower case still matches");
 assert.equal(appointmentForStatus("  OPD Done  ")?.kind, "opdDone", "surrounding spaces still match");
 assert.equal(appointmentForStatus("IPD DONE")?.kind, "ipdDone", "all caps still matches");
-assert.equal(isCurrentStatusAppointment("IPD Booked", "opd_booked_date"), false, "old OPD booking is hidden after moving to IPD");
-assert.equal(isCurrentStatusAppointment("IPD Done", "ipd_done_date"), true, "current IPD entry remains visible");
-assert.equal(isCurrentStatusAppointment("Surgery Completed", "ipd_done_date"), true, "legacy surgery-completed IPD entry remains visible");
-assert.equal(isCurrentStatusAppointment("New", null), true, "standalone calendar appointment remains visible");
+const appointmentRows = [
+  { id: "old-opd", kind: "opdBooked" as const, legacy_column: null, updated_at: "2026-10-16T08:00:00Z", starts_on: "2026-10-16", lead: { id: "lead-1", status: "IPD Booked" } },
+  { id: "current-ipd", kind: "ipdDone" as const, legacy_column: "ipd_done_date", updated_at: "2026-10-17T08:00:00Z", starts_on: "2026-10-20", lead: { id: "lead-1", status: "IPD Booked" } },
+  { id: "old-ipd", kind: "ipdDone" as const, legacy_column: null, updated_at: "2026-10-16T08:00:00Z", starts_on: "2026-10-20", lead: { id: "lead-2", status: "OPD Booked" } },
+  { id: "current-opd", kind: "opdBooked" as const, legacy_column: "opd_booked_date", updated_at: "2026-10-17T08:00:00Z", starts_on: "2026-10-18", lead: { id: "lead-2", status: "OPD Booked" } },
+  { id: "stale-lead", kind: "opdBooked" as const, legacy_column: null, updated_at: "2026-10-17T08:00:00Z", starts_on: "2026-10-18", lead: { id: "lead-3", status: "New" } },
+];
+assert.deepEqual(selectCurrentStatusAppointments(appointmentRows).map((row) => row.id).sort(), ["current-ipd", "current-opd"], "one current-status appointment per lead is shown; old unlinked visits and non-appointment statuses are hidden");
 assert.equal(appointmentForStatus(""), null, "an empty status has no date");
 assert.equal(appointmentForStatus("   "), null, "whitespace is not a status");
 assert.equal(appointmentForStatus("OPD Booked extra"), null, "a near-miss is NOT matched");

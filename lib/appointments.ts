@@ -60,19 +60,40 @@ export function appointmentForStatus(status: string): AppointmentField | null {
   return APPOINTMENT_BY_STATUS[value] ?? null;
 }
 
-/** Hide old status-linked calendar rows after a lead advances to another
- * appointment stage. Standalone calendar appointments have no legacy column
- * and remain visible. */
-export function isCurrentStatusAppointment(
-  status: string,
-  legacyColumn: string | null,
-): boolean {
-  if (!legacyColumn) return true;
-  const value = (status ?? "").trim().toLowerCase();
-  const currentColumn = value === "surgery completed"
-    ? "ipd_done_date"
-    : appointmentForStatus(value)?.column;
-  return currentColumn ? legacyColumn === currentColumn : true;
+/** Pick one calendar row per lead, using only the lead's current status. */
+export function selectCurrentStatusAppointments<
+  T extends {
+    lead: { id: string; status: string };
+    kind: AppointmentKind;
+    legacy_column: string | null;
+    updated_at: string;
+    starts_on: string;
+    id: string;
+  },
+>(rows: T[]): T[] {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const group = grouped.get(row.lead.id) ?? [];
+    group.push(row);
+    grouped.set(row.lead.id, group);
+  }
+
+  const current: T[] = [];
+  for (const group of grouped.values()) {
+    const status = group[0].lead.status.trim().toLowerCase();
+    const field = appointmentForStatus(status);
+    const kind = status === "surgery completed" ? "ipdDone" : field?.kind;
+    const column = status === "surgery completed" ? "ipd_done_date" : field?.column;
+    if (!kind || !column) continue;
+
+    const candidates = group.filter((row) => row.kind === kind);
+    candidates.sort((a, b) => {
+      const columnRank = Number(b.legacy_column === column) - Number(a.legacy_column === column);
+      return columnRank || b.updated_at.localeCompare(a.updated_at) || b.starts_on.localeCompare(a.starts_on) || a.id.localeCompare(b.id);
+    });
+    if (candidates[0]) current.push(candidates[0]);
+  }
+  return current;
 }
 
 /**

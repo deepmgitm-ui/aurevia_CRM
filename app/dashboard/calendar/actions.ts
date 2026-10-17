@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/app/actions/leads";
 import { calendarAgendaWindow } from "@/lib/calendar-entry";
 import { buildMonthCells } from "./month-grid";
-import { isCurrentStatusAppointment, type AppointmentKind } from "@/lib/appointments";
+import { selectCurrentStatusAppointments, type AppointmentKind } from "@/lib/appointments";
 export type { AppointmentKind } from "@/lib/appointments";
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
@@ -100,8 +100,7 @@ export async function getMonthDays(
       rows.push(...((data ?? []) as unknown as AppointmentRow[]));
       if (!data || data.length < 500) break;
     }
-    const entries: CalendarAppointment[] = rows
-      .filter((a) => isCurrentStatusAppointment(a.lead.status, a.legacy_column))
+    const entries: CalendarAppointment[] = selectCurrentStatusAppointments(rows)
       .map((a) => ({
         appointmentId: a.id,
         leadId: a.lead.id,

@@ -25,6 +25,11 @@ export interface CalendarEntryInput {
   appointmentNotes?: string;
 }
 
+/** Active appointment edits become the lead's current pipeline status. */
+export function shouldSyncLeadStatus(appointmentStatus: string | undefined): boolean {
+  return !["cancelled", "no_show"].includes(appointmentStatus ?? "booked");
+}
+
 export function validateCalendarEntry(input: CalendarEntryInput): string | null {
   if (!input || !["new", "existing"].includes(input.mode)) return "Choose an existing lead or a new patient.";
   if (!Object.hasOwn(CALENDAR_ENTRY_TYPES, input.kind)) return "Choose a valid appointment type.";

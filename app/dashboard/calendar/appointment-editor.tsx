@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CALENDAR_ENTRY_TYPES, type CalendarEntryKind } from "@/lib/calendar-entry";
+import { CALENDAR_ENTRY_TYPES, shouldSyncLeadStatus, type CalendarEntryKind } from "@/lib/calendar-entry";
 import { getCalendarEditorLead, saveCalendarEntry, searchCalendarLeads, type CalendarEditorLead } from "./entry-actions";
 
 interface EditorProps {
@@ -76,7 +76,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
       const response = await saveCalendarEntry({ mode, leadId: selected?.id, expectedUpdatedAt: selected?.updated_at,
         kind, date, name: String(data.get("name") ?? ""), phone: String(data.get("phone") ?? ""),
         city: String(data.get("city") ?? ""), remarks: String(data.get("remarks") ?? ""),
-        assignedTo: String(data.get("assignedTo") ?? ""), appointmentId,expectedAppointmentUpdatedAt:updatedAt,appointmentStatus:String(data.get("appointmentStatus")),time:String(data.get("time") ?? ""),appointmentNotes:String(data.get("appointmentNotes") ?? ""),updateStatus: data.get("updateStatus") === "on" });
+        assignedTo: String(data.get("assignedTo") ?? ""), appointmentId,expectedAppointmentUpdatedAt:updatedAt,appointmentStatus:String(data.get("appointmentStatus")),time:String(data.get("time") ?? ""),appointmentNotes:String(data.get("appointmentNotes") ?? ""),updateStatus: mode === "existing" && shouldSyncLeadStatus(appointmentStatus) });
       if (!response.success) { setError(response.error); return; }
       const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       router.push(`/dashboard/calendar?month=${date.slice(0, 7)}&date=${date}&view=${date < today ? "past" : "upcoming"}`);
@@ -119,7 +119,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
           </div>
           <label className="block text-xs font-medium text-slate-600">Appointment notes<textarea name="appointmentNotes" defaultValue={notes || ""} rows={2} maxLength={5000} className={inputClass}/></label>
           <label className="block text-xs font-medium text-slate-600">Patient notes<textarea name="remarks" maxLength={5000} rows={3} defaultValue={mode === "existing" ? displayValue(selected?.remarks) : ""} className={inputClass} /></label>
-          {mode === "existing" && !["cancelled","no_show"].includes(appointmentStatus) ? <label className="flex items-start gap-2 text-sm text-slate-600"><input name="updateStatus" type="checkbox" className="mt-1" /><span>Also change lead status to <strong>{appointmentStatus==="completed"?(kind==="ipdDone"?"IPD Done":"OPD Done"):(kind==="ipdDone"?"IPD Booked":"OPD Booked")}</strong></span></label> : mode === "new" ? <p className="text-xs text-slate-500">A new CRM lead and a separate appointment record will be created.</p> : null}
+          {mode === "existing" && shouldSyncLeadStatus(appointmentStatus) ? <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Saving this appointment will update the lead&apos;s current status to <strong>{appointmentStatus==="completed"?(kind==="ipdDone"?"IPD Done":"OPD Done"):(kind==="ipdDone"?"IPD Booked":"OPD Booked")}</strong>. Only this current appointment status will appear on the calendar.</p> : mode === "existing" ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Cancelled or no-show appointments won&apos;t change the lead&apos;s current pipeline status.</p> : <p className="text-xs text-slate-500">A new CRM lead and a separate appointment record will be created.</p>}
           <p className="text-xs text-slate-500">Earlier visits are preserved. Editing this appointment records its date and status history.</p>
         </fieldset>
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save appointment"}</Button></div>
