@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   APPOINTMENT_COLUMNS,
   appointmentForStatus,
+  isCurrentStatusAppointment,
   isWonStatus,
   normaliseAppointmentDate,
 } from "../lib/appointments.ts";
@@ -59,6 +60,10 @@ for (const status of ["Not Interested", "Budget Issue", "DNP", "Dropped", "Inval
 assert.equal(appointmentForStatus("opd booked")?.kind, "opdBooked", "lower case still matches");
 assert.equal(appointmentForStatus("  OPD Done  ")?.kind, "opdDone", "surrounding spaces still match");
 assert.equal(appointmentForStatus("IPD DONE")?.kind, "ipdDone", "all caps still matches");
+assert.equal(isCurrentStatusAppointment("IPD Booked", "opd_booked_date"), false, "old OPD booking is hidden after moving to IPD");
+assert.equal(isCurrentStatusAppointment("IPD Done", "ipd_done_date"), true, "current IPD entry remains visible");
+assert.equal(isCurrentStatusAppointment("Surgery Completed", "ipd_done_date"), true, "legacy surgery-completed IPD entry remains visible");
+assert.equal(isCurrentStatusAppointment("New", null), true, "standalone calendar appointment remains visible");
 assert.equal(appointmentForStatus(""), null, "an empty status has no date");
 assert.equal(appointmentForStatus("   "), null, "whitespace is not a status");
 assert.equal(appointmentForStatus("OPD Booked extra"), null, "a near-miss is NOT matched");

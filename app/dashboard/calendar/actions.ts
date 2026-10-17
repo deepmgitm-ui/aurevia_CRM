@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/app/actions/leads";
 import { calendarAgendaWindow } from "@/lib/calendar-entry";
 import { buildMonthCells } from "./month-grid";
-import type { AppointmentKind } from "@/lib/appointments";
+import { isCurrentStatusAppointment, type AppointmentKind } from "@/lib/appointments";
 export type { AppointmentKind } from "@/lib/appointments";
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
@@ -45,6 +45,7 @@ interface AppointmentRow {
   starts_at: string | null;
   notes: string;
   updated_at: string;
+  legacy_column: string | null;
   lead: {
     id: string;
     name: string;
@@ -77,7 +78,7 @@ export async function getMonthDays(
       let q = supabase
         .from("crm_appointments")
         .select(
-          "id,kind,status,starts_on,starts_at,notes,updated_at,lead:leads!inner(id,name,phone,status,assigned_to)",
+          "id,kind,status,starts_on,starts_at,notes,updated_at,legacy_column,lead:leads!inner(id,name,phone,status,assigned_to)",
         )
         .or(
           `and(starts_on.gte.${from},starts_on.lte.${to})${includeUpcoming ? `,and(starts_on.gte.${pastStart},starts_on.lte.${upcomingEnd})` : ""}`,
@@ -99,22 +100,24 @@ export async function getMonthDays(
       rows.push(...((data ?? []) as unknown as AppointmentRow[]));
       if (!data || data.length < 500) break;
     }
-    const entries: CalendarAppointment[] = rows.map((a) => ({
-      appointmentId: a.id,
-      leadId: a.lead.id,
-      leadName: a.lead.name,
-      phone: a.lead.phone || "-",
-      leadStatus: a.lead.status,
-      kind: a.kind,
-      kindLabel: `${a.kind === "ipdDone" ? "IPD / Surgery" : "OPD"} · ${a.status.replace("_", " ")}`,
-      date: a.starts_on,
-      past: a.starts_on < today,
-      agent: a.lead.assigned_to || "-",
-      appointmentStatus: a.status,
-      time: a.starts_at?.slice(0, 5) || "",
-      notes: a.notes,
-      updatedAt: a.updated_at,
-    }));
+    const entries: CalendarAppointment[] = rows
+      .filter((a) => isCurrentStatusAppointment(a.lead.status, a.legacy_column))
+      .map((a) => ({
+        appointmentId: a.id,
+        leadId: a.lead.id,
+        leadName: a.lead.name,
+        phone: a.lead.phone || "-",
+        leadStatus: a.lead.status,
+        kind: a.kind,
+        kindLabel: `${a.kind === "ipdDone" ? "IPD / Surgery" : "OPD"} · ${a.status.replace("_", " ")}`,
+        date: a.starts_on,
+        past: a.starts_on < today,
+        agent: a.lead.assigned_to || "-",
+        appointmentStatus: a.status,
+        time: a.starts_at?.slice(0, 5) || "",
+        notes: a.notes,
+        updatedAt: a.updated_at,
+      }));
     const byDay = new Map<string, CalendarAppointment[]>();
     for (const entry of entries) {
       if (entry.date < from || entry.date > to) continue;

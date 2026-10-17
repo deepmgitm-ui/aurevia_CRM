@@ -60,6 +60,21 @@ export function appointmentForStatus(status: string): AppointmentField | null {
   return APPOINTMENT_BY_STATUS[value] ?? null;
 }
 
+/** Hide old status-linked calendar rows after a lead advances to another
+ * appointment stage. Standalone calendar appointments have no legacy column
+ * and remain visible. */
+export function isCurrentStatusAppointment(
+  status: string,
+  legacyColumn: string | null,
+): boolean {
+  if (!legacyColumn) return true;
+  const value = (status ?? "").trim().toLowerCase();
+  const currentColumn = value === "surgery completed"
+    ? "ipd_done_date"
+    : appointmentForStatus(value)?.column;
+  return currentColumn ? legacyColumn === currentColumn : true;
+}
+
 /**
  * Has this lead won? Reached an OPD or an IPD.
  *
