@@ -94,7 +94,7 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
   }
 
   async function handleRevoke(user: ManagedUser) {
-    if (!window.confirm(`Revoke CRM access for ${user.name || user.email}?`)) return;
+    if (!window.confirm(`Permanently remove ${user.name || user.email} from the CRM and Supabase? Their profile photo will also be deleted.`)) return;
 
     setPendingUserId(user.id);
     const response = await removeUserAccess(user.id);
@@ -102,7 +102,7 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
       toast.add({ title: "Unable to revoke access", description: response.error, type: "error" });
     } else {
       setUsers((currentUsers) => currentUsers.filter((currentUser) => currentUser.id !== user.id));
-      toast.add({ title: "Access revoked", description: `${user.name || user.email} no longer has CRM access.`, type: "success" });
+      toast.add({ title: "User removed", description: `${user.name || user.email} was removed from CRM and Supabase.`, type: "success" });
     }
     setPendingUserId(null);
   }

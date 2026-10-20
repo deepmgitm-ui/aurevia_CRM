@@ -185,12 +185,63 @@ export async function removeUserAccess(
       return { success: false, error: "You cannot revoke your own admin access." };
     }
 
-    const { error } = await authorization.supabase
+    const adminClient = getAdminClient();
+
+    // Supabase Auth refuses to remove a user while that user owns Storage
+    // objects. CRM avatars are stored below the user's profile ID, so delete
+    // those files through the Storage API before deleting the Auth account.
+    const folders = [userId];
+    const avatarPaths: string[] = [];
+    while (folders.length) {
+      const path = folders.pop()!;
+      for (let offset = 0; ; offset += 1000) {
+        const { data: objects, error: listError } = await adminClient.storage
+          .from("employee-avatars")
+          .list(path, { limit: 1000, offset });
+        if (listError) {
+          return {
+            success: false,
+            error: `Could not prepare this user's avatar files for removal: ${listError.message}`,
+          };
+        }
+        for (const object of objects ?? []) {
+          if (object.id === null) folders.push(`${path}/${object.name}`);
+          else avatarPaths.push(`${path}/${object.name}`);
+        }
+        if (!objects || objects.length < 1000) break;
+      }
+    }
+    for (let index = 0; index < avatarPaths.length; index += 1000) {
+      const { error: storageError } = await adminClient.storage
+        .from("employee-avatars")
+        .remove(avatarPaths.slice(index, index + 1000));
+      if (storageError) {
+        return {
+          success: false,
+          error: `Could not remove this user's avatar files: ${storageError.message}`,
+        };
+      }
+    }
+
+    const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
+    if (authError) {
+      return {
+        success: false,
+        error: `CRM access was not fully removed because Supabase could not delete the sign-in account: ${authError.message}`,
+      };
+    }
+
+    const { error: profileError } = await adminClient
       .from("profiles")
       .delete()
       .eq("id", userId);
 
-    if (error) return { success: false, error: error.message };
+    if (profileError) {
+      return {
+        success: false,
+        error: `The Supabase sign-in account was deleted, but the CRM profile could not be cleaned up: ${profileError.message}`,
+      };
+    }
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard");
