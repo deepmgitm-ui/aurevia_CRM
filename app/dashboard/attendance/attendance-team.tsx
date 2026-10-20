@@ -28,9 +28,9 @@ import {
 type SortKey = "name" | "rate" | "absent";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "name", label: "Naam" },
+  { key: "name", label: "Name" },
   { key: "rate", label: "Attendance" },
-  { key: "absent", label: "Absent zyada" },
+  { key: "absent", label: "Most absences" },
 ];
 
 function rateTone(rate: number, total: number) {
