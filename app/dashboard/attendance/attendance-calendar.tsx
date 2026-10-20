@@ -505,7 +505,9 @@ export function AttendanceCalendar({
               <p className="text-xs font-semibold text-slate-800">Set employee weekly off</p>
               <Select value={selectedOffEmployeeId} onValueChange={(value) => onFocusEmployeeChange?.(value || null)}>
                 <SelectTrigger size="sm" className="w-full text-xs">
-                  <SelectValue placeholder="Select an employee" />
+                  <SelectValue placeholder="Select an employee">
+                    {employees.find((person) => person.id === selectedOffEmployeeId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {employees.map((person) => <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>)}
@@ -513,7 +515,7 @@ export function AttendanceCalendar({
               </Select>
               <Select value={offScope} onValueChange={(value) => value && setOffScope(value as AttendanceWeeklyOffScope)}>
                 <SelectTrigger size="sm" className="w-full text-xs">
-                  <SelectValue />
+                  <SelectValue>{offScope === "week" ? "Selected week" : "Selected month"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="week">Selected week</SelectItem>
@@ -522,7 +524,9 @@ export function AttendanceCalendar({
               </Select>
               <Select value={offWeekday} onValueChange={(value) => setOffWeekday(value ?? "")}>
                 <SelectTrigger size="sm" className="w-full text-xs">
-                  <SelectValue placeholder="Choose a weekday" />
+                  <SelectValue placeholder="Choose a weekday">
+                    {offWeekday ? WEEKDAY_LABELS[Number(offWeekday) - 1] : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {WEEKDAY_LABELS.map((label, index) => (
