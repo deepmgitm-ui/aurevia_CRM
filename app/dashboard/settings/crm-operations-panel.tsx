@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import {
+  getCapacity,
   getDuplicates,
   getMergeBackup,
   mergeDuplicate,
@@ -17,6 +18,8 @@ import {
 import { toast } from "@/components/ui/toast";
 interface Capacity {
   databaseBytes: number;
+  storageBytes: number | null;
+  checkedAt: string;
   leads: number;
   staff: number;
   leadBytes: number;
@@ -44,6 +47,9 @@ export function CrmOperationsPanel({
 }) {
   const [enabled, setEnabled] = useState(scheduler),
     [pending, setPending] = useState(false),
+    [currentCapacity, setCurrentCapacity] = useState(capacity),
+    [refreshingCapacity, setRefreshingCapacity] = useState(false),
+    [capacityError, setCapacityError] = useState(""),
     [items, setItems] = useState(groups),
     [count, setCount] = useState(total),
     [page, setPage] = useState(1),
@@ -76,19 +82,46 @@ export function CrmOperationsPanel({
       setPending(false);
     }
   }
-  const mb = capacity ? capacity.databaseBytes / 1024 / 1024 : 0;
+  async function refreshCapacity() {
+    if (refreshingCapacity) return;
+    setRefreshingCapacity(true);
+    setCapacityError("");
+    try {
+      const result = await getCapacity();
+      if (result) setCurrentCapacity(result);
+      else setCapacityError("Storage usage could not be refreshed. Please retry.");
+    } catch {
+      setCapacityError("Storage usage could not be refreshed. Please retry.");
+    } finally {
+      setRefreshingCapacity(false);
+    }
+  }
+  const databaseLimit = 500 * 1024 * 1024;
+  const storageLimit = 1024 * 1024 * 1024;
+  const databaseBytes = currentCapacity?.databaseBytes ?? 0;
+  const storageBytes = currentCapacity ? currentCapacity.storageBytes : null;
+  const remaining = (used: number, limit: number) => Math.max(0, limit - used);
+  const formatMb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return (
     <section className="space-y-5 rounded-xl border bg-white p-5">
-      <h2 className="text-lg font-semibold">CRM capacity & operations</h2>
-      {capacity ? (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">CRM capacity & operations</h2>
+        <Button variant="outline" disabled={refreshingCapacity} onClick={() => void refreshCapacity()}>
+          {refreshingCapacity ? "Refreshing…" : "Refresh storage"}
+        </Button>
+      </div>
+      {currentCapacity ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ["Database", `${mb.toFixed(1)} MB / approximately 500 MB`],
-              ["Team", `${capacity.staff} members · budget target 20`],
+              ["Database", `${formatMb(databaseBytes)} used · ${formatMb(remaining(databaseBytes, databaseLimit))} left`],
+              ["File storage", storageBytes === null
+                ? "Could not load current usage"
+                : `${formatMb(storageBytes)} used · ${formatMb(remaining(storageBytes, storageLimit))} left`],
+              ["Team", `${currentCapacity.staff} members · budget target 20`],
               [
                 "Records",
-                `${capacity.leads.toLocaleString()} leads · ${capacity.appointments.toLocaleString()} appointments`,
+                `${currentCapacity.leads.toLocaleString()} leads · ${currentCapacity.appointments.toLocaleString()} appointments`,
               ],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg bg-slate-50 p-3">
@@ -97,7 +130,7 @@ export function CrmOperationsPanel({
               </div>
             ))}
           </div>
-          {(mb >= 250 || capacity.staff >= 18) && (
+          {(databaseBytes / 1024 / 1024 >= 250 || currentCapacity.staff >= 18) && (
             <p
               role="status"
               className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800"
@@ -107,10 +140,9 @@ export function CrmOperationsPanel({
             </p>
           )}
           <p className="text-xs text-slate-500">
-            This shows database size, not monthly bandwidth or billing usage.
-            The Free plan also has a 5 GB egress allowance; check Supabase Usage
-            for the full picture.
+            Usage was checked {new Date(currentCapacity.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST. Database and file storage show the Free plan allowances (500 MB and 1 GB); bandwidth and billing usage are separate.
           </p>
+          {capacityError && <p role="alert" className="text-sm text-rose-700">{capacityError}</p>}
         </>
       ) : (
         <p role="alert" className="text-sm text-amber-700">
