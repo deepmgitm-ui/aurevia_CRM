@@ -29,6 +29,7 @@ export default async function AttendancePage({
   const viewer = viewerResult.success ? viewerResult.data : null;
   if (!viewer) notFound();
   const canManage = viewer?.role === "admin" || viewer?.role === "manager";
+  const canAdmin = viewer?.role === "admin";
 
   const [attendanceResult, directoryResult] = await Promise.all([
     canManage ? getTeamAttendance(month) : getMyAttendance(month),
@@ -65,6 +66,9 @@ export default async function AttendancePage({
         month={month}
         todayIso={clinicDate()}
         canManage={canManage}
+        canAdmin={canAdmin}
+        weeklyOffs={attendanceResult.success ? attendanceResult.data.weeklyOffs : []}
+        approvedLeaves={attendanceResult.success ? attendanceResult.data.approvedLeaves : []}
         employees={employees}
         viewerEmployeeId={canManage ? null : viewer.id}
         viewerEmployeeName={canManage ? null : viewer.name}

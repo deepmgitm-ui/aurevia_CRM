@@ -10,6 +10,66 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half-Day"] as const;
 
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
+export interface AttendanceWeeklyOff {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  weekStartDate: string;
+  date: string;
+  note: string;
+}
+
+export interface ApprovedAttendanceLeave {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  leaveType: "Casual" | "Sick" | "Paid" | "Unpaid" | "Other";
+  duration: "full_day" | "half_day";
+}
+
+export type ExemptedAttendanceDay = { employeeId: string; date: string };
+
+function attendanceDayKey(employeeId: string, date: string): string {
+  return `${employeeId}:${date}`;
+}
+
+/** Returns the Monday that starts the ISO week containing a valid clinic date. */
+export function attendanceWeekStart(date: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) return null;
+  const dayOfWeek = parsed.getUTCDay() || 7;
+  parsed.setUTCDate(parsed.getUTCDate() - dayOfWeek + 1);
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, "0")}-${String(parsed.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** Finds recorded absences that overlap an approved leave or weekly off. */
+export function attendanceExemptions(
+  rows: AttendanceRow[],
+  weeklyOffs: AttendanceWeeklyOff[],
+  leaves: ApprovedAttendanceLeave[],
+): Set<string> {
+  const exemptions = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== "Absent") continue;
+    if (weeklyOffs.some((off) => off.employeeId === row.employeeId && off.date === row.date)) {
+      exemptions.add(attendanceDayKey(row.employeeId, row.date));
+      continue;
+    }
+    if (leaves.some((leave) =>
+      leave.employeeId === row.employeeId && leave.startDate <= row.date && leave.endDate >= row.date
+    )) exemptions.add(attendanceDayKey(row.employeeId, row.date));
+  }
+  return exemptions;
+}
+
 /** Clinic is on IST; "today" must mean the wall clock in Delhi, not UTC. */
 export const CLINIC_TIME_ZONE = "Asia/Kolkata";
 
@@ -141,9 +201,15 @@ export function splitRoster(
 }
 
 /** Month totals for the KPI strip, counting each status once. */
-export function summariseMonth(rows: AttendanceRow[]): MonthSummary {
-  const summary: MonthSummary = { present: 0, absent: 0, halfDay: 0, total: rows.length };
-  for (const row of rows) {
+export function summariseMonth(
+  rows: AttendanceRow[],
+  exemptedDays: ReadonlySet<string> = new Set(),
+): MonthSummary {
+  const countedRows = rows.filter(
+    (row) => row.status !== "Absent" || !exemptedDays.has(attendanceDayKey(row.employeeId, row.date)),
+  );
+  const summary: MonthSummary = { present: 0, absent: 0, halfDay: 0, total: countedRows.length };
+  for (const row of countedRows) {
     if (row.status === "Present") summary.present += 1;
     else if (row.status === "Absent") summary.absent += 1;
     else summary.halfDay += 1;
@@ -223,10 +289,15 @@ function groupByEmployee(rows: AttendanceRow[]): Map<string, AttendanceRow[]> {
  * Per-person totals for the profile cards, newest check-in first per person so
  * the streak walk below sees days in order.
  */
-export function summariseByEmployee(rows: AttendanceRow[]): EmployeeAttendanceStats[] {
+export function summariseByEmployee(
+  rows: AttendanceRow[],
+  exemptedDays: ReadonlySet<string> = new Set(),
+): EmployeeAttendanceStats[] {
   return [...groupByEmployee(rows).entries()]
     .map(([employeeId, list]) => {
-      const byDay = [...list].sort((a, b) => a.date.localeCompare(b.date));
+      const byDay = [...list]
+        .filter((row) => row.status !== "Absent" || !exemptedDays.has(attendanceDayKey(row.employeeId, row.date)))
+        .sort((a, b) => a.date.localeCompare(b.date));
       const summary = summariseMonth(byDay);
 
       const checkIns = byDay
@@ -269,8 +340,9 @@ export function summariseByEmployee(rows: AttendanceRow[]): EmployeeAttendanceSt
 export function buildTeamCards(
   roster: { id: string; name: string }[],
   rows: AttendanceRow[],
+  exemptedDays: ReadonlySet<string> = new Set(),
 ): EmployeeAttendanceStats[] {
-  const measured = summariseByEmployee(rows);
+  const measured = summariseByEmployee(rows, exemptedDays);
   const measuredById = new Map(measured.map((entry) => [entry.employeeId, entry]));
 
   // The ROSTER name wins over the one denormalised onto the attendance row.

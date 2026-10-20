@@ -6,6 +6,8 @@ import { readFileSync } from "node:fs";
 import {
   ATTENDANCE_STATUSES,
   attendanceMonthRange,
+  attendanceWeekStart,
+  attendanceExemptions,
   attendanceRate,
   buildTeamCards,
   clinicDate,
@@ -64,6 +66,9 @@ assert.deepEqual(attendanceMonthRange("2026-12"), {
   endExclusive: "2027-01-01",
 });
 assert.equal(attendanceMonthRange("2026-13"), null, "an invalid month is rejected");
+assert.equal(attendanceWeekStart("2026-10-20"), "2026-10-19", "Tuesday uses the Monday that starts its ISO week");
+assert.equal(attendanceWeekStart("2026-10-25"), "2026-10-19", "Sunday stays in the same Monday-first week");
+assert.equal(attendanceWeekStart("2026-02-30"), null, "an impossible calendar date is rejected");
 
 // ---------------------------------------------------------------------------
 // 2. Check-in times print in the clinic's clock, not the server's.
@@ -131,6 +136,16 @@ assert.deepEqual(
   { present: 0, absent: 0, halfDay: 0, total: 0 },
   "an unmarked month totals zero instead of NaN",
 );
+
+const offDayAbsent = { ...row("off-absent", "Absent"), employeeId: "ravi", date: "2026-09-30" };
+const leaveDayAbsent = { ...row("leave-absent", "Absent"), employeeId: "meera", date: "2026-09-30" };
+const exemptions = attendanceExemptions(
+  [offDayAbsent, leaveDayAbsent],
+  [{ id: "off", employeeId: "ravi", employeeName: "Ravi", weekStartDate: "2026-09-28", date: "2026-09-30", note: "" }],
+  [{ id: "leave", employeeId: "meera", employeeName: "Meera", startDate: "2026-09-29", endDate: "2026-10-01", leaveType: "Sick", duration: "full_day" }],
+);
+assert.deepEqual(summariseMonth([offDayAbsent, leaveDayAbsent], exemptions), { present: 0, absent: 0, halfDay: 0, total: 0 }, "weekly off and approved leave do not inflate absence totals");
+assert.equal(summariseByEmployee([offDayAbsent, leaveDayAbsent], exemptions).every((entry) => entry.absent === 0), true, "employee cards exclude excused absences");
 
 // ---------------------------------------------------------------------------
 // 7. The earliest check-in reads first, and undated rows sink to the bottom

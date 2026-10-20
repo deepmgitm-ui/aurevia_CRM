@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import {
   attendanceMonthRange,
+  attendanceExemptions,
+  attendanceWeekStart,
   clinicDate,
   formatClock,
   isAttendanceStatus,
@@ -12,6 +14,8 @@ import {
   summariseMonth,
   type AttendanceRow,
   type AttendanceStatus,
+  type AttendanceWeeklyOff,
+  type ApprovedAttendanceLeave,
 } from "@/lib/attendance";
 import { createClient } from "@/lib/supabase/server";
 
@@ -68,6 +72,10 @@ function isManager(role: string): boolean {
   return role === "admin" || role === "manager";
 }
 
+function isAdmin(role: string): boolean {
+  return role === "admin";
+}
+
 interface AttendanceDbRow {
   id: string;
   employee_id: string;
@@ -107,6 +115,100 @@ const SELECT_COLUMNS =
 const SELECT_COLUMNS_TABLE = "attendance";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidIsoDate(value: string): boolean {
+  if (!DATE_PATTERN.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+interface WeeklyOffDbRow {
+  id: string;
+  employee_id: string;
+  week_start_date: string;
+  off_date: string;
+  note: string | null;
+  employee: { name: string | null } | { name: string | null }[] | null;
+}
+
+interface ApprovedLeaveDbRow {
+  id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  leave_type: ApprovedAttendanceLeave["leaveType"];
+  duration: ApprovedAttendanceLeave["duration"];
+  employee: { name: string | null } | { name: string | null }[] | null;
+}
+
+function toWeeklyOff(row: WeeklyOffDbRow): AttendanceWeeklyOff {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: joinedName(row.employee),
+    weekStartDate: String(row.week_start_date),
+    date: String(row.off_date),
+    note: row.note ?? "",
+  };
+}
+
+function toApprovedLeave(row: ApprovedLeaveDbRow): ApprovedAttendanceLeave {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: joinedName(row.employee),
+    startDate: String(row.start_date),
+    endDate: String(row.end_date),
+    leaveType: row.leave_type,
+    duration: row.duration,
+  };
+}
+
+const WEEKLY_OFF_SELECT =
+  "id, employee_id, week_start_date, off_date, note, employee:profiles!employee_weekly_offs_employee_id_fkey(name)";
+const APPROVED_LEAVE_SELECT =
+  "id, employee_id, start_date, end_date, leave_type, duration, employee:profiles!employee_leave_requests_employee_id_fkey(name)";
+
+async function getScheduleForMonth(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  month: string,
+  employeeId?: string,
+): Promise<
+  | { success: true; weeklyOffs: AttendanceWeeklyOff[]; approvedLeaves: ApprovedAttendanceLeave[] }
+  | { success: false; error: string }
+> {
+  const range = attendanceMonthRange(month);
+  if (!range) return { success: false, error: "Month must be a valid YYYY-MM value, such as 2026-09." };
+
+  let offQuery = supabase
+    .from("employee_weekly_offs")
+    .select(WEEKLY_OFF_SELECT)
+    .gte("off_date", range.start)
+    .lt("off_date", range.endExclusive)
+    .order("off_date", { ascending: true });
+  let leaveQuery = supabase
+    .from("employee_leave_requests")
+    .select(APPROVED_LEAVE_SELECT)
+    .eq("status", "Approved")
+    .lt("start_date", range.endExclusive)
+    .gte("end_date", range.start)
+    .order("start_date", { ascending: true });
+  if (employeeId) {
+    offQuery = offQuery.eq("employee_id", employeeId);
+    leaveQuery = leaveQuery.eq("employee_id", employeeId);
+  }
+
+  const [offs, leaves] = await Promise.all([offQuery, leaveQuery]);
+  if (offs.error) return { success: false, error: getErrorMessage(offs.error, "Could not load weekly offs.") };
+  if (leaves.error) return { success: false, error: getErrorMessage(leaves.error, "Could not load approved leave.") };
+
+  return {
+    success: true,
+    weeklyOffs: ((offs.data ?? []) as unknown as WeeklyOffDbRow[]).map(toWeeklyOff),
+    approvedLeaves: ((leaves.data ?? []) as unknown as ApprovedLeaveDbRow[]).map(toApprovedLeave),
+  };
+}
 
 export interface AttendanceRequest {
   id: string;
@@ -375,20 +477,28 @@ export async function markMyAttendance(
 /** The signed-in employee's own register for one month. */
 export async function getMyAttendance(
   month: string,
-): Promise<AttendanceResult<{ month: string; rows: AttendanceRow[] }>> {
+): Promise<AttendanceResult<{
+  month: string;
+  rows: AttendanceRow[];
+  weeklyOffs: AttendanceWeeklyOff[];
+  approvedLeaves: ApprovedAttendanceLeave[];
+}>> {
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
     const range = attendanceMonthRange(month);
     if (!range) return { success: false, error: "Month must be a valid YYYY-MM value, such as 2026-09." };
 
-    const { data, error } = await viewer.supabase
+    const [{ data, error }, schedule] = await Promise.all([
+      viewer.supabase
       .from("attendance")
       .select(SELECT_COLUMNS)
       .eq("employee_id", viewer.id)
       .gte("attendance_date", range.start)
       .lt("attendance_date", range.endExclusive)
-      .order("attendance_date", { ascending: false });
+      .order("attendance_date", { ascending: false }),
+      getScheduleForMonth(viewer.supabase, month, viewer.id),
+    ]);
 
     if (error) {
       if (isMissingTableError(error.message)) {
@@ -396,9 +506,18 @@ export async function getMyAttendance(
       }
       return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
     }
+    if (!schedule.success) return { success: false, error: schedule.error };
 
     const rows = ((data ?? []) as AttendanceDbRow[]).map(toAttendanceRow);
-    return { success: true, data: { month, rows: sortByCheckIn(rows) } };
+    return {
+      success: true,
+      data: {
+        month,
+        rows: sortByCheckIn(rows),
+        weeklyOffs: schedule.weeklyOffs,
+        approvedLeaves: schedule.approvedLeaves,
+      },
+    };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
   }
@@ -412,6 +531,8 @@ export async function getTeamAttendance(
     month: string;
     rows: AttendanceRow[];
     summary: ReturnType<typeof summariseMonth>;
+    weeklyOffs: AttendanceWeeklyOff[];
+    approvedLeaves: ApprovedAttendanceLeave[];
   }>
 > {
   try {
@@ -423,13 +544,16 @@ export async function getTeamAttendance(
     const range = attendanceMonthRange(month);
     if (!range) return { success: false, error: "Month must be a valid YYYY-MM value, such as 2026-09." };
 
-    const { data, error } = await viewer.supabase
+    const [{ data, error }, schedule] = await Promise.all([
+      viewer.supabase
       .from("attendance")
       .select(SELECT_COLUMNS)
       .gte("attendance_date", range.start)
       .lt("attendance_date", range.endExclusive)
       .order("attendance_date", { ascending: false })
-      .order("check_in_at", { ascending: true, nullsFirst: false });
+      .order("check_in_at", { ascending: true, nullsFirst: false }),
+      getScheduleForMonth(viewer.supabase, month),
+    ]);
 
     if (error) {
       if (isMissingTableError(error.message)) {
@@ -437,9 +561,20 @@ export async function getTeamAttendance(
       }
       return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
     }
+    if (!schedule.success) return { success: false, error: schedule.error };
 
     const rows = ((data ?? []) as AttendanceDbRow[]).map(toAttendanceRow);
-    return { success: true, data: { month, rows, summary: summariseMonth(rows) } };
+    const exemptedDays = attendanceExemptions(rows, schedule.weeklyOffs, schedule.approvedLeaves);
+    return {
+      success: true,
+      data: {
+        month,
+        rows,
+        summary: summariseMonth(rows, exemptedDays),
+        weeklyOffs: schedule.weeklyOffs,
+        approvedLeaves: schedule.approvedLeaves,
+      },
+    };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Could not load attendance.") };
   }
@@ -574,5 +709,223 @@ export async function deleteAttendance(id: string): Promise<AttendanceResult<{ i
     return { success: true, data: { id } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Could not delete attendance.") };
+  }
+}
+
+export interface EmployeeLeaveRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  leaveType: "Casual" | "Sick" | "Paid" | "Unpaid" | "Other";
+  duration: "full_day" | "half_day";
+  reason: string;
+  status: "Pending" | "Approved" | "Rejected";
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewNote: string;
+}
+
+interface EmployeeLeaveRequestDbRow {
+  id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  leave_type: EmployeeLeaveRequest["leaveType"];
+  duration: EmployeeLeaveRequest["duration"];
+  reason: string | null;
+  status: string;
+  created_at: string;
+  reviewed_at: string | null;
+  review_note: string | null;
+  employee: { name: string | null } | { name: string | null }[] | null;
+}
+
+const LEAVE_REQUEST_SELECT =
+  "id, employee_id, start_date, end_date, leave_type, duration, reason, status, created_at, reviewed_at, review_note, employee:profiles!employee_leave_requests_employee_id_fkey(name)";
+
+function toEmployeeLeaveRequest(row: EmployeeLeaveRequestDbRow): EmployeeLeaveRequest {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employeeName: joinedName(row.employee),
+    startDate: String(row.start_date),
+    endDate: String(row.end_date),
+    leaveType: row.leave_type,
+    duration: row.duration,
+    reason: row.reason ?? "",
+    status: row.status === "Approved" || row.status === "Rejected" ? row.status : "Pending",
+    createdAt: row.created_at,
+    reviewedAt: row.reviewed_at,
+    reviewNote: row.review_note ?? "",
+  };
+}
+
+/** Employees see their own requests; admins and managers can review the team queue. */
+export async function getEmployeeLeaveRequests(): Promise<AttendanceResult<EmployeeLeaveRequest[]>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    let query = viewer.supabase
+      .from("employee_leave_requests")
+      .select(LEAVE_REQUEST_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (!isManager(viewer.role)) query = query.eq("employee_id", viewer.id);
+    const { data, error } = await query;
+    if (error) return { success: false, error: getErrorMessage(error, "Could not load leave requests.") };
+    return {
+      success: true,
+      data: ((data ?? []) as unknown as EmployeeLeaveRequestDbRow[]).map(toEmployeeLeaveRequest),
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not load leave requests.") };
+  }
+}
+
+/** Employees submit a dated leave request; only an admin can approve or reject it. */
+export async function createEmployeeLeaveRequest(input: {
+  startDate: string;
+  endDate: string;
+  leaveType: EmployeeLeaveRequest["leaveType"];
+  duration: EmployeeLeaveRequest["duration"];
+  reason?: string;
+}): Promise<AttendanceResult<EmployeeLeaveRequest>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (isAdmin(viewer.role)) return { success: false, error: "Admins do not submit employee leave requests." };
+    if (!isValidIsoDate(input.startDate) || !isValidIsoDate(input.endDate)) {
+      return { success: false, error: "Choose valid leave dates." };
+    }
+    if (input.startDate < clinicDate()) {
+      return { success: false, error: "Leave requests must start today or later." };
+    }
+    if (input.endDate < input.startDate) return { success: false, error: "The end date must be on or after the start date." };
+    if (input.duration !== "full_day" && input.duration !== "half_day") {
+      return { success: false, error: "Choose full-day or half-day leave." };
+    }
+    if (input.duration === "half_day" && input.startDate !== input.endDate) {
+      return { success: false, error: "Half-day leave must be for a single date." };
+    }
+    const leaveTypes: EmployeeLeaveRequest["leaveType"][] = ["Casual", "Sick", "Paid", "Unpaid", "Other"];
+    if (!leaveTypes.includes(input.leaveType)) return { success: false, error: "Choose a valid leave type." };
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length > 1000) return { success: false, error: "Reason must be 1,000 characters or fewer." };
+
+    const { data, error } = await viewer.supabase
+      .from("employee_leave_requests")
+      .insert({
+        employee_id: viewer.id,
+        start_date: input.startDate,
+        end_date: input.endDate,
+        leave_type: input.leaveType,
+        duration: input.duration,
+        reason,
+      })
+      .select(LEAVE_REQUEST_SELECT)
+      .single();
+    if (error) return { success: false, error: getErrorMessage(error, "Could not submit the leave request.") };
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: toEmployeeLeaveRequest(data as unknown as EmployeeLeaveRequestDbRow) };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not submit the leave request.") };
+  }
+}
+
+export async function reviewEmployeeLeaveRequest(input: {
+  id: string;
+  approved: boolean;
+  reviewNote?: string;
+}): Promise<AttendanceResult<{ id: string; status: "Approved" | "Rejected" }>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can review leave requests." };
+    if (!input.id.trim()) return { success: false, error: "Choose a leave request." };
+    if (typeof input.approved !== "boolean") return { success: false, error: "Choose whether to approve or reject the request." };
+    const reviewNote = input.reviewNote?.trim() ?? "";
+    if (reviewNote.length > 1000) return { success: false, error: "Review note must be 1,000 characters or fewer." };
+
+    const { data, error } = await viewer.supabase
+      .from("employee_leave_requests")
+      .update({
+        status: input.approved ? "Approved" : "Rejected",
+        reviewed_by: viewer.id,
+        reviewed_at: new Date().toISOString(),
+        review_note: reviewNote,
+      })
+      .eq("id", input.id)
+      .eq("status", "Pending")
+      .select("id")
+      .maybeSingle();
+    if (error) return { success: false, error: getErrorMessage(error, "Could not review the leave request.") };
+    if (!data) return { success: false, error: "This leave request was already reviewed or no longer exists." };
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: { id: input.id, status: input.approved ? "Approved" : "Rejected" } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not review the leave request.") };
+  }
+}
+
+/** Sets or moves one employee's chosen off date in an ISO week. */
+export async function setEmployeeWeeklyOff(input: {
+  employeeId: string;
+  date: string;
+  note?: string;
+}): Promise<AttendanceResult<AttendanceWeeklyOff>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can set weekly offs." };
+    if (!input.employeeId) return { success: false, error: "Choose an employee." };
+    if (!isValidIsoDate(input.date)) return { success: false, error: "Choose a valid weekly off date." };
+    const weekStartDate = attendanceWeekStart(input.date);
+    if (!weekStartDate) return { success: false, error: "Choose a valid weekly off date." };
+    const note = input.note?.trim() ?? "";
+    if (note.length > 500) return { success: false, error: "Note must be 500 characters or fewer." };
+
+    const { data: employee, error: employeeError } = await viewer.supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", input.employeeId)
+      .eq("role", "employee")
+      .maybeSingle();
+    if (employeeError) return { success: false, error: employeeError.message };
+    if (!employee) return { success: false, error: "Choose an active employee." };
+
+    const { data, error } = await viewer.supabase
+      .from("employee_weekly_offs")
+      .upsert({
+        employee_id: input.employeeId,
+        week_start_date: weekStartDate,
+        off_date: input.date,
+        note,
+        created_by: viewer.id,
+        updated_by: viewer.id,
+      }, { onConflict: "employee_id,week_start_date" })
+      .select(WEEKLY_OFF_SELECT)
+      .single();
+    if (error) return { success: false, error: getErrorMessage(error, "Could not save the weekly off.") };
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: toWeeklyOff(data as unknown as WeeklyOffDbRow) };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not save the weekly off.") };
+  }
+}
+
+export async function removeEmployeeWeeklyOff(id: string): Promise<AttendanceResult<{ id: string }>> {
+  try {
+    const viewer = await getViewerContext();
+    if (!viewer) return { success: false, error: "Please sign in first." };
+    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can remove weekly offs." };
+    if (!id.trim()) return { success: false, error: "Choose a weekly off to remove." };
+    const { error } = await viewer.supabase.from("employee_weekly_offs").delete().eq("id", id);
+    if (error) return { success: false, error: getErrorMessage(error, "Could not remove the weekly off.") };
+    revalidatePath("/dashboard/attendance");
+    return { success: true, data: { id } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Could not remove the weekly off.") };
   }
 }

@@ -10,13 +10,15 @@
 // for someone who never signed in.
 import { useMemo, useState } from "react";
 
-import { ChevronLeft, ChevronRight, CircleCheck, UserCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleCheck, Loader2, UserCheck } from "lucide-react";
 
 import {
   deleteAttendance,
   getMyAttendance,
   getTeamAttendance,
   markAttendance,
+  removeEmployeeWeeklyOff,
+  setEmployeeWeeklyOff,
   updateAttendance,
 } from "@/app/actions/attendance";
 import { Button } from "@/components/ui/button";
@@ -32,8 +34,12 @@ import { toast } from "@/components/ui/toast";
 import {
   ATTENDANCE_STATUSES,
   summariseByEmployee,
+  attendanceExemptions,
+  attendanceWeekStart,
   type AttendanceRow,
   type AttendanceStatus,
+  type AttendanceWeeklyOff,
+  type ApprovedAttendanceLeave,
 } from "@/lib/attendance";
 
 import { buildMonthCells } from "../calendar/month-grid";
@@ -81,7 +87,10 @@ export function AttendanceCalendar({
   month,
   todayIso,
   canManage,
+  canAdmin,
   employees,
+  weeklyOffs,
+  approvedLeaves,
   focusEmployeeId = null,
   focusEmployeeName = null,
 }: {
@@ -89,6 +98,9 @@ export function AttendanceCalendar({
   month: string;
   todayIso: string;
   canManage: boolean;
+  canAdmin: boolean;
+  weeklyOffs: AttendanceWeeklyOff[];
+  approvedLeaves: ApprovedAttendanceLeave[];
   /** Roster, so a manager can add a day for someone who never signed in. */
   employees: { id: string; name: string }[];
   /** When set, the grid shows only this person and the header names them. */
@@ -98,14 +110,23 @@ export function AttendanceCalendar({
   const [monthCursor, setMonthCursor] = useState(month);
   const [selectedIso, setSelectedIso] = useState(todayIso);
   const [data, setData] = useState<Record<string, AttendanceRow[]>>(() => groupByDate(rows));
+  const [weekOffRows, setWeekOffRows] = useState(weeklyOffs);
+  const [approvedLeaveRows, setApprovedLeaveRows] = useState(approvedLeaves);
   const [isLoadingMonth, setIsLoadingMonth] = useState(false);
   const [monthError, setMonthError] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [addEmployee, setAddEmployee] = useState("");
   const [addStatus, setAddStatus] = useState<AttendanceStatus>("Absent");
+  const [offEmployee, setOffEmployee] = useState("");
 
   const [previousRows,setPreviousRows]=useState(rows);
   if(previousRows!==rows){setPreviousRows(rows);setData(groupByDate(rows));}
+  const [previousSchedule, setPreviousSchedule] = useState({ weeklyOffs, approvedLeaves });
+  if (previousSchedule.weeklyOffs !== weeklyOffs || previousSchedule.approvedLeaves !== approvedLeaves) {
+    setPreviousSchedule({ weeklyOffs, approvedLeaves });
+    setWeekOffRows(weeklyOffs);
+    setApprovedLeaveRows(approvedLeaves);
+  }
 
   const cells = useMemo(() => buildMonthCells(monthCursor), [monthCursor]);
 
@@ -130,8 +151,10 @@ export function AttendanceCalendar({
 
   /** The focused person's own totals, so the header can show their rate. */
   const focusStats = useMemo(
-    () => (focusEmployeeId ? summariseByEmployee(focusRows)[0] : undefined),
-    [focusRows, focusEmployeeId],
+    () => (focusEmployeeId
+      ? summariseByEmployee(focusRows, attendanceExemptions(focusRows, weekOffRows, approvedLeaveRows))[0]
+      : undefined),
+    [focusRows, focusEmployeeId, weekOffRows, approvedLeaveRows],
   );
 
   const selected = useMemo(
@@ -139,10 +162,19 @@ export function AttendanceCalendar({
     [data, selectedIso, focusEmployeeId],
   );
 
+  const selectedWeeklyOffs = weekOffRows.filter((off) =>
+    off.date === selectedIso && (!focusEmployeeId || off.employeeId === focusEmployeeId),
+  );
+  const selectedApprovedLeaves = approvedLeaveRows.filter((leave) =>
+    leave.startDate <= selectedIso && leave.endDate >= selectedIso && (!focusEmployeeId || leave.employeeId === focusEmployeeId),
+  );
+
   // Someone who has no row for this day yet — the only people a manager can add.
   const unmarked = employees.filter(
     (person) =>
       !selected.some((row) => row.employeeId === person.id) &&
+      !selectedWeeklyOffs.some((off) => off.employeeId === person.id) &&
+      !selectedApprovedLeaves.some((leave) => leave.employeeId === person.id) &&
       (!focusEmployeeId || person.id === focusEmployeeId),
   );
 
@@ -172,6 +204,8 @@ export function AttendanceCalendar({
     setIsLoadingMonth(true);
     setMonthError("");
     setData({});
+    setWeekOffRows([]);
+    setApprovedLeaveRows([]);
 
     const response = canManage
       ? await getTeamAttendance(nextMonth)
@@ -180,6 +214,8 @@ export function AttendanceCalendar({
       setMonthError(response.error);
     } else {
       setData(groupByDate(response.data.rows));
+      setWeekOffRows(response.data.weeklyOffs);
+      setApprovedLeaveRows(response.data.approvedLeaves);
     }
     setIsLoadingMonth(false);
   }
@@ -234,6 +270,42 @@ export function AttendanceCalendar({
     replaceRow(response.data);
     setAddEmployee("");
     toast.add({ title: `${response.data.employeeName} — ${response.data.status}` });
+  }
+
+  async function saveWeeklyOff() {
+    const employeeId = offEmployee || focusEmployeeId || "";
+    if (!employeeId || busyKey) return;
+    setBusyKey(`off-${selectedIso}`);
+    const response = await setEmployeeWeeklyOff({ employeeId, date: selectedIso });
+    setBusyKey(null);
+    if (!response.success) {
+      toast.add({ title: "Could not save weekly off", description: response.error, type: "error" });
+      return;
+    }
+    setWeekOffRows((current) => [
+      ...current.filter((off) => !(off.employeeId === response.data.employeeId && off.weekStartDate === response.data.weekStartDate)),
+      response.data,
+    ].sort((a, b) => a.date.localeCompare(b.date)));
+    setOffEmployee(response.data.employeeId);
+    const worked = (data[selectedIso] ?? []).some((row) => row.employeeId === employeeId && row.status === "Present");
+    toast.add({
+      title: "Weekly off saved",
+      description: worked ? "Attendance is also recorded for this date; please review the worked-off-day flag." : undefined,
+      type: worked ? "warning" : "success",
+    });
+  }
+
+  async function removeWeeklyOff(off: AttendanceWeeklyOff) {
+    if (busyKey) return;
+    setBusyKey(off.id);
+    const response = await removeEmployeeWeeklyOff(off.id);
+    setBusyKey(null);
+    if (!response.success) {
+      toast.add({ title: "Could not remove weekly off", description: response.error, type: "error" });
+      return;
+    }
+    setWeekOffRows((current) => current.filter((item) => item.id !== off.id));
+    toast.add({ title: "Weekly off removed", type: "success" });
   }
 
   return (
@@ -300,6 +372,16 @@ export function AttendanceCalendar({
               const dayRows = (focusEmployeeId
                 ? (data[cell.iso] ?? []).filter((row) => row.employeeId === focusEmployeeId)
                 : (data[cell.iso] ?? []));
+              const dayOffs = weekOffRows.filter((off) =>
+                off.date === cell.iso && (!focusEmployeeId || off.employeeId === focusEmployeeId),
+              );
+              const dayLeaves = approvedLeaveRows.filter((leave) =>
+                leave.startDate <= cell.iso && leave.endDate >= cell.iso && (!focusEmployeeId || leave.employeeId === focusEmployeeId),
+              );
+              const hasScheduleConflict = dayRows.some((row) => (
+                dayOffs.some((off) => off.employeeId === row.employeeId) ||
+                dayLeaves.some((leave) => leave.employeeId === row.employeeId)
+              ));
               const isSelected = cell.iso === selectedIso;
               return (
                 <button
@@ -330,12 +412,19 @@ export function AttendanceCalendar({
                           {dayRows[0].status === "Half-Day" ? "H" : dayRows[0].status === "Present" ? "P" : "A"}
                         </span>
                       ) : (
-                        cell.isCurrentMonth && (
+                        dayLeaves.length > 0 ? (
+                          <span className="block rounded bg-violet-100 px-1 py-0.5 text-center text-[9px] font-semibold text-violet-800">
+                            {dayLeaves.some((leave) => leave.duration === "half_day") ? "½ L" : "Leave"}
+                          </span>
+                        ) : dayOffs.length > 0 ? (
+                          <span className="block rounded bg-sky-100 px-1 py-0.5 text-center text-[9px] font-semibold text-sky-800">Off</span>
+                        ) : cell.isCurrentMonth && (
                           <span className="block rounded bg-slate-100 px-1 py-0.5 text-center text-[9px] text-slate-400">
                             —
                           </span>
                         )
                       )}
+                      {hasScheduleConflict && <span className="mt-0.5 block text-center text-[9px] font-bold text-amber-700">Review</span>}
                     </span>
                   ) : (
                     <span className="mt-1 flex flex-wrap gap-0.5">
@@ -351,6 +440,14 @@ export function AttendanceCalendar({
                           +{dayRows.length - 6}
                         </span>
                       )}
+                      {(dayOffs.length > 0 || dayLeaves.length > 0) && (
+                        <span className="w-full truncate text-[8px] font-semibold text-slate-600">
+                          {dayOffs.length > 0 ? `${dayOffs.length} off` : ""}
+                          {dayOffs.length > 0 && dayLeaves.length > 0 ? " · " : ""}
+                          {dayLeaves.length > 0 ? `${dayLeaves.length} leave` : ""}
+                        </span>
+                      )}
+                      {hasScheduleConflict && <span className="w-full text-[8px] font-bold text-amber-700">Review</span>}
                     </span>
                   )}
                 </button>
@@ -371,9 +468,66 @@ export function AttendanceCalendar({
             <UserCheck className="size-4" aria-hidden="true" /> {selectedIso}
           </h2>
 
+          {canAdmin && (
+            <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+              <p className="text-xs font-semibold text-slate-800">Set a weekly off for this date</p>
+              <Select value={offEmployee || focusEmployeeId || ""} onValueChange={(value) => setOffEmployee(value ?? "")}>
+                <SelectTrigger size="sm" className="w-full text-xs">
+                  <SelectValue placeholder="Select an employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((person) => <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {(() => {
+                const employeeId = offEmployee || focusEmployeeId;
+                const weekStart = attendanceWeekStart(selectedIso);
+                const existing = weekOffRows.find((off) => off.employeeId === employeeId && off.weekStartDate === weekStart);
+                return existing && existing.date !== selectedIso ? (
+                  <p className="text-[11px] text-sky-900">Saving will move {existing.employeeName}&apos;s weekly off from {existing.date} to {selectedIso}.</p>
+                ) : null;
+              })()}
+              <Button type="button" size="sm" className="w-full" disabled={!(offEmployee || focusEmployeeId) || busyKey === `off-${selectedIso}`} onClick={() => void saveWeeklyOff()}>
+                {busyKey === `off-${selectedIso}` ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+                Set or change weekly off
+              </Button>
+              <p className="text-[10px] text-slate-500">Choose any date in the week. A new date in the same week replaces the previous off day.</p>
+            </div>
+          )}
+
+          {selectedWeeklyOffs.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+              <p className="text-xs font-semibold text-sky-900">Weekly off</p>
+              {selectedWeeklyOffs.map((off) => {
+                const conflict = selected.some((row) => row.employeeId === off.employeeId);
+                return (
+                  <div key={off.id} className="flex items-center justify-between gap-2 text-xs text-sky-900">
+                    <span className="min-w-0 truncate">{off.employeeName}{conflict ? " · Attendance recorded — review" : ""}</span>
+                    {canAdmin && <Button type="button" size="xs" variant="outline" disabled={busyKey === off.id} onClick={() => void removeWeeklyOff(off)}>Remove</Button>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {selectedApprovedLeaves.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+              <p className="text-xs font-semibold text-violet-900">Approved leave</p>
+              {selectedApprovedLeaves.map((leave) => {
+                const attendanceRecord = selected.find((row) => row.employeeId === leave.employeeId);
+                return (
+                  <div key={leave.id} className="text-xs text-violet-900">
+                    <span className="font-medium">{leave.employeeName} · {leave.leaveType} · {leave.duration === "half_day" ? "Half day" : "Full day"}</span>
+                    {attendanceRecord && <span className="ml-1 font-semibold text-amber-800">· {attendanceRecord.status} recorded — review</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {selected.length === 0 ? (
             <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">
-              Nobody signed in on this day — no attendance marked.
+              No attendance mark for this day.
             </p>
           ) : null}
 

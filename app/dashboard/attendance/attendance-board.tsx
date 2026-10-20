@@ -12,16 +12,20 @@
 import { useState } from "react";
 
 import { AttendanceCalendar } from "./attendance-calendar";
+import { AttendanceLeave } from "./attendance-leave";
 import { AttendanceRequests } from "./attendance-requests";
 import { AttendanceTeam } from "./attendance-team";
-import type { AttendanceRow } from "@/lib/attendance";
+import type { AttendanceRow, AttendanceWeeklyOff, ApprovedAttendanceLeave } from "@/lib/attendance";
 
 export function AttendanceBoard({
   rows,
   month,
   todayIso,
   canManage,
+  canAdmin,
   employees,
+  weeklyOffs,
+  approvedLeaves,
   viewerEmployeeId,
   viewerEmployeeName,
 }: {
@@ -29,7 +33,10 @@ export function AttendanceBoard({
   month: string;
   todayIso: string;
   canManage: boolean;
+  canAdmin: boolean;
   employees: { id: string; name: string; role: string; phone: string | null; photo_url: string | null }[];
+  weeklyOffs: AttendanceWeeklyOff[];
+  approvedLeaves: ApprovedAttendanceLeave[];
   viewerEmployeeId: string | null;
   viewerEmployeeName: string | null;
 }) {
@@ -46,6 +53,8 @@ export function AttendanceBoard({
       {canManage && (
         <AttendanceTeam
           rows={rows}
+          weeklyOffs={weeklyOffs}
+          approvedLeaves={approvedLeaves}
           roster={employees}
           todayIso={todayIso}
           selectedId={selectedId}
@@ -53,13 +62,17 @@ export function AttendanceBoard({
         />
       )}
       <AttendanceRequests canManage={canManage} todayIso={todayIso} />
+      <AttendanceLeave todayIso={todayIso} canAdmin={canAdmin} />
       <AttendanceCalendar
         rows={rows}
         month={month}
         todayIso={todayIso}
         canManage={canManage}
+        canAdmin={canAdmin}
+        weeklyOffs={weeklyOffs}
+        approvedLeaves={approvedLeaves}
         // The calendar's "add a mark" dropdown only needs id + name.
-        employees={employees.map((person) => ({ id: person.id, name: person.name }))}
+        employees={employees.filter((person) => person.role === "employee").map((person) => ({ id: person.id, name: person.name }))}
         focusEmployeeId={selectedId}
         focusEmployeeName={selectedName}
       />

@@ -19,8 +19,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   buildTeamCards,
+  attendanceExemptions,
   initialsFor,
   statusOn,
+  type AttendanceWeeklyOff,
+  type ApprovedAttendanceLeave,
   type AttendanceRow,
   type AttendanceStatus,
 } from "@/lib/attendance";
@@ -56,12 +59,16 @@ function RoleBadge({ role }: { role: string }) {
 }
 export function AttendanceTeam({
   rows,
+  weeklyOffs,
+  approvedLeaves,
   roster,
   todayIso,
   selectedId,
   onSelect,
 }: {
   rows: AttendanceRow[];
+  weeklyOffs: AttendanceWeeklyOff[];
+  approvedLeaves: ApprovedAttendanceLeave[];
   roster: { id: string; name: string; role: string; phone: string | null; photo_url: string | null }[];
   todayIso: string;
   /** null = the whole team is showing. */
@@ -71,7 +78,10 @@ export function AttendanceTeam({
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
 
-  const cards = useMemo(() => buildTeamCards(roster, rows), [roster, rows]);
+  const cards = useMemo(
+    () => buildTeamCards(roster, rows, attendanceExemptions(rows, weeklyOffs, approvedLeaves)),
+    [roster, rows, weeklyOffs, approvedLeaves],
+  );
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
