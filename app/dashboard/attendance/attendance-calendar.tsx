@@ -35,16 +35,18 @@ import {
   ATTENDANCE_STATUSES,
   summariseByEmployee,
   attendanceExemptions,
+  attendanceWeeklyOffDates,
   attendanceWeekStart,
   type AttendanceRow,
   type AttendanceStatus,
   type AttendanceWeeklyOff,
+  type AttendanceWeeklyOffScope,
   type ApprovedAttendanceLeave,
 } from "@/lib/attendance";
 
 import { buildMonthCells } from "../calendar/month-grid";
 
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function dotClass(status: AttendanceStatus) {
   if (status === "Absent") return "bg-rose-500";
@@ -63,6 +65,14 @@ function monthLabel(month: string) {
   return new Date(Number(year), Number(monthText) - 1, 1).toLocaleDateString("en-GB", {
     month: "long",
     year: "numeric",
+  });
+}
+
+function shortDateLabel(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
   });
 }
 
@@ -93,6 +103,7 @@ export function AttendanceCalendar({
   approvedLeaves,
   focusEmployeeId = null,
   focusEmployeeName = null,
+  onFocusEmployeeChange,
 }: {
   rows: AttendanceRow[];
   month: string;
@@ -106,9 +117,10 @@ export function AttendanceCalendar({
   /** When set, the grid shows only this person and the header names them. */
   focusEmployeeId?: string | null;
   focusEmployeeName?: string | null;
+  onFocusEmployeeChange?: (employeeId: string | null) => void;
 }) {
   const [monthCursor, setMonthCursor] = useState(month);
-  const [selectedIso, setSelectedIso] = useState(todayIso);
+  const [selectedIso, setSelectedIso] = useState(month === todayIso.slice(0, 7) ? todayIso : `${month}-01`);
   const [data, setData] = useState<Record<string, AttendanceRow[]>>(() => groupByDate(rows));
   const [weekOffRows, setWeekOffRows] = useState(weeklyOffs);
   const [approvedLeaveRows, setApprovedLeaveRows] = useState(approvedLeaves);
@@ -117,7 +129,8 @@ export function AttendanceCalendar({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [addEmployee, setAddEmployee] = useState("");
   const [addStatus, setAddStatus] = useState<AttendanceStatus>("Absent");
-  const [offEmployee, setOffEmployee] = useState("");
+  const [offScope, setOffScope] = useState<AttendanceWeeklyOffScope>("week");
+  const [offWeekday, setOffWeekday] = useState("");
 
   const [previousRows,setPreviousRows]=useState(rows);
   if(previousRows!==rows){setPreviousRows(rows);setData(groupByDate(rows));}
@@ -168,6 +181,18 @@ export function AttendanceCalendar({
   const selectedApprovedLeaves = approvedLeaveRows.filter((leave) =>
     leave.startDate <= selectedIso && leave.endDate >= selectedIso && (!focusEmployeeId || leave.employeeId === focusEmployeeId),
   );
+  const selectedOffEmployeeId = focusEmployeeId && employees.some((person) => person.id === focusEmployeeId)
+    ? focusEmployeeId
+    : "";
+  const offAnchorDate = offScope === "week" ? selectedIso : `${monthCursor}-01`;
+  const requestedOffDates = offWeekday
+    ? attendanceWeeklyOffDates(offAnchorDate, Number(offWeekday), offScope)
+    : [];
+  const weeklyOffPreview = requestedOffDates.flatMap((date) => {
+    const weekStart = attendanceWeekStart(date);
+    const existing = weekOffRows.find((off) => off.employeeId === selectedOffEmployeeId && off.weekStartDate === weekStart);
+    return existing && existing.date !== date ? [{ from: existing.date, to: date }] : [];
+  });
 
   // Someone who has no row for this day yet — the only people a manager can add.
   const unmarked = employees.filter(
@@ -273,24 +298,31 @@ export function AttendanceCalendar({
   }
 
   async function saveWeeklyOff() {
-    const employeeId = offEmployee || focusEmployeeId || "";
-    if (!employeeId || busyKey) return;
-    setBusyKey(`off-${selectedIso}`);
-    const response = await setEmployeeWeeklyOff({ employeeId, date: selectedIso });
+    const employeeId = selectedOffEmployeeId;
+    if (!employeeId || !offWeekday || requestedOffDates.length === 0 || busyKey) return;
+    setBusyKey("weekly-off");
+    const response = await setEmployeeWeeklyOff({
+      employeeId,
+      anchorDate: offAnchorDate,
+      weekday: Number(offWeekday),
+      scope: offScope,
+    });
     setBusyKey(null);
     if (!response.success) {
       toast.add({ title: "Could not save weekly off", description: response.error, type: "error" });
       return;
     }
+    const affectedWeeks = new Set(response.data.map((off) => off.weekStartDate));
     setWeekOffRows((current) => [
-      ...current.filter((off) => !(off.employeeId === response.data.employeeId && off.weekStartDate === response.data.weekStartDate)),
-      response.data,
+      ...current.filter((off) => !(off.employeeId === employeeId && affectedWeeks.has(off.weekStartDate))),
+      ...response.data,
     ].sort((a, b) => a.date.localeCompare(b.date)));
-    setOffEmployee(response.data.employeeId);
-    const worked = (data[selectedIso] ?? []).some((row) => row.employeeId === employeeId && row.status === "Present");
+    const worked = response.data.some((off) =>
+      (data[off.date] ?? []).some((row) => row.employeeId === employeeId && row.status === "Present"),
+    );
     toast.add({
-      title: "Weekly off saved",
-      description: worked ? "Attendance is also recorded for this date; please review the worked-off-day flag." : undefined,
+      title: "Weekly off schedule saved",
+      description: `${focusEmployeeName ?? "Employee"}: ${WEEKDAY_LABELS[Number(offWeekday) - 1]} · ${offScope === "week" ? "1 week" : `${response.data.length} dates this month`}${worked ? ". Attendance is also recorded on an off day; please review." : ""}`,
       type: worked ? "warning" : "success",
     });
   }
@@ -470,8 +502,8 @@ export function AttendanceCalendar({
 
           {canAdmin && (
             <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/70 p-3">
-              <p className="text-xs font-semibold text-slate-800">Set a weekly off for this date</p>
-              <Select value={offEmployee || focusEmployeeId || ""} onValueChange={(value) => setOffEmployee(value ?? "")}>
+              <p className="text-xs font-semibold text-slate-800">Set employee weekly off</p>
+              <Select value={selectedOffEmployeeId} onValueChange={(value) => onFocusEmployeeChange?.(value || null)}>
                 <SelectTrigger size="sm" className="w-full text-xs">
                   <SelectValue placeholder="Select an employee" />
                 </SelectTrigger>
@@ -479,19 +511,49 @@ export function AttendanceCalendar({
                   {employees.map((person) => <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {(() => {
-                const employeeId = offEmployee || focusEmployeeId;
-                const weekStart = attendanceWeekStart(selectedIso);
-                const existing = weekOffRows.find((off) => off.employeeId === employeeId && off.weekStartDate === weekStart);
-                return existing && existing.date !== selectedIso ? (
-                  <p className="text-[11px] text-sky-900">Saving will move {existing.employeeName}&apos;s weekly off from {existing.date} to {selectedIso}.</p>
-                ) : null;
-              })()}
-              <Button type="button" size="sm" className="w-full" disabled={!(offEmployee || focusEmployeeId) || busyKey === `off-${selectedIso}`} onClick={() => void saveWeeklyOff()}>
-                {busyKey === `off-${selectedIso}` ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
-                Set or change weekly off
+              <Select value={offScope} onValueChange={(value) => value && setOffScope(value as AttendanceWeeklyOffScope)}>
+                <SelectTrigger size="sm" className="w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="week">Selected week</SelectItem>
+                  <SelectItem value="month">Selected month</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={offWeekday} onValueChange={(value) => setOffWeekday(value ?? "")}>
+                <SelectTrigger size="sm" className="w-full text-xs">
+                  <SelectValue placeholder="Choose a weekday" />
+                </SelectTrigger>
+                <SelectContent>
+                  {WEEKDAY_LABELS.map((label, index) => (
+                    <SelectItem key={label} value={String(index + 1)}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedOffEmployeeId && offWeekday && requestedOffDates.length > 0 && (
+                <div className="rounded-lg border border-sky-200/80 bg-white/80 px-2.5 py-2 text-[11px] text-sky-950">
+                  <p className="font-semibold">
+                    {focusEmployeeName ?? "Selected employee"} · {WEEKDAY_LABELS[Number(offWeekday) - 1]} · {offScope === "week" ? "this week" : monthLabel(monthCursor)}
+                  </p>
+                  <p className="mt-0.5 text-slate-600">
+                    Off dates: {requestedOffDates.map(shortDateLabel).join(", ")}
+                  </p>
+                  {weeklyOffPreview.length > 0 && (
+                    <p className="mt-1 text-amber-800">
+                      Existing off will move: {weeklyOffPreview.map((change) => `${shortDateLabel(change.from)} → ${shortDateLabel(change.to)}`).join(" · ")}
+                    </p>
+                  )}
+                </div>
+              )}
+              <Button type="button" size="sm" className="w-full" disabled={!selectedOffEmployeeId || !offWeekday || requestedOffDates.length === 0 || busyKey === "weekly-off"} onClick={() => void saveWeeklyOff()}>
+                {busyKey === "weekly-off" ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+                Save weekly off
               </Button>
-              <p className="text-[10px] text-slate-500">Choose any date in the week. A new date in the same week replaces the previous off day.</p>
+              <p className="text-[10px] text-slate-500">
+                {offScope === "week"
+                  ? `Applies to the week containing ${selectedIso}.`
+                  : "Applies to every matching weekday in the selected month only."}
+              </p>
             </div>
           )}
 

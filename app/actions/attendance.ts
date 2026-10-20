@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   attendanceMonthRange,
   attendanceExemptions,
+  attendanceWeeklyOffDates,
   attendanceWeekStart,
   clinicDate,
   formatClock,
@@ -15,6 +16,7 @@ import {
   type AttendanceRow,
   type AttendanceStatus,
   type AttendanceWeeklyOff,
+  type AttendanceWeeklyOffScope,
   type ApprovedAttendanceLeave,
 } from "@/lib/attendance";
 import { createClient } from "@/lib/supabase/server";
@@ -869,20 +871,26 @@ export async function reviewEmployeeLeaveRequest(input: {
   }
 }
 
-/** Sets or moves one employee's chosen off date in an ISO week. */
+/** Sets a weekday off in one selected week or throughout one selected month. */
 export async function setEmployeeWeeklyOff(input: {
   employeeId: string;
-  date: string;
+  anchorDate: string;
+  weekday: number;
+  scope: AttendanceWeeklyOffScope;
   note?: string;
-}): Promise<AttendanceResult<AttendanceWeeklyOff>> {
+}): Promise<AttendanceResult<AttendanceWeeklyOff[]>> {
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
     if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can set weekly offs." };
     if (!input.employeeId) return { success: false, error: "Choose an employee." };
-    if (!isValidIsoDate(input.date)) return { success: false, error: "Choose a valid weekly off date." };
-    const weekStartDate = attendanceWeekStart(input.date);
-    if (!weekStartDate) return { success: false, error: "Choose a valid weekly off date." };
+    if (!isValidIsoDate(input.anchorDate)) return { success: false, error: "Choose a valid week or month." };
+    if (input.scope !== "week" && input.scope !== "month") return { success: false, error: "Choose a weekly or monthly schedule." };
+    if (!Number.isInteger(input.weekday) || input.weekday < 1 || input.weekday > 7) {
+      return { success: false, error: "Choose a weekday from Monday to Sunday." };
+    }
+    const dates = attendanceWeeklyOffDates(input.anchorDate, input.weekday, input.scope);
+    if (dates.length === 0) return { success: false, error: "No matching weekday was found in that period." };
     const note = input.note?.trim() ?? "";
     if (note.length > 500) return { success: false, error: "Note must be 500 characters or fewer." };
 
@@ -895,21 +903,22 @@ export async function setEmployeeWeeklyOff(input: {
     if (employeeError) return { success: false, error: employeeError.message };
     if (!employee) return { success: false, error: "Choose an active employee." };
 
+    const entries = dates.map((date) => ({
+      employee_id: input.employeeId,
+      week_start_date: attendanceWeekStart(date)!,
+      off_date: date,
+      note,
+      created_by: viewer.id,
+      updated_by: viewer.id,
+    }));
     const { data, error } = await viewer.supabase
       .from("employee_weekly_offs")
-      .upsert({
-        employee_id: input.employeeId,
-        week_start_date: weekStartDate,
-        off_date: input.date,
-        note,
-        created_by: viewer.id,
-        updated_by: viewer.id,
-      }, { onConflict: "employee_id,week_start_date" })
+      .upsert(entries, { onConflict: "employee_id,week_start_date" })
       .select(WEEKLY_OFF_SELECT)
-      .single();
+      .order("off_date", { ascending: true });
     if (error) return { success: false, error: getErrorMessage(error, "Could not save the weekly off.") };
     revalidatePath("/dashboard/attendance");
-    return { success: true, data: toWeeklyOff(data as unknown as WeeklyOffDbRow) };
+    return { success: true, data: ((data ?? []) as unknown as WeeklyOffDbRow[]).map(toWeeklyOff) };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Could not save the weekly off.") };
   }

@@ -44,9 +44,11 @@ export function AttendanceBoard({
 
   // Resolved from the roster rather than passed down, so a card for somebody
   // with no marks at all still labels their calendar correctly.
-  const selectedName = viewerEmployeeName ?? (selectedId
-    ? (employees.find((person) => person.id === selectedId)?.name ?? null)
-    : null);
+  const selectedName = selectedId
+    ? selectedId === viewerEmployeeId
+      ? viewerEmployeeName
+      : (employees.find((person) => person.id === selectedId)?.name ?? null)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -75,6 +77,7 @@ export function AttendanceBoard({
         employees={employees.filter((person) => person.role === "employee").map((person) => ({ id: person.id, name: person.name }))}
         focusEmployeeId={selectedId}
         focusEmployeeName={selectedName}
+        onFocusEmployeeChange={setSelectedId}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import {
   ATTENDANCE_STATUSES,
   attendanceMonthRange,
+  attendanceWeeklyOffDates,
   attendanceWeekStart,
   attendanceExemptions,
   attendanceRate,
@@ -69,6 +70,16 @@ assert.equal(attendanceMonthRange("2026-13"), null, "an invalid month is rejecte
 assert.equal(attendanceWeekStart("2026-10-20"), "2026-10-19", "Tuesday uses the Monday that starts its ISO week");
 assert.equal(attendanceWeekStart("2026-10-25"), "2026-10-19", "Sunday stays in the same Monday-first week");
 assert.equal(attendanceWeekStart("2026-02-30"), null, "an impossible calendar date is rejected");
+assert.deepEqual(attendanceWeeklyOffDates("2026-10-20", 7, "week"), ["2026-10-25"], "week mode picks Sunday in the selected Monday-first week");
+assert.deepEqual(
+  Array.from({ length: 7 }, (_, index) => attendanceWeeklyOffDates("2026-10-20", index + 1, "week")[0]),
+  ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"],
+  "week mode supports every weekday from Monday through Sunday",
+);
+assert.deepEqual(attendanceWeeklyOffDates("2026-10-20", 1, "month"), ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"], "month mode returns every Monday inside the selected month");
+assert.deepEqual(attendanceWeeklyOffDates("2026-10-20", 7, "month"), ["2026-10-04", "2026-10-11", "2026-10-18", "2026-10-25"], "month mode handles Sunday dates at month boundaries");
+assert.deepEqual(attendanceWeeklyOffDates("2026-10-20", 0, "week"), [], "weekday must be Monday through Sunday");
+assert.deepEqual(attendanceWeeklyOffDates("2026-02-30", 1, "month"), [], "invalid anchor dates produce no schedule");
 
 // ---------------------------------------------------------------------------
 // 2. Check-in times print in the clinic's clock, not the server's.

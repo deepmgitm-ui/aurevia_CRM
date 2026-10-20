@@ -50,6 +50,39 @@ export function attendanceWeekStart(date: string): string | null {
   return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, "0")}-${String(parsed.getUTCDate()).padStart(2, "0")}`;
 }
 
+export type AttendanceWeeklyOffScope = "week" | "month";
+
+/** Returns the chosen weekday's dates in the anchored ISO week or calendar month. */
+export function attendanceWeeklyOffDates(
+  anchorDate: string,
+  weekday: number,
+  scope: AttendanceWeeklyOffScope,
+): string[] {
+  if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) return [];
+  if (scope !== "week" && scope !== "month") return [];
+  if (!attendanceWeekStart(anchorDate)) return [];
+
+  const toIso = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+  const anchor = new Date(`${anchorDate}T00:00:00.000Z`);
+  if (scope === "week") {
+    const monday = new Date(`${attendanceWeekStart(anchorDate)}T00:00:00.000Z`);
+    monday.setUTCDate(monday.getUTCDate() + weekday - 1);
+    return [toIso(monday)];
+  }
+
+  const year = anchor.getUTCFullYear();
+  const month = anchor.getUTCMonth();
+  const first = new Date(Date.UTC(year, month, 1));
+  const firstWeekday = first.getUTCDay() || 7;
+  first.setUTCDate(first.getUTCDate() + ((weekday - firstWeekday + 7) % 7));
+  const dates: string[] = [];
+  while (first.getUTCMonth() === month) {
+    dates.push(toIso(first));
+    first.setUTCDate(first.getUTCDate() + 7);
+  }
+  return dates;
+}
+
 /** Finds recorded absences that overlap an approved leave or weekly off. */
 export function attendanceExemptions(
   rows: AttendanceRow[],
