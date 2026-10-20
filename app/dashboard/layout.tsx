@@ -56,24 +56,27 @@ async function DashboardShellData({
   children: ReactNode;
 }) {
   const supabase = await createClient();
-  const { data: profileWithPhoto, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("name, role, photo_url")
+    .select("name, role")
     .eq("id", userId)
     .single();
-  let profileNameValue = profileWithPhoto?.name;
-  let profileRoleValue = profileWithPhoto?.role;
-  if (profileError) {
-    const baseProfile = await supabase
-      .from("profiles")
-      .select("name, role")
-      .eq("id", userId)
-      .single();
-    profileNameValue = baseProfile.data?.name;
-    profileRoleValue = baseProfile.data?.role;
-    if (baseProfile.error) {
-      console.error("[dashboard] Unable to load the signed-in profile:", baseProfile.error.message);
-    }
+  const profileNameValue = profile?.name;
+  const profileRoleValue = profile?.role;
+  if (profileError) console.error("[dashboard] Unable to load the signed-in profile:", profileError.message);
+
+  const { data: privateProfile, error: privateProfileError } = await supabase
+    .from("employee_private_profiles")
+    .select("photo_url")
+    .eq("id", userId)
+    .maybeSingle();
+  let photoUrl = typeof privateProfile?.photo_url === "string" ? privateProfile.photo_url : null;
+  if (privateProfileError && /employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateProfileError.message)) {
+    // Compatibility while the additive privacy migration is being rolled out.
+    const legacyProfile = await supabase.from("profiles").select("photo_url").eq("id", userId).maybeSingle();
+    photoUrl = typeof legacyProfile.data?.photo_url === "string" ? legacyProfile.data.photo_url : null;
+  } else if (privateProfileError) {
+    console.error("[dashboard] Unable to load the profile photo:", privateProfileError.message);
   }
 
   const profileName = profileNameValue?.trim() || email?.split("@")[0] || "User";
@@ -94,7 +97,7 @@ async function DashboardShellData({
       profile={{
         name: profileName,
         role: profileRole,
-        photo_url: typeof profileWithPhoto?.photo_url === "string" ? profileWithPhoto.photo_url : null,
+        photo_url: photoUrl,
       }}
       attendanceToday={attendance.success ? attendance.data : null}
       initialRange={window?.range}

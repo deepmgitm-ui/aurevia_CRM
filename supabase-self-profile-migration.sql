@@ -1,5 +1,7 @@
 -- Allow staff to maintain their own non-privileged profile fields.
--- Run supabase-hr-migration.sql first.
+-- Run supabase-hr-migration.sql first. HR values are stored in
+-- employee_private_profiles; dynamic legacy writes keep older app releases
+-- compatible until the privacy finalize migration removes the old columns.
 
 create or replace function public.update_my_employee_profile(
   p_name text,
@@ -13,7 +15,7 @@ create or replace function public.update_my_employee_profile(
 returns void
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 begin
   if auth.uid() is null then
@@ -45,19 +47,28 @@ begin
     raise exception 'Profile photo URL must be HTTPS and 2,048 characters or fewer.';
   end if;
 
-  update public.profiles
-  set name = trim(p_name),
-      phone = nullif(trim(coalesce(p_phone, '')), ''),
-      email = nullif(trim(coalesce(p_email, '')), ''),
-      gender = nullif(trim(coalesce(p_gender, '')), ''),
-      blood_group = nullif(trim(coalesce(p_blood_group, '')), ''),
-      emergency_contact = nullif(trim(coalesce(p_emergency_contact, '')), ''),
-      photo_url = nullif(trim(coalesce(p_photo_url, '')), '')
-  where id = auth.uid();
+  update public.profiles set name = trim(p_name) where id = auth.uid();
 
   if not found then
     raise exception 'Your profile could not be found.';
   end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'phone') then
+    execute 'update public.profiles set phone=$1,email=$2,gender=$3,blood_group=$4,emergency_contact=$5,photo_url=$6 where id=$7'
+      using nullif(trim(coalesce(p_phone, '')), ''), nullif(trim(coalesce(p_email, '')), ''),
+        nullif(trim(coalesce(p_gender, '')), ''), nullif(trim(coalesce(p_blood_group, '')), ''),
+        nullif(trim(coalesce(p_emergency_contact, '')), ''), nullif(trim(coalesce(p_photo_url, '')), ''), auth.uid();
+  end if;
+
+  insert into public.employee_private_profiles (id, phone, email, gender, blood_group, emergency_contact, photo_url)
+  values (
+    auth.uid(), nullif(trim(coalesce(p_phone, '')), ''), nullif(trim(coalesce(p_email, '')), ''),
+    nullif(trim(coalesce(p_gender, '')), ''), nullif(trim(coalesce(p_blood_group, '')), ''),
+    nullif(trim(coalesce(p_emergency_contact, '')), ''), nullif(trim(coalesce(p_photo_url, '')), '')
+  ) on conflict (id) do update set
+    phone=excluded.phone, email=excluded.email, gender=excluded.gender,
+    blood_group=excluded.blood_group, emergency_contact=excluded.emergency_contact,
+    photo_url=excluded.photo_url;
 end;
 $$;
 
@@ -82,7 +93,7 @@ create or replace function public.admin_update_employee_profile(
 returns void
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 begin
   if auth.uid() is null or public.current_user_role() not in ('admin', 'manager') then
@@ -119,20 +130,30 @@ begin
     raise exception 'Profile photo URL must be HTTPS and 2,048 characters or fewer.';
   end if;
 
-  update public.profiles
-  set name = trim(p_name),
-      phone = nullif(trim(coalesce(p_phone, '')), ''),
-      email = nullif(trim(coalesce(p_email, '')), ''),
-      gender = nullif(trim(coalesce(p_gender, '')), ''),
-      blood_group = nullif(trim(coalesce(p_blood_group, '')), ''),
-      emergency_contact = nullif(trim(coalesce(p_emergency_contact, '')), ''),
-      manager_name = nullif(trim(coalesce(p_manager_name, '')), ''),
-      photo_url = nullif(trim(coalesce(p_photo_url, '')), '')
-  where id = p_profile_id;
+  update public.profiles set name = trim(p_name) where id = p_profile_id;
 
   if not found then
     raise exception 'The selected employee profile could not be found.';
   end if;
+
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'phone') then
+    execute 'update public.profiles set phone=$1,email=$2,gender=$3,blood_group=$4,emergency_contact=$5,manager_name=$6,photo_url=$7 where id=$8'
+      using nullif(trim(coalesce(p_phone, '')), ''), nullif(trim(coalesce(p_email, '')), ''),
+        nullif(trim(coalesce(p_gender, '')), ''), nullif(trim(coalesce(p_blood_group, '')), ''),
+        nullif(trim(coalesce(p_emergency_contact, '')), ''), nullif(trim(coalesce(p_manager_name, '')), ''),
+        nullif(trim(coalesce(p_photo_url, '')), ''), p_profile_id;
+  end if;
+
+  insert into public.employee_private_profiles (id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url)
+  values (
+    p_profile_id, nullif(trim(coalesce(p_phone, '')), ''), nullif(trim(coalesce(p_email, '')), ''),
+    nullif(trim(coalesce(p_gender, '')), ''), nullif(trim(coalesce(p_blood_group, '')), ''),
+    nullif(trim(coalesce(p_emergency_contact, '')), ''), nullif(trim(coalesce(p_manager_name, '')), ''),
+    nullif(trim(coalesce(p_photo_url, '')), '')
+  ) on conflict (id) do update set
+    phone=excluded.phone, email=excluded.email, gender=excluded.gender,
+    blood_group=excluded.blood_group, emergency_contact=excluded.emergency_contact,
+    manager_name=excluded.manager_name, photo_url=excluded.photo_url;
 end;
 $$;
 

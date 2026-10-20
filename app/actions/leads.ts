@@ -1170,9 +1170,8 @@ export interface EmployeeDirectoryEntry {
 // HR migration (supabase-hr-migration.sql) has been applied and silently falls
 // back to the three base columns when it has not (PostgREST answers 42703 /
 // PGRST204 for unknown columns), so the CRM keeps working either way.
-const HR_PROFILE_COLUMNS =
-  "id, name, role, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url";
-const BASE_PROFILE_COLUMNS = "id, name, role";
+const PRIVATE_PROFILE_COLUMNS =
+  "id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url";
 
 function textOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1194,29 +1193,47 @@ export async function getEmployeeDirectory(): Promise<ActionResult<EmployeeDirec
     const viewerRole = await getViewerRole(supabase);
     if (!viewerRole || viewerRole === "employee") return { success: true, data: [] };
 
-    const withHr = await supabase.from("profiles").select(HR_PROFILE_COLUMNS).order("name", { ascending: true });
-    let rows = (withHr.data ?? null) as Record<string, unknown>[] | null;
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, name, role")
+      .order("name", { ascending: true });
+    if (profilesError) return { success: false, error: profilesError.message };
 
-    if (withHr.error) {
-      const base = await supabase.from("profiles").select(BASE_PROFILE_COLUMNS).order("name", { ascending: true });
-      if (base.error) return { success: false, error: base.error.message };
-      rows = (base.data ?? null) as Record<string, unknown>[] | null;
+    const { data: privateRows, error: privateError } = await supabase
+      .from("employee_private_profiles")
+      .select(PRIVATE_PROFILE_COLUMNS);
+    let hrById = new Map<string, Record<string, unknown>>();
+
+    if (privateError && /employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateError.message)) {
+      // Keep old deployments usable during the additive migration rollout only.
+      const legacy = await supabase.from("profiles").select("id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url");
+      if (legacy.error && !/column .* does not exist|could not find the .* column/i.test(legacy.error.message)) {
+        return { success: false, error: legacy.error.message };
+      }
+      hrById = new Map((legacy.data ?? []).map((row) => [String(row.id), row as Record<string, unknown>]));
+    } else if (privateError) {
+      return { success: false, error: privateError.message };
+    } else {
+      hrById = new Map((privateRows ?? []).map((row) => [String(row.id), row as Record<string, unknown>]));
     }
 
     return {
       success: true,
-      data: (rows ?? []).map((row) => ({
-        id: String(row.id ?? ""),
-        name: String(row.name ?? "").trim(),
-        role: row.role === "admin" || row.role === "manager" ? row.role : "employee",
-        phone: textOrNull(row.phone),
-        email: textOrNull(row.email),
-        gender: textOrNull(row.gender),
-        blood_group: textOrNull(row.blood_group),
-        emergency_contact: textOrNull(row.emergency_contact),
-        manager_name: textOrNull(row.manager_name),
-        photo_url: textOrNull(row.photo_url),
-      })),
+      data: (profiles ?? []).map((row) => {
+        const hr = hrById.get(String(row.id)) ?? {};
+        return {
+          id: String(row.id ?? ""),
+          name: String(row.name ?? "").trim(),
+          role: row.role === "admin" || row.role === "manager" ? row.role : "employee",
+          phone: textOrNull(hr.phone),
+          email: textOrNull(hr.email),
+          gender: textOrNull(hr.gender),
+          blood_group: textOrNull(hr.blood_group),
+          emergency_contact: textOrNull(hr.emergency_contact),
+          manager_name: textOrNull(hr.manager_name),
+          photo_url: textOrNull(hr.photo_url),
+        };
+      }),
     };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to fetch the employee directory.") };
@@ -1234,29 +1251,41 @@ export async function getMyEmployeeProfile(): Promise<ActionResult<EmployeeDirec
     if (authError) return { success: false, error: authError.message };
     if (!user) return { success: false, error: "Sign in to open your profile." };
 
-    const { data, error } = await supabase
+    const { data: profile, error } = await supabase
       .from("profiles")
-      .select(HR_PROFILE_COLUMNS)
+      .select("id, name, role")
       .eq("id", user.id)
       .maybeSingle();
-    if (error) {
-      if (/blood_group|emergency_contact|manager_name|photo_url|column .* does not exist/i.test(error.message)) {
-        return {
-          success: false,
-          error: "Profile details are not available yet. Run supabase-hr-migration.sql in the Supabase SQL Editor.",
-        };
-      }
-      return { success: false, error: error.message };
-    }
-    if (!data) return { success: true, data: null };
+    if (error) return { success: false, error: error.message };
+    if (!profile) return { success: true, data: null };
 
-    const row = data as Record<string, unknown>;
+    const { data: privateProfile, error: privateError } = await supabase
+      .from("employee_private_profiles")
+      .select(PRIVATE_PROFILE_COLUMNS)
+      .eq("id", user.id)
+      .maybeSingle();
+    if (privateError && !/employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateError.message)) {
+      return { success: false, error: privateError.message };
+    }
+
+    let row = (privateProfile ?? {}) as Record<string, unknown>;
+    if (privateError) {
+      const legacy = await supabase
+        .from("profiles")
+        .select("phone, email, gender, blood_group, emergency_contact, manager_name, photo_url")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (legacy.error) {
+        return { success: false, error: "Profile details are not available yet. Apply the employee profile privacy migration." };
+      }
+      row = (legacy.data ?? {}) as Record<string, unknown>;
+    }
     return {
       success: true,
       data: {
-        id: String(row.id ?? ""),
-        name: String(row.name ?? "").trim(),
-        role: row.role === "admin" || row.role === "manager" ? row.role : "employee",
+        id: String(profile.id ?? ""),
+        name: String(profile.name ?? "").trim(),
+        role: profile.role === "admin" || profile.role === "manager" ? profile.role : "employee",
         phone: textOrNull(row.phone),
         email: textOrNull(row.email),
         gender: textOrNull(row.gender),

@@ -119,7 +119,7 @@ export function GlobalSearch({ role }: { role: string }) {
               <section aria-label="CRM sections" className="mb-2">
                 <h3 className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sections</h3>
                 {visibleDestinations.map((item) => (
-                  <Link key={item.href} href={item.href} onClick={closeSearch} className="group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:bg-emerald-50 focus-visible:outline-none">
+                  <Link key={item.href} href={item.href} onClick={closeSearch} className="crm-interactive-row group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:bg-emerald-50 focus-visible:outline-none">
                     <span>{item.label}</span>
                     <ArrowRight className="size-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-700" aria-hidden="true" />
                   </Link>
@@ -135,7 +135,7 @@ export function GlobalSearch({ role }: { role: string }) {
                 ) : searchError ? (
                   <p role="status" className="px-3 py-5 text-sm text-rose-600">{searchError}</p>
                 ) : resultsFor === term && leads.length > 0 ? leads.map((lead) => (
-                  <Link key={lead.id} href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50 focus-visible:bg-emerald-50 focus-visible:outline-none">
+                  <Link key={lead.id} href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="crm-interactive-row group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50 focus-visible:bg-emerald-50 focus-visible:outline-none">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>

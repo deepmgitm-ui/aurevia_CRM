@@ -10,8 +10,9 @@ let db;
   db = new PGlite();
   await db.exec(`create role anon;create role authenticated;create schema auth;
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
-create table public.profiles(id uuid primary key,name text,role text);
+create table public.profiles(id uuid primary key,name text,role text,phone text,email text,gender text,blood_group text,emergency_contact text,manager_name text,photo_url text);
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
+update profiles set phone='9999999999',email='admin@example.test',gender='Other',blood_group='O+',emergency_contact='8888888888',manager_name='Owner',photo_url='https://example.test/admin.png' where id='00000000-0000-4000-8000-000000000001';
 create function public.handle_new_user() returns trigger language plpgsql security definer as $$begin return new;end$$;
 create function public.rls_auto_enable() returns void language plpgsql security definer as $$begin return;end$$;
 create function public.set_updated_at() returns trigger language plpgsql as $$begin new.updated_at:=now();return new;end$$;
@@ -61,6 +62,38 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     pinned_updated_path: true,
     has_meta_id: true,
   });
+  const privateProfileSchema = (await db.query(`select
+    has_table_privilege('authenticated','public.employee_private_profiles','select') as can_select,
+    has_table_privilege('authenticated','public.employee_private_profiles','insert') as can_insert,
+    has_table_privilege('authenticated','public.employee_private_profiles','update') as can_update,
+    has_table_privilege('authenticated','public.employee_private_profiles','delete') as can_delete,
+    exists(select 1 from pg_attribute where attrelid='public.profiles'::regclass and attname='emergency_contact' and not attisdropped) as legacy_hr_exposed
+  `)).rows[0];
+  assert.deepEqual(privateProfileSchema, {
+    can_select: true,
+    can_insert: false,
+    can_update: false,
+    can_delete: false,
+    legacy_hr_exposed: false,
+  });
+  await db.exec(`set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
+  assert.equal((await db.query("select count(*)::int n from employee_private_profiles")).rows[0].n, 1,
+    "employee can read only their own private profile");
+  await assert.rejects(db.query(`insert into employee_private_profiles(id) values('00000000-0000-4000-8000-000000000003')`));
+  await db.query(`select update_my_employee_profile('Agent A','1111111111','agent-a@example.test',null,null,null,null)`);
+  assert.equal((await db.query("select phone from employee_private_profiles where id=auth.uid()")).rows[0].phone, "1111111111",
+    "employee can update their own private fields through the guarded RPC");
+  await assert.rejects(db.query(`select admin_update_employee_profile('00000000-0000-4000-8000-000000000003','Agent B',null,null,null,null,null,null,null)`),
+    "employees cannot use the administrative profile update RPC");
+  await db.exec(`set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';`);
+  assert.equal((await db.query("select count(*)::int n from employee_private_profiles")).rows[0].n, 3,
+    "admin can read the authorized staff directory");
+  assert.equal((await db.query("select phone from employee_private_profiles where id='00000000-0000-4000-8000-000000000001'")).rows[0].phone, "9999999999",
+    "migration copies existing private profile values before removing legacy columns");
+  await db.query(`select admin_update_employee_profile('00000000-0000-4000-8000-000000000003','Agent B','2222222222','agent-b@example.test',null,null,null,'Manager',null)`);
+  assert.equal((await db.query("select phone from employee_private_profiles where id='00000000-0000-4000-8000-000000000003'")).rows[0].phone, "2222222222",
+    "admin can update another user's private profile through the guarded RPC");
+  await db.exec("reset role");
   await db.query(`insert into public.leads(name,phone,meta_leadgen_id) values('Meta retry fixture','1111111111','meta-test-id')`);
   await assert.rejects(
     db.query(`insert into public.leads(name,phone,meta_leadgen_id) values('Meta duplicate fixture','2222222222','meta-test-id')`),

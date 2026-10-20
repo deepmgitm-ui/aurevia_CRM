@@ -43,7 +43,7 @@ export function DashboardStats({
             href={`${href}#lead-list`}
             style={{ animationDelay: `${index * 45}ms` }}
             aria-label={`${card.label}: ${card.value.toLocaleString()}. View matching leads`}
-            className={`crm-motion-in crm-card-interactive rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}
+            className={`crm-motion-in crm-card-interactive rounded-xl border px-4 py-4 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}
           >
             <p className="text-xs font-semibold">{card.label}</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value.toLocaleString()}</p>

@@ -2,7 +2,7 @@
 // Run with: npm run verify:db
 //   1. supabase-indexes.sql           (performance indexes + lead_rollup view)
 //   2. supabase-calendar-migration.sql (calendar_events + employee activity SELECT)
-//   3. supabase-hr-migration.sql       (profiles HR columns + attendance)
+//   3. employee private profile migrations (private HR table + attendance)
 //   4. supabase-lead-source-batches-migration.sql (exact lead import batches)
 import { readFileSync } from "node:fs";
 
@@ -111,8 +111,14 @@ if (policyError) {
 
 // --- 3. HR ---
 console.log("\n3. supabase-hr-migration.sql");
-for (const column of ["blood_group", "emergency_contact", "manager_name", "photo_url"]) {
-  report(`profiles.${column}`, await hasColumn("profiles", column));
+const { error: privateProfilesError } = await supabase
+  .from("employee_private_profiles")
+  .select("id,phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
+  .limit(1);
+reportQuery("employee_private_profiles table and HR columns", privateProfilesError);
+for (const column of ["phone", "email", "gender", "blood_group", "emergency_contact", "manager_name", "photo_url"]) {
+  const state = await hasColumn("profiles", column);
+  report(`profiles.${column} removed`, state === false, state === null ? "could not verify over REST" : "");
 }
 const { error: attendanceError } = await supabase.from("attendance" as never).select("id" as never).limit(1 as never);
 reportQuery("attendance table", attendanceError);

@@ -12,7 +12,7 @@
 }
 
 .crm-card-interactive {
-  transition: box-shadow 160ms ease, border-color 160ms ease;
+  transition: transform 180ms cubic-bezier(0.2, 0.75, 0.25, 1), box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .crm-app-shell .crm-card-interactive {
@@ -64,7 +64,23 @@
 }
 
 .crm-app-shell [data-slot="button"] {
-  transition: box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  transition: transform 140ms ease, box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.crm-app-shell [data-slot="button"]:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(0.985);
+}
+
+.crm-app-shell .crm-interactive-row {
+  transition: transform 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.crm-app-shell [data-slot="tabs-trigger"] {
+  transition: transform 150ms ease, color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.crm-app-shell :focus-visible {
+  scroll-margin-block: 1rem;
 }
 
 .crm-app-shell table thead {
@@ -117,8 +133,28 @@
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .crm-card-interactive:hover {
+    transform: translateY(-2px);
     border-color: #d7e2da;
     box-shadow: 0 5px 14px rgb(15 23 42 / 5%);
+  }
+
+  .crm-app-shell [data-slot="button"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(-1px);
+  }
+
+  .crm-app-shell [data-slot="tabs-trigger"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(-1px);
+  }
+
+  .crm-app-shell .crm-interactive-row:hover {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .crm-app-shell [data-slot="button"]:active:not(:disabled):not([aria-disabled="true"]),
+  .crm-app-shell [data-slot="tabs-trigger"]:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: scale(0.985);
   }
 }
 
@@ -126,6 +162,8 @@
   .crm-motion-in { animation: none; }
   .crm-card-interactive { transition: none; }
   .crm-app-shell [data-slot="button"] { transition: none; }
+  .crm-app-shell .crm-interactive-row { transition: none; }
+  .crm-app-shell [data-slot="tabs-trigger"] { transition: none; }
 }
 
 @custom-variant dark (&:is(.dark *));

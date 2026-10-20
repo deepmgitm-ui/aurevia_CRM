@@ -75,7 +75,7 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
           : isGood
             ? "text-emerald-600"
             : "text-rose-600";
-        const cardClass = `crm-motion-in crm-card-interactive flex flex-col justify-between rounded-2xl border p-4 shadow-sm hover:shadow-lg ${tone.card}`;
+        const cardClass = `crm-motion-in crm-card-interactive flex flex-col justify-between rounded-2xl border p-4 shadow-sm ${tone.card}`;
         const motionStyle = { animationDelay: `${index * 45}ms` };
         const drillHref = KPI_DRILL_HREF[kpi.key];
         const body = (

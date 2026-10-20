@@ -6,23 +6,53 @@
 -- falls back to the three base columns automatically.
 
 -- ---------------------------------------------------------------------------
--- 1. HR fields on public.profiles
+-- 1. Private HR fields. They live separately so RLS can restrict entire rows.
 -- ---------------------------------------------------------------------------
-alter table public.profiles
-  add column if not exists phone text,
-  add column if not exists email text,
-  add column if not exists gender text,
-  add column if not exists blood_group text,
-  add column if not exists emergency_contact text,
-  add column if not exists manager_name text,
-  add column if not exists photo_url text;
+create table if not exists public.employee_private_profiles (
+  id uuid primary key references public.profiles(id) on delete cascade,
+  phone text,
+  email text,
+  gender text,
+  blood_group text,
+  emergency_contact text,
+  manager_name text,
+  photo_url text
+);
 
-comment on column public.profiles.phone is 'HR: contact number shown in the admin Agent detail panel.';
-comment on column public.profiles.email is 'HR: email id shown in the admin Agent detail panel.';
-comment on column public.profiles.blood_group is 'HR: blood group.';
-comment on column public.profiles.emergency_contact is 'HR: emergency contact number.';
-comment on column public.profiles.manager_name is 'HR: assigned manager (free text, matches profiles.name).';
-comment on column public.profiles.photo_url is 'HR: uploaded photo URL (Supabase Storage public URL).';
+alter table public.employee_private_profiles enable row level security;
+revoke all on public.employee_private_profiles from public, anon, authenticated;
+grant select on public.employee_private_profiles to authenticated;
+drop policy if exists employee_private_profiles_read on public.employee_private_profiles;
+create policy employee_private_profiles_read
+on public.employee_private_profiles for select
+to authenticated
+using (
+  id = (select auth.uid())
+  or (select public.current_user_role())::text in ('admin', 'manager')
+);
+
+-- Existing CRM installs already have HR columns. Copy their values before the
+-- application migration removes those columns; fresh installs skip this block.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'emergency_contact'
+  ) then
+    execute $copy$
+      insert into public.employee_private_profiles (
+        id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url
+      )
+      select id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url
+      from public.profiles
+      on conflict (id) do update set
+        phone = excluded.phone, email = excluded.email, gender = excluded.gender,
+        blood_group = excluded.blood_group, emergency_contact = excluded.emergency_contact,
+        manager_name = excluded.manager_name, photo_url = excluded.photo_url
+    $copy$;
+  end if;
+end;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 2. Attendance register

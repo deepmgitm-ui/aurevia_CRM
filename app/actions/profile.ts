@@ -145,18 +145,39 @@ export async function updateEmployeeProfile(
       if (isMissingProfileMigration(updateError.message)) {
         return {
           success: false,
-          error: "Profile editing is not enabled yet. Run the latest supabase-self-profile-migration.sql in the Supabase SQL Editor.",
+          error: "Profile editing is not enabled yet. Apply the latest employee profile migration in Supabase.",
         };
       }
       return { success: false, error: updateError.message };
     }
 
-    const { data: row, error: readError } = await supabase
+    const { data: profile, error: readError } = await supabase
       .from("profiles")
-      .select("id,name,role,phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
+      .select("id,name,role")
       .eq("id", targetProfileId)
       .single();
     if (readError) return { success: false, error: readError.message };
+
+    const { data: privateProfile, error: privateReadError } = await supabase
+      .from("employee_private_profiles")
+      .select("phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
+      .eq("id", targetProfileId)
+      .maybeSingle();
+    if (privateReadError) {
+      if (/employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateReadError.message)) {
+        // Keep the previous app version usable while the new table is being rolled out.
+        const legacy = await supabase
+          .from("profiles")
+          .select("phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
+          .eq("id", targetProfileId)
+          .single();
+        if (legacy.error) return { success: false, error: legacy.error.message };
+        Object.assign(profile, legacy.data);
+      } else {
+        return { success: false, error: privateReadError.message };
+      }
+    }
+    const row = { ...profile, ...(privateProfile ?? {}) };
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard/[section]", "page");
