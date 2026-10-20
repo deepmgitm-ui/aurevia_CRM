@@ -3,8 +3,7 @@
 Aurevia CRM is a clinic operations CRM built with Next.js 16, React 19,
 TypeScript and Supabase. It supports lead management and imports, Meta lead
 forms, daily agent work, appointments, attendance, analytics, follow-ups and
-team activity. The interface is English-first; the help assistant can reply in
-English or Hinglish.
+team activity. The interface and CRM help assistant use English throughout.
 
 ## Local development
 
