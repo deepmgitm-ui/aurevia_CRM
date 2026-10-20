@@ -14,6 +14,7 @@ import {
   leadImportGridToRecords,
   normalizeImportedLeadStatus,
 } from "../lib/lead-import.ts";
+import { canonicalLeadStatus, leadStatusStorageValues } from "../lib/lead-status.ts";
 
 const googleExport = {
   "Full Name": "Test Google Lead",
@@ -45,7 +46,11 @@ for (const record of [googleExport, facebookExport]) {
 }
 
 assert.equal(normalizeImportedLeadStatus("New Lead"), "New");
-assert.equal(normalizeImportedLeadStatus("Lost"), "Lost");
+assert.equal(normalizeImportedLeadStatus("Lost"), "Dropped");
+assert.equal(normalizeImportedLeadStatus("Won"), "IPD Done");
+assert.equal(canonicalLeadStatus("-"), "New");
+assert.equal(canonicalLeadStatus("Contacted"), "Follow-Up");
+assert.deepEqual(leadStatusStorageValues("IPD Done"), ["IPD Done", "Won", "Surgery Completed"]);
 assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow-Up");
 assert.equal(normalizeImportedLeadStatus("Didn't Enquired"), "Didn’t Enquired");
 assert.equal(normalizeImportedLeadStatus("Didn’t Enquired"), "Didn’t Enquired");

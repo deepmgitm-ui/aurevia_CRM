@@ -2074,9 +2074,7 @@ export function LeadsTable({
                     ? "border-sky-200 bg-sky-50 text-sky-700"
                     : leadStatus.startsWith("IPD")
                       ? "border-violet-200 bg-violet-50 text-violet-700"
-                      : leadStatus === "Won"
-                        ? "border-green-200 bg-green-50 text-green-700"
-                        : leadStatus === "Lost"
+                      : leadStatus === "Dropped"
                           ? "border-rose-200 bg-rose-50 text-rose-700"
                           : "border-slate-200 bg-slate-50 text-slate-600";
                 const ageLabel = relativeLeadAge(lead.lead_date);

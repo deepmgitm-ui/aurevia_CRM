@@ -11,6 +11,7 @@ import {
   type StageKey,
 } from "./overview/analytics.ts";
 import { DAILY_WORK_LABELS, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "../../lib/daily-work.ts";
+import { canonicalLeadStatus } from "../../lib/lead-status.ts";
 
 // ---------------------------------------------------------------------------
 // Aurevia CRM — Lead list filters + age buckets.
@@ -557,7 +558,7 @@ function matchesTallyFilters(row: AnalyticsLead, filters: LeadListFilters, today
   const equals = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
   if (filters.city && !equals(row.city, filters.city)) return false;
   if (filters.source && !equals(row.source, filters.source)) return false;
-  if (filters.status && !equals(row.status, filters.status)) return false;
+  if (filters.status && canonicalLeadStatus(row.status) !== canonicalLeadStatus(filters.status)) return false;
   if (filters.assigned && !equals(row.assigned_to, filters.assigned)) return false;
 
   if (filters.age) {

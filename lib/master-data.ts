@@ -6,7 +6,7 @@
 //
 // KEEP THESE IN SYNC: STAGE_TARGET_STATUS in
 // app/dashboard/overview/analytics.ts uses the canonical stage statuses below.
-import { LEAD_STATUS_OPTIONS } from "@/lib/lead-status";
+import { LEAD_STATUS_OPTIONS } from "./lead-status.ts";
 
 export const MASTER_DATA_LISTS = ["statuses", "treatments", "sources", "cities", "temperatures"] as const;
 
@@ -32,8 +32,8 @@ export const BOARD_FALLBACK_STATUSES = [
   "Follow-Up",
   "OPD Booked",
   "OPD Done",
-  "Won",
-  "Lost",
+  "IPD Done",
+  "Dropped",
 ] as const;
 
 export interface MasterDataSnapshot {

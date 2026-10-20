@@ -13,9 +13,9 @@ export const LEAD_STATUS_OPTIONS = [
   "Non Surgical",
   "OPD Booked",
   "OPD Done",
+  "IPD Done",
   "IPD Booked",
-  "Won",
-  "Lost",
+  "Dropped",
   "Invalid Number",
   "CallBack",
   "Wrong Number",
@@ -34,13 +34,29 @@ const STATUS_ALIASES: Record<string, string> = {
   "call back later": "CallBack",
   "consultation booked": "OPD Booked",
   "consultation attended": "OPD Done",
-  "ipd done": "Won",
-  "surgery completed": "Won",
-  dropped: "Lost",
+  // Keep old records visible in a valid picker value while new edits use the
+  // current fixed workflow. Won remains a derived badge in the UI.
+  won: "IPD Done",
+  lost: "Dropped",
+  "ipd done": "IPD Done",
+  "surgery completed": "IPD Done",
   "new lead": "New",
+  "-": "New",
+  "--": "New",
 };
 
-/** Canonicalize legacy spellings without inventing a new status. */
+const STATUS_STORAGE_VALUES: Partial<Record<(typeof LEAD_STATUS_OPTIONS)[number], readonly string[]>> = {
+  New: ["New Lead", "-", "--"],
+  "Follow-Up": ["Follow Up", "Contacted"],
+  "Didn’t Enquired": ["Didn't Enquired"],
+  CallBack: ["Call Back", "Call Back Later"],
+  "OPD Booked": ["Consultation Booked"],
+  "OPD Done": ["Consultation Attended"],
+  "IPD Done": ["Won", "Surgery Completed"],
+  Dropped: ["Lost"],
+};
+
+/** Canonicalize legacy spellings into the current fixed workflow. */
 export function canonicalLeadStatus(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "New";
@@ -51,4 +67,10 @@ export function canonicalLeadStatus(value: string | null | undefined): string {
 export function isLeadStatusOption(value: string | null | undefined): boolean {
   const canonical = canonicalLeadStatus(value);
   return LEAD_STATUS_OPTIONS.some((option) => option === canonical);
+}
+
+/** Stored spellings that should match a current status filter/count. */
+export function leadStatusStorageValues(value: string | null | undefined): string[] {
+  const canonical = canonicalLeadStatus(value);
+  return [canonical, ...(STATUS_STORAGE_VALUES[canonical as keyof typeof STATUS_STORAGE_VALUES] ?? [])];
 }

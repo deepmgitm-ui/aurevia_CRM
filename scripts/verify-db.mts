@@ -26,17 +26,34 @@ if (!url || !key) throw new Error("Supabase URL / key missing in .env.local");
 const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
 let failed = 0;
-function report(label: string, ok: boolean, detail = "") {
+let unverified = 0;
+function report(label: string, ok: boolean | null, detail = "") {
   if (ok) console.log(`  ✓ ${label}${detail ? ` (${detail})` : ""}`);
+  else if (ok === null) {
+    unverified += 1;
+    console.log(`  · ${label} — ${detail || "could not verify right now"}`);
+  }
   else {
     failed += 1;
     console.log(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
   }
 }
 
-async function hasColumn(table: string, column: string): Promise<boolean> {
+function queryState(error: { message?: string | null } | null): boolean | null {
+  if (!error) return true;
+  const message = (error.message ?? "").toLowerCase();
+  if (message.includes("fetch failed") || message.includes("network") || message.includes("timeout")) return null;
+  return false;
+}
+
+function reportQuery(label: string, error: { message?: string | null } | null, missingHint = "") {
+  const state = queryState(error);
+  report(label, state, state === null ? "Supabase API was unreachable; not verified" : error?.message || missingHint);
+}
+
+async function hasColumn(table: string, column: string): Promise<boolean | null> {
   const { error } = await supabase.from(table).select(column).limit(1);
-  return !error;
+  return queryState(error);
 }
 
 async function hasIndex(name: string): Promise<boolean | null> {
@@ -74,12 +91,12 @@ for (const index of INDEXES) {
   else report(index, state);
 }
 const { error: rollupError } = await supabase.from("lead_rollup" as never).select("month" as never).limit(1 as never);
-report("lead_rollup view", !rollupError, rollupError?.message);
+reportQuery("lead_rollup view", rollupError);
 
 // --- 2. calendar ---
 console.log("\n2. supabase-calendar-migration.sql");
 const { error: calError } = await supabase.from("calendar_events").select("id").limit(1);
-report("calendar_events table", !calError, calError?.message);
+reportQuery("calendar_events table", calError);
 const { data: policies, error: policyError } = await supabase
   .from("pg_policies" as never)
   .select("policyname" as never)
@@ -94,20 +111,19 @@ if (policyError) {
 
 // --- 3. HR ---
 console.log("\n3. supabase-hr-migration.sql");
-report("profiles.blood_group", await hasColumn("profiles", "blood_group"));
-report("profiles.emergency_contact", await hasColumn("profiles", "emergency_contact"));
-report("profiles.manager_name", await hasColumn("profiles", "manager_name"));
-report("profiles.photo_url", await hasColumn("profiles", "photo_url"));
+for (const column of ["blood_group", "emergency_contact", "manager_name", "photo_url"]) {
+  report(`profiles.${column}`, await hasColumn("profiles", column));
+}
 const { error: attendanceError } = await supabase.from("attendance" as never).select("id" as never).limit(1 as never);
-report("attendance table", !attendanceError, attendanceError?.message);
+reportQuery("attendance table", attendanceError);
 const { error: attendanceRequestsError } = await supabase
   .from("attendance_requests" as never)
   .select("id" as never)
   .limit(1 as never);
 report(
   "attendance_requests table",
-  !attendanceRequestsError,
-  attendanceRequestsError ? "missed sign-in requests are disabled until supabase-attendance-requests-migration.sql is run" : "",
+  queryState(attendanceRequestsError),
+  attendanceRequestsError && queryState(attendanceRequestsError) === false ? "missed sign-in requests are disabled until supabase-attendance-requests-migration.sql is run" : "",
 );
 
 // --- 4. deletion safety net ---
@@ -115,31 +131,34 @@ console.log("\n4. supabase-deletion-backup-migration.sql");
 const { error: backupTableError } = await supabase.from("lead_deletion_backups").select("id").limit(1);
 report(
   "lead_deletion_backups table",
-  !backupTableError,
-  backupTableError ? "bulk-delete undo is disabled until this SQL is run" : "",
+  queryState(backupTableError),
+  backupTableError && queryState(backupTableError) === false ? "bulk-delete undo is disabled until this SQL is run" : "",
 );
 
 // --- 5. master data (admin-editable picklists) ---
 console.log("\n5. supabase-master-data-migration.sql");
 const { error: optionListsError } = await supabase.from("crm_option_lists").select("key").limit(1);
-report("crm_option_lists table", !optionListsError, optionListsError ? "Settings → Master Data stays read-only (seed values)" : "");
+reportQuery("crm_option_lists table", optionListsError, "Settings → Master Data stays read-only (seed values)");
 
 // --- 6. workflow automation ---
 console.log("\n6. supabase-automation-migration.sql");
 const { error: rulesError } = await supabase.from("crm_automation_rules").select("key").limit(1);
-report("crm_automation_rules table", !rulesError, rulesError ? "rules fall back to seed and cannot be toggled" : "");
+reportQuery("crm_automation_rules table", rulesError, "rules fall back to seed and cannot be toggled");
 const { error: runsError } = await supabase.from("crm_automation_runs").select("id").limit(1);
-report("crm_automation_runs table", !runsError, runsError ? "run receipts are not stored" : "");
+reportQuery("crm_automation_runs table", runsError, "run receipts are not stored");
 
 // --- 7. exact lead import batches ---
 console.log("\n7. supabase-lead-source-batches-migration.sql");
-report(
-  "leads.source_batch_id",
-  await hasColumn("leads", "source_batch_id"),
-  "needed to distinguish repeated Excel, Meta, and manual batches",
-);
-report("leads.source_batch_label", await hasColumn("leads", "source_batch_label"));
-report("leads.source_batch_created_at", await hasColumn("leads", "source_batch_created_at"));
+const batchColumns = ["source_batch_id", "source_batch_label", "source_batch_created_at"];
+for (const column of batchColumns) {
+  const state = await hasColumn("leads", column);
+  const detail = state === null
+    ? "Supabase API was unreachable; not verified"
+    : column === "source_batch_id" && state === false
+      ? "needed to distinguish repeated Excel, Meta, and manual batches"
+      : "";
+  report(`leads.${column}`, state, detail);
+}
 
 // --- 8. is the pipeline actually populated? (informational, never a failure) ---
 console.log("\n8. leads data");
@@ -156,8 +175,10 @@ const { count: activityCount } = await supabase
 console.log(`  · lead_activities rows: ${activityCount ?? 0}`);
 
 console.log(
-  failed === 0
+  failed === 0 && unverified === 0
     ? "\n✓ all migrations applied — app features fully live"
-    : `\n✗ ${failed} check(s) failed — paste the matching SQL file in Supabase SQL editor`,
+    : failed === 0
+      ? `\n· ${unverified} check(s) could not be verified because of temporary API access problems`
+      : `\n✗ ${failed} check(s) failed${unverified ? `; ${unverified} could not be verified` : ""} — review the matching SQL file in Supabase SQL editor`,
 );
 process.exit(failed === 0 ? 0 : 1);

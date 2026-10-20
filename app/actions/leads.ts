@@ -37,11 +37,9 @@ import {
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
-import {
-  normaliseAppointmentDate,
-} from "@/lib/appointments";
+import { isWonStatus, normaliseAppointmentDate } from "@/lib/appointments";
 import { createClient } from "@/lib/supabase/server";
-import { canonicalLeadStatus, isLeadStatusOption } from "@/lib/lead-status";
+import { canonicalLeadStatus, isLeadStatusOption, leadStatusStorageValues } from "@/lib/lead-status";
 import {
   cleanImportedLeadRemarks,
   findLeadImportValue,
@@ -658,6 +656,17 @@ async function resolveLeadFilters(
 // (Hot/Warm/Cold); every other filter value targets the status column.
 const TEMPERATURE_FILTERS = new Set(["hot", "warm", "cold"]);
 
+function applyStatusChoice<Q extends { eq(column: string, value: string): Q; in(column: string, values: readonly string[]): Q; or(filters: string): Q }>(
+  query: Q,
+  status: string,
+): Q {
+  const canonical = canonicalLeadStatus(status);
+  const values = leadStatusStorageValues(status);
+  if (values.length === 1) return query.eq("status", values[0]);
+  const clause = `status.in.(${inListExpression(values)})`;
+  return query.or(canonical === "New" ? `status.is.null,${clause}` : clause);
+}
+
 export async function getLeadsPage(
   page = 1,
   pageSize = LEADS_PAGE_SIZE,
@@ -726,11 +735,11 @@ export async function getLeadsPage(
     const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
     const statusFilterNormalized = effectiveStatus.toLowerCase();
     if (statusFilterNormalized) {
-      // Advanced status filter: Hot/Warm/Cold target the temperature column,
-      // every other value (New, OPD Done, Won, Lost, ...) targets status.
+      // Advanced temperature labels target the temperature column; every lead
+      // workflow status uses its canonical and legacy stored spellings.
       leadsQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
         ? leadsQuery.eq("temperature", effectiveStatus)
-        : leadsQuery.eq("status", effectiveStatus);
+        : applyStatusChoice(leadsQuery, effectiveStatus);
     }
     leadsQuery = applyLeadFilters(leadsQuery, resolved);
     const { data, error, count } = await leadsQuery
@@ -798,7 +807,7 @@ export async function getLeadsForExport(
     if (statusFilterNormalized) {
       exportQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
         ? exportQuery.eq("temperature", effectiveStatus)
-        : exportQuery.eq("status", effectiveStatus);
+        : applyStatusChoice(exportQuery, effectiveStatus);
     }
     exportQuery = applyLeadFilters(exportQuery, resolved);
     exportQuery = exportQuery.order("created_at", { ascending: false }).order("id");
@@ -914,15 +923,20 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
 
     const totalQuery = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo);
     const statusCountQuery = (status: string) =>
-      buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).eq("status", status);
+      applyStatusChoice(
+        buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo),
+        status,
+      );
+    const statusValuesCountQuery = (statuses: string[]) =>
+      buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).in("status", statuses);
     const hotQuery = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).eq("temperature", "Hot");
 
     const [totalRes, newRes, hotRes, wonRes, lostRes] = await Promise.all([
       totalQuery,
       statusCountQuery("New"),
       hotQuery,
-      statusCountQuery("Won"),
-      statusCountQuery("Lost"),
+      statusValuesCountQuery(["OPD Done", "Consultation Attended", "IPD Done", "Won", "Surgery Completed"]),
+      statusCountQuery("Dropped"),
     ]);
 
     for (const result of [totalRes, newRes, hotRes, wonRes, lostRes]) {
@@ -971,7 +985,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
 
     const count = (status?: string) => {
       const query = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo);
-      return status ? query.eq("status", status) : query;
+      return status ? applyStatusChoice(query, status) : query;
     };
     const [total, fresh, opdBooked, opdDone, ipd] = await Promise.all([
       count(), count("New"), count("OPD Booked"), count("OPD Done"), count("IPD Done"),
@@ -1944,7 +1958,7 @@ function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
   if (statusFilter) {
     scoped = TEMPERATURE_FILTERS.has(statusFilter.toLowerCase())
       ? scoped.eq("temperature", statusFilter)
-      : scoped.eq("status", statusFilter);
+      : applyStatusChoice(scoped, statusFilter);
   }
   if (scope.ids?.length) scoped = scoped.in("id", scope.ids);
   else if (scope.unscoped) scoped = scoped.not("id", "is", null);
@@ -3368,8 +3382,8 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
         sourceMap.set(source, (sourceMap.get(source) ?? 0) + 1);
         temperatureMap.set(temperature, (temperatureMap.get(temperature) ?? 0) + 1);
 
-        if (status === "Won") won += 1;
-        if (status === "Lost") lost += 1;
+        if (isWonStatus(status)) won += 1;
+        if (stageForStatus(status) === "lost") lost += 1;
         if (!row.assigned_to || row.assigned_to === "-") unassigned += 1;
 
         const followUpKey = parseStoredDateKey(String(row.follow_up_date ?? ""));

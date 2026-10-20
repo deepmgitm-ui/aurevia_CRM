@@ -450,8 +450,8 @@ export const STAGE_TARGET_STATUS: Record<StageKey, string> = {
   contacted: "Follow-Up",
   booked: "OPD Booked",
   attended: "OPD Done",
-  surgery: "Won",
-  lost: "Lost",
+  surgery: "IPD Done",
+  lost: "Dropped",
 };
 
 // ---------------------------------------------------------------------------
