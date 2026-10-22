@@ -23,7 +23,7 @@ function StatChip({ label, value, className, href, name }: { label: string; valu
   );
 }
 
-// Each metric opens the same agent's leads with the corresponding status.
+// Each metric opens the same agent's exact workflow bucket.
 export function TeamOverview({
   team,
   filters,
@@ -73,12 +73,14 @@ export function TeamOverview({
           </Link>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name })} label="Total leads" value={employee.total} className="col-span-2 bg-slate-100 text-slate-700" />
-            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, status: "New" })} label="Fresh leads" value={employee.newLeads} className="bg-blue-50 text-blue-700" />
-            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, status: "OPD Booked" })} label="OPD booked" value={employee.opdBooked} className="bg-amber-50 text-amber-700" />
-            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, status: "OPD Done" })} label="OPD Done" value={employee.opdDone} className="bg-emerald-50 text-emerald-700" />
-            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, status: "IPD Done" })} label="IPD" value={employee.ipd} className="bg-violet-50 text-violet-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "fresh" })} label="Fresh leads" value={employee.fresh} className="bg-blue-50 text-blue-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "followup" })} label="Follow-up" value={employee.followUp} className="bg-sky-50 text-sky-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "opdBooked" })} label="OPD booked" value={employee.opdBooked} className="bg-amber-50 text-amber-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "opdDone" })} label="OPD Done" value={employee.opdDone} className="bg-emerald-50 text-emerald-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "ipdBooked" })} label="IPD booked" value={employee.ipdBooked} className="bg-violet-50 text-violet-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "ipdDone" })} label="IPD Done" value={employee.ipd} className="bg-purple-50 text-purple-700" />
           </div>
-          <p className="mt-3 text-[11px] text-slate-500">Tap a count to view leads · Fresh = New · IPD = IPD Done</p>
+          <p className="mt-3 text-[11px] text-slate-500">Select a count to view only the matching leads.</p>
         </article>
       ))}
     </section>

@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { TeamActivityPanel } from "./team-activity-panel";
+import { DeletionReviewPanel } from "./deletion-review-panel";
 import { LeadsTable } from "./leads-table";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
@@ -24,7 +25,7 @@ import { PipelineInsights } from "./pipeline-insights";
 import { LeadAssignmentTabs } from "./lead-assignment-tabs";
 import { clinicDate } from "@/lib/attendance";
 import { isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
-import { EMPTY_LEAD_FILTERS } from "./lead-filters";
+import { EMPTY_LEAD_FILTERS, leadsHref } from "./lead-filters";
 
 const statCards = [
   {
@@ -159,6 +160,7 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
+        <DeletionReviewPanel role={viewer?.role ?? ""} />
         <TeamActivityPanel day={clinicDate()} />
         <OverviewDashboard
           rows={rows}
@@ -204,6 +206,7 @@ export default async function DashboardPage({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <DeletionReviewPanel role={viewer?.role ?? ""} />
       <TeamActivityPanel key={day} day={day} own />
 
       <div>
@@ -228,15 +231,17 @@ export default async function DashboardPage({
           <h2 className="text-lg font-semibold text-slate-950">My lead pipeline</h2>
           <p className="mt-1 text-sm text-slate-500">Tap a count to open the matching leads in your table.</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
           {([
-            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, href: "/dashboard/leads?month=all", tone: "border-slate-200 bg-white text-slate-800" },
-            { label: "Fresh leads", value: summaryResult.success ? summaryResult.data.fresh : null, href: "/dashboard/leads?status=New", tone: "border-blue-200 bg-blue-50 text-blue-800" },
-            { label: "OPD booked", value: summaryResult.success ? summaryResult.data.opdBooked : null, href: "/dashboard/leads?status=OPD%20Booked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
-            { label: "OPD done", value: summaryResult.success ? summaryResult.data.opdDone : null, href: "/dashboard/leads?status=OPD%20Done", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-            { label: "IPD", value: summaryResult.success ? summaryResult.data.ipd : null, href: "/dashboard/leads?status=IPD%20Done", tone: "border-violet-200 bg-violet-50 text-violet-800" },
+            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, bucket: "", tone: "border-slate-200 bg-white text-slate-800" },
+            { label: "Fresh leads", value: summaryResult.success ? summaryResult.data.fresh : null, bucket: "fresh", tone: "border-blue-200 bg-blue-50 text-blue-800" },
+            { label: "Follow-up", value: summaryResult.success ? summaryResult.data.followUp : null, bucket: "followup", tone: "border-sky-200 bg-sky-50 text-sky-800" },
+            { label: "OPD booked", value: summaryResult.success ? summaryResult.data.opdBooked : null, bucket: "opdBooked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
+            { label: "OPD done", value: summaryResult.success ? summaryResult.data.opdDone : null, bucket: "opdDone", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+            { label: "IPD booked", value: summaryResult.success ? summaryResult.data.ipdBooked : null, bucket: "ipdBooked", tone: "border-violet-200 bg-violet-50 text-violet-800" },
+            { label: "IPD done", value: summaryResult.success ? summaryResult.data.ipdDone : null, bucket: "ipdDone", tone: "border-purple-200 bg-purple-50 text-purple-800" },
           ] as const).map((card) => (
-            <Link key={card.label} href={`${card.href}#lead-list`} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}>
+            <Link key={card.label} href={`${leadsHref({ bucket: card.bucket, allMonths: true })}#lead-list`} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}>
               <p className="text-xs font-semibold">{card.label}</p>
               <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
               <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium">View leads <ArrowRight className="size-3" aria-hidden="true" /></span>

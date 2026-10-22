@@ -20,6 +20,7 @@ create function public.current_user_role() returns text language sql stable secu
 create type public.lead_temp as enum ('Hot','Warm','Cold');
 create table public.leads(id uuid primary key default gen_random_uuid(),name text not null,phone text,email text,source text not null default 'Manual',status text not null default 'New',temperature public.lead_temp not null default 'Warm',created_at timestamptz not null default now(),updated_at timestamptz not null default now(),gender text,city text,disease text,insurance_status text,remarks text,lead_date text,assigned_to text,follow_up_date text,opd_booked_date text,opd_done_date text,ipd_done_date text,assigned_at timestamptz,source_batch_id uuid,source_batch_label text,source_batch_created_at timestamptz);
 create table public.lead_activities(id uuid primary key default gen_random_uuid(),lead_id uuid references public.leads on delete cascade,user_id uuid references public.profiles,action_type text,description text,created_at timestamptz default now());
+create table public.lead_deletion_backups(id uuid primary key default gen_random_uuid(),deleted_by uuid,deleted_by_name text,scope text,search text,row_count integer not null default 0,activity_count integer not null default 0,lead_rows jsonb not null default '[]',activity_rows jsonb not null default '[]',restored_at timestamptz,created_at timestamptz default now());
 create table public.crm_automation_rules(id uuid primary key default gen_random_uuid(),key text unique,label text,stage text,enabled boolean default true,last_run_at timestamptz,last_run_summary text);
 create table public.crm_automation_runs(id uuid primary key default gen_random_uuid(),rule_key text,run_by uuid,run_by_name text,affected integer,detail jsonb default '[]',created_at timestamptz default now());
 create function public.test_updated() returns trigger language plpgsql as $$begin new.updated_at:=clock_timestamp();return new;end$$;
@@ -337,11 +338,81 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
       .rows[0].n,
     0,
   );
+
+  // Agent bucket lifecycle: initial assignments are Fresh; any agent field
+  // edit or logged activity changes that lead to Follow-up.
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const bucketIds = {};
+  for (const [key, name, status] of [
+    ["edited", "Bucket edited", "New"],
+    ["activity", "Bucket activity", "New"],
+    ["opdBooked", "Bucket OPD booked", "OPD Booked"],
+    ["opdDone", "Bucket OPD done", "OPD Done"],
+    ["ipdBooked", "Bucket IPD booked", "IPD Booked"],
+    ["ipdDone", "Bucket IPD done", "IPD Done"],
+  ]) {
+    bucketIds[key] = (await db.query(
+      "insert into leads(name,phone,assigned_to,status) values($1,$2,'Agent A',$3) returning id",
+      [name, String(9100000000 + Object.keys(bucketIds).length), status],
+    )).rows[0].id;
+  }
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "fresh");
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await db.query("update leads set remarks='First agent edit' where id=$1", [bucketIds.edited]);
+  await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,auth.uid(),'Note','First agent activity')", [bucketIds.activity]);
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "followup");
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.activity])).rows[0].workflow_bucket, "followup");
+  for (const [key, expected] of [["opdBooked", "opdBooked"], ["opdDone", "opdDone"], ["ipdBooked", "ipdBooked"], ["ipdDone", "ipdDone"]]) {
+    assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds[key]])).rows[0].workflow_bucket, expected);
+  }
+  const bucketSummary = (await db.query("select crm_lead_bucket_summary('Agent A') x")).rows[0].x;
+  assert.ok(bucketSummary.fresh >= 1205, "new unedited assignment counts as Fresh");
+  assert.ok(bucketSummary.followUp >= 2, "first edits and activities count as Follow-up");
+  assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
+
+  // Closed statuses wait seven days before review. Agent notes are private to
+  // that assigned employee; only an administrator can Keep or Delete.
+  await db.exec("reset role;");
+  const keepLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','Not Interested',now()-interval '8 days') returning id",
+  )).rows[0].id;
+  await db.query("select crm_private.daily_lost_lead_reviews()");
+  const keepReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [keepLead])).rows[0].id;
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await db.query("select crm_submit_deletion_review_note($1,'Patient requested a callback')", [keepReview]);
+  assert.equal((await db.query("select agent_note from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].agent_note, "Patient requested a callback");
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].n, 0, "another employee cannot see this review");
+  await assert.rejects(db.query("select crm_submit_deletion_review_note($1,'Unauthorized note')", [keepReview]));
+  await assert.rejects(db.query("select crm_admin_resolve_deletion_review($1,'delete',null)", [keepReview]));
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
+  await db.query("select crm_admin_resolve_deletion_review($1,'keep',null)", [keepReview]);
+  assert.equal((await db.query("select decision from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].decision, "kept");
+
+  // When the review remains unanswered through its seven-day deadline, lead,
+  // activity, appointments, assignment history and JSON recovery copies purge.
+  await db.exec("reset role;");
+  const purgeLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Purge','9190000002','Agent A','Wrong Number',now()-interval '8 days') returning id",
+  )).rows[0].id;
+  await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000002','Note','Private patient note')", [purgeLead]);
+  const purgeAppointment = (await db.query("insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id", [purgeLead, today])).rows[0].id;
+  await db.query("insert into lead_deletion_backups(scope,search,row_count,activity_count,lead_rows,activity_rows) values('selected','',1,1,jsonb_build_array(jsonb_build_object('id',$1::text,'name','Review Purge')),jsonb_build_array(jsonb_build_object('lead_id',$1::text,'description','Private patient note')))", [purgeLead]);
+  await db.query("select crm_private.daily_lost_lead_reviews()");
+  const purgeReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [purgeLead])).rows[0].id;
+  await db.query("update crm_lead_deletion_reviews set delete_after=now()-interval '1 minute' where id=$1", [purgeReview]);
+  await db.query("select crm_private.daily_lost_lead_reviews()");
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [purgeLead])).rows[0].n, 0, "unanswered due review removes lead");
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [purgeLead])).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [purgeAppointment])).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_events where lead_id=$1", [purgeLead])).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int n from lead_deletion_backups where lead_rows @> jsonb_build_array(jsonb_build_object('id',$1::text))", [purgeLead])).rows[0].n, 0, "recovery copy is scrubbed");
+
   await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
   console.log(
-    "Isolated migration checks passed: RLS, atomic calls, IST, admin guards, visit history, stale edits, 1,205-row accuracy, normalized duplicates, 500-row automation, daily idempotency, pause, actor attribution and merge recovery",
+    "Isolated migration checks passed: existing CRM workflows, RLS, agent buckets, exact counts, closed-lead review, Keep/Delete decisions, linked-data purge, and backup cleanup",
   );
 })().catch(async (e) => {
   console.error(e.message);

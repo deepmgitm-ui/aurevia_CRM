@@ -142,7 +142,7 @@ export default async function LeadsPage({
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
   const pipelineSummary = employeeSummaryResult.success
     ? employeeSummaryResult.data
-    : { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
+    : { total: 0, fresh: 0, followUp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the

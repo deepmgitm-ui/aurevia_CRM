@@ -493,6 +493,7 @@ interface ResolvedLeadFilters {
   assigned: string | null;
   assignmentStatus: "" | "assigned" | "unassigned";
   assignmentNames: string[];
+  bucket: LeadListFilters["bucket"];
 }
 
 function emptyResolvedFilters(): ResolvedLeadFilters {
@@ -509,6 +510,7 @@ function emptyResolvedFilters(): ResolvedLeadFilters {
     assigned: null,
     assignmentStatus: "",
     assignmentNames: [],
+    bucket: "",
   };
 }
 
@@ -538,6 +540,7 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
   else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
+  if (resolved.bucket) filtered = filtered.eq("workflow_bucket", resolved.bucket);
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
   // (stage AND treatment AND age ...).
@@ -573,6 +576,10 @@ async function resolveLeadFilters(
 ): Promise<ResolvedLeadFilters> {
   const resolved = emptyResolvedFilters();
   if (!filters) return resolved;
+  const requestedBucket = filters.bucket ?? "";
+  if (["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone"].includes(requestedBucket)) {
+    resolved.bucket = requestedBucket as LeadListFilters["bucket"];
+  }
   if(isWorkDate(filters.dateFrom??""))resolved.orExpressions.push(`lead_day.gte.${filters.dateFrom}`);
   if(isWorkDate(filters.dateTo??""))resolved.orExpressions.push(`lead_day.lte.${filters.dateTo}`);
   if (isDailyWorkKind(filters.work ?? "") && isWorkDate(filters.day ?? "")) {
@@ -966,14 +973,16 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
 export interface EmployeeLeadSummary {
   total: number;
   fresh: number;
+  followUp: number;
   opdBooked: number;
   opdDone: number;
-  ipd: number;
+  ipdBooked: number;
+  ipdDone: number;
 }
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
 export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
-  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, opdBooked: 0, opdDone: 0, ipd: 0 };
+  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -983,22 +992,19 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       return { success: true, data: empty };
     }
 
-    const count = (status?: string) => {
-      const query = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo);
-      return status ? applyStatusChoice(query, status) : query;
-    };
-    const [total, fresh, opdBooked, opdDone, ipd] = await Promise.all([
-      count(), count("New"), count("OPD Booked"), count("OPD Done"), count("IPD Done"),
-    ]);
-    for (const result of [total, fresh, opdBooked, opdDone, ipd]) {
-      if (result.error) return { success: false, error: "Your lead summary could not be loaded." };
-    }
+    const { data, error } = await supabase.rpc("crm_lead_bucket_summary", {
+      p_assigned_to: profile.role === "employee" ? profile.name : assignedTo.trim() || null,
+    });
+    if (error) return { success: false, error: "Your lead summary could not be loaded." };
+    const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
     return { success: true, data: {
-      total: total.count ?? 0,
-      fresh: fresh.count ?? 0,
-      opdBooked: opdBooked.count ?? 0,
-      opdDone: opdDone.count ?? 0,
-      ipd: ipd.count ?? 0,
+      total: Number(row.total ?? 0),
+      fresh: Number(row.fresh ?? 0),
+      followUp: Number(row.followUp ?? 0),
+      opdBooked: Number(row.opdBooked ?? 0),
+      opdDone: Number(row.opdDone ?? 0),
+      ipdBooked: Number(row.ipdBooked ?? 0),
+      ipdDone: Number(row.ipdDone ?? 0),
     } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Your lead summary could not be loaded.") };
@@ -1345,11 +1351,14 @@ export interface EmployeeLeadStats {
   warm: number;
   cold: number;
   newLeads: number;
+  fresh: number;
+  followUp: number;
   won: number;
   lost: number;
   opdDone: number;
   opdBooked: number;
   ipd: number;
+  ipdBooked: number;
 }
 
 export interface TeamStats {
@@ -1399,11 +1408,14 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         warm: 0,
         cold: 0,
         newLeads: 0,
+        fresh: 0,
+        followUp: 0,
         won: 0,
         lost: 0,
         opdDone: 0,
         opdBooked: 0,
         ipd: 0,
+        ipdBooked: 0,
       });
     }
 
@@ -1441,6 +1453,22 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       }
       if (rows.length < chunkSize) break;
       from += chunkSize;
+    }
+
+    const { data: bucketRows, error: bucketError } = await supabase.rpc("crm_team_bucket_groups");
+    if (bucketError) return { success: false, error: bucketError.message };
+    for (const row of bucketRows ?? []) {
+      const stats = statsByName.get(String(row.assigned_to ?? "").trim());
+      if (!stats) continue;
+      const value = Number(row.lead_count ?? 0);
+      switch (row.bucket) {
+        case "fresh": stats.fresh = value; break;
+        case "followup": stats.followUp = value; break;
+        case "opdBooked": stats.opdBooked = value; break;
+        case "opdDone": stats.opdDone = value; break;
+        case "ipdBooked": stats.ipdBooked = value; break;
+        case "ipdDone": stats.ipd = value; break;
+      }
     }
 
     return {

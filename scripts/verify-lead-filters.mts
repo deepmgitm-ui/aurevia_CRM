@@ -71,6 +71,12 @@ for (const status of ["New", "OPD Booked", "OPD Done", "IPD Done"]) {
   assert.equal(cardFilters.status, status);
   assert.equal(cardFilters.allMonths, true);
 }
+const workflowHref = leadsHref({ assigned: "Atul Pandey", bucket: "followup", allMonths: true });
+const workflowFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${workflowHref}`).searchParams));
+assert.equal(workflowFilters.bucket, "followup", "workflow card links preserve their exact bucket");
+assert.equal(hasLeadFilters(workflowFilters), true, "workflow bucket activates the lead filter summary");
+assert.ok(describeActiveFilters(workflowFilters).includes("Follow-up"), "workflow bucket has a readable filter label");
+assert.equal(parseLeadFilters({ bucket: "unsupported" }).bucket, "", "unknown workflow buckets are ignored");
 
 // ---------------------------------------------------------------------------
 // 2. Stage keys: valid ones kept in canonical order, junk silently dropped.
