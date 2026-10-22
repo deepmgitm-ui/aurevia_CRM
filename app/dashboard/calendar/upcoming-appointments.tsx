@@ -8,7 +8,7 @@ import { AppointmentStatusActions } from "./appointment-status-actions";
 import { AppointmentEditor } from "./appointment-editor";
 import type { CalendarAppointment } from "./actions";
 
-export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, agents, initialView = "upcoming" }: { items: CalendarAppointment[]; pastItems: CalendarAppointment[]; todayIso: string; canEdit: boolean; agents: string[]; initialView?: "upcoming" | "past" }) {
+export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, showAttribution, agents, initialView = "upcoming" }: { items: CalendarAppointment[]; pastItems: CalendarAppointment[]; todayIso: string; canEdit: boolean; showAttribution: boolean; agents: string[]; initialView?: "upcoming" | "past" }) {
   const [view, setView] = useState(initialView);
   const [period, setPeriod] = useState("all");
   const [kind, setKind] = useState("all");
@@ -64,6 +64,8 @@ export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, agen
               <div className="flex items-start justify-between gap-3"><Link prefetch={false} href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="min-w-0 truncate font-semibold text-slate-900 hover:text-blue-700">{item.leadName}</Link><span className={`shrink-0 rounded-lg px-2 py-1 text-xs font-semibold ${item.date === todayIso ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>{item.date === todayIso ? "Today" : new Date(item.date + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}</span></div>
               <p className={`mt-2 text-xs font-semibold ${item.kind === "ipdDone" ? "text-violet-700" : "text-blue-700"}`}>{item.kindLabel}{item.time ? ` · ${item.time} IST` : ""}</p>
               <p className="mt-1 truncate text-xs text-slate-500">Agent: {item.agent === "-" ? "Unassigned" : item.agent}</p>
+              {showAttribution && item.bookedBy && <p className="mt-1 truncate text-xs text-slate-500">Booked by: {item.bookedBy}</p>}
+              {showAttribution && item.completedBy && <p className="mt-1 truncate text-xs text-slate-500">Completed by: {item.completedBy}</p>}
               {item.phone !== "-" && <a href={`tel:${item.phone.replace(/[^+\d]/g, "")}`} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Phone aria-hidden="true" className="size-3.5" />{item.phone}</a>}
               <AppointmentStatusActions id={item.appointmentId} status={item.appointmentStatus}/>
               {canEdit && <div className="mt-3"><AppointmentEditor agents={agents} defaultDate={item.date} leadId={item.leadId} defaultKind={item.kind} appointmentId={item.appointmentId} updatedAt={item.updatedAt} status={item.appointmentStatus} time={item.time} notes={item.notes} label="Edit appointment" /></div>}

@@ -370,6 +370,32 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.ok(bucketSummary.followUp >= 2, "first edits and activities count as Follow-up");
   assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
 
+  // Appointment RLS follows the current employee assignment and changes on reassignment.
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const otherAppointmentLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Other agent appointment','9180000001','Agent B','OPD Booked') returning id",
+  )).rows[0].id;
+  const ownAppointment = (await db.query(
+    "insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id",
+    [bucketIds.opdBooked, today],
+  )).rows[0].id;
+  const otherAppointment = (await db.query(
+    "insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id",
+    [otherAppointmentLead, today],
+  )).rows[0].id;
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 1, "employee can view their own appointment");
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [otherAppointment])).rows[0].n, 0, "employee cannot view another agent's appointment");
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [otherAppointment])).rows[0].n, 1, "appointment is visible to its assigned employee");
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  await db.query("update leads set assigned_to='Agent B' where id=$1", [bucketIds.opdBooked]);
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 0, "reassignment immediately removes old employee access");
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 1, "reassignment grants the new employee access");
+  await db.exec("reset role;");
+
   // Closed statuses wait seven days before review. Agent notes are private to
   // that assigned employee; only an administrator can Keep or Delete.
   await db.exec("reset role;");
@@ -412,7 +438,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
   console.log(
-    "Isolated migration checks passed: existing CRM workflows, RLS, agent buckets, exact counts, closed-lead review, Keep/Delete decisions, linked-data purge, and backup cleanup",
+    "Isolated migration checks passed: CRM workflows, appointment owner RLS and reassignment, agent buckets, deletion reviews, and linked-data cleanup",
   );
 })().catch(async (e) => {
   console.error(e.message);
