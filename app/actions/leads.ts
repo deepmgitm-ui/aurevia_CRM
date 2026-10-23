@@ -1740,6 +1740,14 @@ export async function bulkInsertLeads(
   // Imported rows without an agent: invisible to employees (their list is
   // scoped to assigned_to = their own name), so the caller warns about them.
   const unassigned = freshRecords.filter((record) => !record.assigned_to || record.assigned_to === "-").length;
+  const assignedRecords = freshRecords.filter((record) => record.assigned_to && record.assigned_to !== "-");
+  let assignmentBatchId: string | null = null;
+  if (assignedRecords.length > 0) {
+    const targetNames = [...new Set(assignedRecords.map((record) => record.assigned_to))];
+    const assignmentBatch = await createLeadAssignmentBatch(supabase, targetNames, assignedRecords.length);
+    if (!assignmentBatch.success) return assignmentBatch;
+    assignmentBatchId = assignmentBatch.data.id;
+  }
 
   // Insert in bounded chunks so very large files never exceed PostgREST
   // request limits, and always send exactly the leads-table columns.
@@ -1754,6 +1762,7 @@ export async function bulkInsertLeads(
           source_batch_id: batchId,
           source_batch_label: batchLabel,
           source_batch_created_at: batchCreatedAt,
+          assignment_batch_id: record.assigned_to && record.assigned_to !== "-" ? assignmentBatchId : null,
         }));
       const { data, error } = await supabase
         .from("leads")
@@ -3420,7 +3429,7 @@ export async function updateLeadDetails(
   const status = input.status?.trim() ? canonicalLeadStatus(input.status) : undefined;
   if (status && !isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
 
-  const updates: Record<string, string> = {};
+  const updates: Record<string, string | null> = {};
   if (input.name !== undefined) updates.name = input.name.trim() || "-";
   if (input.phone !== undefined) updates.phone = sanitizePhone(input.phone);
   if (input.email !== undefined) updates.email = input.email.trim() || "-";
@@ -3465,6 +3474,34 @@ export async function updateLeadDetails(
       delete updates.source;
       if (Object.keys(updates).length === 0) {
         return { success: false, error: "No editable lead details were provided." };
+      }
+    }
+
+    if (typeof updates.assigned_to === "string" && (viewerProfile?.role === "admin" || viewerProfile?.role === "manager")) {
+      const { data: currentLead, error: currentLeadError } = await supabase
+        .from("leads")
+        .select("assigned_to")
+        .eq("id", input.id)
+        .single();
+      if (currentLeadError || !currentLead) return { success: false, error: currentLeadError?.message ?? "Lead not found." };
+
+      const targetName = updates.assigned_to.trim();
+      if (targetName !== (currentLead.assigned_to ?? "").trim()) {
+        if (!targetName || targetName === "-") {
+          updates.assignment_batch_id = null;
+        } else {
+          const { data: targets, error: targetError } = await supabase
+            .from("profiles")
+            .select("name, role")
+            .eq("name", targetName);
+          if (targetError) return { success: false, error: targetError.message };
+          const target = targets?.find((profile) => viewerProfile.role === "admin" || profile.role === "employee");
+          if (!target) return { success: false, error: "That team member is unavailable for assignment." };
+          const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
+          if (!batch.success) return batch;
+          updates.assigned_to = target.name;
+          updates.assignment_batch_id = batch.data.id;
+        }
       }
     }
 
