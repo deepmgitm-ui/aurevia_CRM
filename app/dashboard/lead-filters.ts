@@ -266,7 +266,7 @@ export interface LeadListFilters {
   assignmentStatus: "" | "assigned" | "unassigned";
   status: string;
   /** Agent workflow bucket used by dashboard cards. */
-  bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone";
+  bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp";
 }
 
 export const EMPTY_LEAD_FILTERS: LeadListFilters = {
@@ -312,7 +312,7 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
       ? (firstValue(params.assignmentStatus) as LeadListFilters["assignmentStatus"])
       : "",
     status: firstValue(params.status),
-    bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone"].includes(firstValue(params.bucket))
+    bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp"].includes(firstValue(params.bucket))
       ? firstValue(params.bucket) as LeadListFilters["bucket"]
       : "",
   };
@@ -409,7 +409,7 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
     chips.push(filters.assignmentStatus === "unassigned" ? "Unassigned leads" : "Assigned leads");
   }
   if (filters.status) chips.push(filters.status);
-  if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" }[filters.bucket]);
+  if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP" }[filters.bucket]);
   if (filters.q) chips.push(`Search: ${filters.q}`);
   return chips;
 }

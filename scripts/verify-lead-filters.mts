@@ -62,6 +62,16 @@ assert.equal(leadsHref({ city: "Pune" }), "/dashboard/leads?month=all&city=Pune"
 assert.equal(leadsHref({ except: "hair" }), "/dashboard/leads?month=all");
 assert.equal(leadsHref(EMPTY_LEAD_FILTERS), "/dashboard/leads");
 
+// Employee lead categories: DNP includes its retry variants, and daily New
+// Leads drill down to assignments received during the selected IST date.
+const dnpFilters = parseLeadFilters({ bucket: "dnp" });
+assert.equal(dnpFilters.bucket, "dnp");
+assert.deepEqual(describeActiveFilters(dnpFilters), ["DNP"]);
+const newLeadsHref = leadsHref({ work: "assigned", day: "2026-10-23", allMonths: true });
+const newLeadsFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${newLeadsHref}`).searchParams));
+assert.equal(newLeadsFilters.work, "assigned");
+assert.equal(newLeadsFilters.day, "2026-10-23");
+
 // Pipeline cards intentionally open an all-time status list, scoped to the
 // selected agent when one is supplied.
 for (const status of ["New", "OPD Booked", "OPD Done", "IPD Done"]) {

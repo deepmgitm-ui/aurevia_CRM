@@ -125,10 +125,11 @@ function BrandLogo({
 
 function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobile?: boolean; role?: string; pendingDeletionReviews?: number }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const items = navigation
     .filter((item) => {
       if (role === "employee") {
-        return ["/dashboard", "/dashboard/leads", "/dashboard/calendar", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report"].includes(item.href);
+        return ["/dashboard", "/dashboard/leads", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report"].includes(item.href);
       }
       if (item.href === "/dashboard/closed-lead-reviews") return role === "admin";
       return true;
@@ -160,6 +161,18 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
           </Link>
         );
 
+        if (role === "employee" && href === "/dashboard/leads") {
+          const isTotalLeads = pathname === href && searchParams.get("month") === "all" && !searchParams.get("bucket") && !searchParams.get("work") && !searchParams.get("status");
+          const totalLeadsLink = (
+            <Link href="/dashboard/leads?month=all" aria-current={isTotalLeads ? "page" : undefined}
+              className={cn("ml-7 mt-1 flex items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
+                isTotalLeads ? "bg-emerald-50 text-emerald-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
+            >Total Leads</Link>
+          );
+          return mobile
+            ? <div key={href}><SheetClose>{link}</SheetClose><SheetClose>{totalLeadsLink}</SheetClose></div>
+            : <div key={href}>{link}{totalLeadsLink}</div>;
+        }
         return mobile ? <SheetClose key={href}>{link}</SheetClose> : <div key={href}>{link}</div>;
       })}
     </nav>

@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 const destinations = [
   { label: "Dashboard", href: "/dashboard", roles: ["admin", "manager", "employee"] },
   { label: "Follow-ups", href: "/dashboard/tasks", roles: ["admin", "manager"] },
-  { label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "employee"] },
+  { label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager"] },
   { label: "Daily Team Report", href: "/dashboard/daily-report", roles: ["admin", "manager"] },
   { label: "My Daily Summary", href: "/dashboard/daily-report", roles: ["employee"] },
   { label: "Leads", href: "/dashboard/leads", roles: ["admin", "manager", "employee"] },

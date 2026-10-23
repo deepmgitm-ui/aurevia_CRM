@@ -540,7 +540,11 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
   else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
-  if (resolved.bucket) filtered = filtered.eq("workflow_bucket", resolved.bucket);
+  if (resolved.bucket === "dnp") {
+    filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
+  } else if (resolved.bucket) {
+    filtered = filtered.eq("workflow_bucket", resolved.bucket);
+  }
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
   // (stage AND treatment AND age ...).
@@ -577,7 +581,7 @@ async function resolveLeadFilters(
   const resolved = emptyResolvedFilters();
   if (!filters) return resolved;
   const requestedBucket = filters.bucket ?? "";
-  if (["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone"].includes(requestedBucket)) {
+  if (["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp"].includes(requestedBucket)) {
     resolved.bucket = requestedBucket as LeadListFilters["bucket"];
   }
   if(isWorkDate(filters.dateFrom??""))resolved.orExpressions.push(`lead_day.gte.${filters.dateFrom}`);
@@ -974,6 +978,7 @@ export interface EmployeeLeadSummary {
   total: number;
   fresh: number;
   followUp: number;
+  dnp: number;
   opdBooked: number;
   opdDone: number;
   ipdBooked: number;
@@ -982,7 +987,7 @@ export interface EmployeeLeadSummary {
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
 export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
-  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
+  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -992,15 +997,22 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       return { success: true, data: empty };
     }
 
+    const assignedScope = profile.role === "employee" ? profile.name : assignedTo.trim();
     const { data, error } = await supabase.rpc("crm_lead_bucket_summary", {
-      p_assigned_to: profile.role === "employee" ? profile.name : assignedTo.trim() || null,
+      p_assigned_to: assignedScope || null,
     });
     if (error) return { success: false, error: "Your lead summary could not be loaded." };
+    let dnpQuery = supabase.from("leads").select("id", { count: "exact", head: true })
+      .in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
+    if (assignedScope) dnpQuery = dnpQuery.ilike("assigned_to", escapeLikePattern(assignedScope));
+    const { count: dnpCount, error: dnpError } = await dnpQuery;
+    if (dnpError) return { success: false, error: "Your DNP lead count could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
     return { success: true, data: {
       total: Number(row.total ?? 0),
       fresh: Number(row.fresh ?? 0),
       followUp: Number(row.followUp ?? 0),
+      dnp: dnpCount ?? 0,
       opdBooked: Number(row.opdBooked ?? 0),
       opdDone: Number(row.opdDone ?? 0),
       ipdBooked: Number(row.ipdBooked ?? 0),

@@ -193,13 +193,18 @@ export default async function DashboardPage({
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const isToday = day === today;
   const dailyCards: {key:DailyWorkKind;label:string;detail:string;icon:typeof UserPlus;tone:string}[] = [
-    { key: "assigned" as const, label: "Leads assigned", detail: "New calling assignments received on this date", icon: UserPlus, tone: "border-blue-200 bg-blue-50 text-blue-800" },
     { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
     { key: "opdDone" as const, label: "OPD Done", detail: "Patients whose recorded OPD completion date is this day", icon: CircleCheck, tone: "border-teal-200 bg-teal-50 text-teal-800" },
     { key: "ipd" as const, label: "IPD appointments", detail: "Patients with a recorded IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
   ];
   dailyCards.push({ key: "ipdDone", label: "IPD Done", detail: "Patients whose IPD appointment was completed on this day", icon: CircleCheck, tone: "border-purple-200 bg-purple-50 text-purple-800" });
-  const selectedCard = dailyCards.find((card) => card.key === work)!;
+  const selectedCard = dailyCards.find((card) => card.key === work) ?? {
+    key: "assigned" as const,
+    label: "New Leads",
+    detail: "New calling assignments received on this date",
+    icon: UserPlus,
+    tone: "border-blue-200 bg-blue-50 text-blue-800",
+  };
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
@@ -230,7 +235,7 @@ export default async function DashboardPage({
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
           {([
-            { label: "Total leads", value: summaryResult.success ? summaryResult.data.total : null, bucket: "", tone: "border-slate-200 bg-white text-slate-800" },
+            { label: "New Leads", value: dailyResult.success ? dailyResult.data.assigned : null, bucket: "", tone: "border-indigo-200 bg-indigo-50 text-indigo-800" },
             { label: "Fresh leads", value: summaryResult.success ? summaryResult.data.fresh : null, bucket: "fresh", tone: "border-blue-200 bg-blue-50 text-blue-800" },
             { label: "Follow-up", value: summaryResult.success ? summaryResult.data.followUp : null, bucket: "followup", tone: "border-sky-200 bg-sky-50 text-sky-800" },
             { label: "OPD booked", value: summaryResult.success ? summaryResult.data.opdBooked : null, bucket: "opdBooked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
@@ -238,7 +243,7 @@ export default async function DashboardPage({
             { label: "IPD booked", value: summaryResult.success ? summaryResult.data.ipdBooked : null, bucket: "ipdBooked", tone: "border-violet-200 bg-violet-50 text-violet-800" },
             { label: "IPD done", value: summaryResult.success ? summaryResult.data.ipdDone : null, bucket: "ipdDone", tone: "border-purple-200 bg-purple-50 text-purple-800" },
           ] as const).map((card) => (
-            <Link key={card.label} href={`${leadsHref({ bucket: card.bucket, allMonths: true })}#lead-list`} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}>
+            <Link key={card.label} href={card.label === "New Leads" ? `/dashboard?work=assigned&day=${day}#today-leads` : `${leadsHref({ bucket: card.bucket, allMonths: true })}#lead-list`} aria-current={card.label === "New Leads" && work === "assigned" ? "page" : undefined} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone} ${card.label === "New Leads" && work === "assigned" ? "ring-2 ring-current ring-offset-2" : ""}`}>
               <p className="text-xs font-semibold">{card.label}</p>
               <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
               <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium">View leads <ArrowRight className="size-3" aria-hidden="true" /></span>
@@ -248,7 +253,7 @@ export default async function DashboardPage({
         {!summaryResult.success && <p role="alert" className="text-sm text-amber-700">Lead summary could not be loaded. Refresh to try again.</p>}
       </section>
 
-      <section aria-label="Daily work" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section aria-label="Daily appointments and completions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dailyCards.map(({ key, label, detail, icon: Icon, tone }) => (
           <Link key={key} href={`/dashboard?work=${key}&day=${day}#today-leads`} aria-current={work === key ? "page" : undefined}
             className={`rounded-2xl border p-5 shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${tone} ${work === key ? "ring-2 ring-current ring-offset-2" : ""}`}>

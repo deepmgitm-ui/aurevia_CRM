@@ -6,6 +6,7 @@ import {
   getLeadMonthTally,
   getLeadsPage,
   getLeadPipelineSummary,
+  getDailyWorkCounts,
   getTeamStats,
   getViewer,
   type LeadCounts,
@@ -111,7 +112,8 @@ export default async function LeadsPage({
   // Drill-down filters come straight from the URL (?stage=&treatment=&age=&city=)
   // so a chart click, a shared link and a page refresh all resolve identically.
   const params = await searchParams;
-  const currentMonth = clinicDate().slice(0, 7);
+  const today = clinicDate();
+  const currentMonth = today.slice(0, 7);
   const parsedFilters = parseLeadFilters(params);
   const filters = Object.keys(params).length === 0 && !parsedFilters.age && !parsedFilters.allMonths
     ? { ...parsedFilters, month: currentMonth }
@@ -133,6 +135,7 @@ export default async function LeadsPage({
     getLeadPipelineSummary(filters.assigned),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
+  const dailyNewLeadsResult = viewer?.role === "employee" ? await getDailyWorkCounts(today) : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const counts: LeadCounts = countsResult.success
     ? countsResult.data
@@ -142,7 +145,7 @@ export default async function LeadsPage({
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
   const pipelineSummary = employeeSummaryResult.success
     ? employeeSummaryResult.data
-    : { total: 0, fresh: 0, followUp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
+    : { total: 0, fresh: 0, followUp: 0, dnp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
@@ -163,7 +166,11 @@ export default async function LeadsPage({
             : "Review and manage every lead in your pipeline."}
         </p>
       </div>
-      <DashboardStats summary={pipelineSummary} assignedTo={cardAssignedTo} />
+      <DashboardStats
+        summary={pipelineSummary}
+        assignedTo={cardAssignedTo}
+        dailyNewLeads={viewer?.role === "employee" ? { count: dailyNewLeadsResult?.success ? dailyNewLeadsResult.data.assigned : null, day: today } : undefined}
+      />
       {canViewAssignments && team && !filters.assigned && (
         <>
           <AssignmentFilterTabs team={team} filters={filters} />
