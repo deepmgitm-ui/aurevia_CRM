@@ -16,6 +16,7 @@ import {
   filterChipLabels,
   hasLeadFilters,
   inListExpression,
+  isLeadBucketKey,
   isNewLead,
   leadsHref,
   leadAgeInDays,
@@ -143,6 +144,8 @@ assert.ok(batchAssignmentFilter.includes("assignment_batch_id.neq.12345678-1234-
 assert.equal((batchAssignmentFilter.match(/and\(/g) ?? []).length, 8, "both assignment conditions share one PostgREST or expression");
 assert.deepEqual(leadStatusStorageValues("Follow-Up"), ["Follow-Up", "Follow Up", "Contacted"], "Follow-Up status filter matches legacy spellings");
 assert.equal(parseLeadFilters({ bucket: "lost" }).bucket, "lost", "Lost card drill-down remains filterable");
+assert.equal(isLeadBucketKey("lost"), true, "Lost is accepted by both URL parsing and server query resolution");
+assert.equal(isLeadBucketKey("unknown"), false, "unsupported workflow buckets are rejected by server query resolution");
 assert.equal(prettifyFilterKey("eye-checkup"), "Eye checkup");
 assert.equal(filterChipLabels().surgery, "Won");
 assert.equal(stageForStatus("Wrong Number"), "lost", "Wrong Number follows the same Lost classification used by closed-lead counts");

@@ -14,6 +14,7 @@ import {
   monthFilterLabel,
   monthWindow,
   inListExpression,
+  isLeadBucketKey,
   isUnrecordedTreatment,
   stageFilterKeys,
   tallyTreatments,
@@ -593,9 +594,7 @@ async function resolveLeadFilters(
   const resolved = emptyResolvedFilters();
   if (!filters) return resolved;
   const requestedBucket = filters.bucket ?? "";
-  if (["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp"].includes(requestedBucket)) {
-    resolved.bucket = requestedBucket as LeadListFilters["bucket"];
-  }
+  if (isLeadBucketKey(requestedBucket)) resolved.bucket = requestedBucket;
   if(isWorkDate(filters.dateFrom??""))resolved.orExpressions.push(`lead_day.gte.${filters.dateFrom}`);
   if(isWorkDate(filters.dateTo??""))resolved.orExpressions.push(`lead_day.lte.${filters.dateTo}`);
   if (isDailyWorkKind(filters.work ?? "") && isWorkDate(filters.day ?? "")) {

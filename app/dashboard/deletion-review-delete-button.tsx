@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { getDeletionReviewLeadForExport, resolveDeletionReview } from "@/app/actions/deletion-reviews";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { downloadLeadsExcel, type LeadExcelRecord } from "@/lib/lead-excel";
+import type { LeadExcelRecord } from "@/lib/lead-excel";
 
 export function DeletionReviewDeleteButton({ reviewId }: { reviewId: string }) {
   const router = useRouter();
@@ -21,7 +21,8 @@ export function DeletionReviewDeleteButton({ reviewId }: { reviewId: string }) {
         toast.add({ title: "Delete cancelled", description: backup.error ?? "The Excel backup could not be prepared.", type: "error" });
         return;
       }
-      downloadLeadsExcel(
+      const excel = await import("@/lib/lead-excel");
+      excel.downloadLeadsExcel(
         [backup.lead as LeadExcelRecord],
         `deleted-lead-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
       );

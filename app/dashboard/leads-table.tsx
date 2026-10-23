@@ -5,7 +5,6 @@ import { CallingWorkspace } from "./calling-workspace";
 import { voiceBotTreatment } from "@/lib/lead-treatment";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
 import {
   findLeadImportHeaderRow,
@@ -63,7 +62,6 @@ import {
 } from "@/lib/appointments";
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
 import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
-import { downloadLeadsExcel } from "@/lib/lead-excel";
 import { getMasterData } from "@/app/actions/master-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +82,11 @@ import { toast } from "@/components/ui/toast";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
 import { DAILY_WORK_LABELS } from "@/lib/daily-work";
+
+async function downloadLeadsExcel(leads: Lead[], fileName: string): Promise<void> {
+  const excel = await import("@/lib/lead-excel");
+  excel.downloadLeadsExcel(leads, fileName);
+}
 import {
   AGE_CHIP_BUCKETS,
   EMPTY_LEAD_FILTERS,
@@ -865,13 +868,14 @@ export function LeadsTable({
 
     if (extension === "xlsx" || extension === "xls") {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const buffer = event.target?.result;
           if (!(buffer instanceof ArrayBuffer)) {
             throw new Error("Unable to read the Excel file.");
           }
 
+          const XLSX = await import("xlsx");
           const workbook = XLSX.read(buffer, { type: "array" });
           if (workbook.SheetNames.length === 0) {
             throw new Error("The Excel file does not contain a worksheet.");
@@ -1284,7 +1288,7 @@ export function LeadsTable({
           });
           return;
         }
-        downloadLeadsExcel(
+        await downloadLeadsExcel(
           backup.data,
           `assignment-batch-backup-${batch.label.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
         );
@@ -1363,7 +1367,7 @@ export function LeadsTable({
       const batchLabel = selectedSourceBatches.length === 1
         ? selectedSourceBatches[0].label
         : `${selectedSourceBatches.length} selected batches`;
-      downloadLeadsExcel(
+      await downloadLeadsExcel(
         backup.data,
         `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
       );
@@ -1427,7 +1431,7 @@ export function LeadsTable({
       ? await getLeadsForExport(backupScope, activeStatusFilter, assignedTo, filters)
       : await getLeadsForExport("", "", "", undefined, selectedLeads);
     if (backup.success) {
-      downloadLeadsExcel(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`);
+      await downloadLeadsExcel(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`);
     } else {
       toast.add({
         title: "Delete cancelled — Excel backup could not be prepared",

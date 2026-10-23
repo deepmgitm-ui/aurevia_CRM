@@ -270,6 +270,12 @@ export interface LeadListFilters {
   bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp" | "lost";
 }
 
+const LEAD_BUCKET_KEYS = ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"] as const;
+
+export function isLeadBucketKey(value: string): value is Exclude<LeadListFilters["bucket"], ""> {
+  return (LEAD_BUCKET_KEYS as readonly string[]).includes(value);
+}
+
 export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   work: "",
   day: "",
@@ -297,6 +303,7 @@ function firstValue(value: string | string[] | undefined): string {
 }
 
 export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
+  const bucket = firstValue(params.bucket);
   return {
     work: isDailyWorkKind(firstValue(params.work)) && isWorkDate(firstValue(params.day)) ? firstValue(params.work) as DailyWorkKind : "",
     day: isWorkDate(firstValue(params.day)) ? firstValue(params.day) : "",
@@ -317,8 +324,8 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
       ? firstValue(params.assignmentBatchId)
       : "",
     status: firstValue(params.status),
-    bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"].includes(firstValue(params.bucket))
-      ? firstValue(params.bucket) as LeadListFilters["bucket"]
+    bucket: isLeadBucketKey(bucket)
+      ? bucket
       : "",
   };
 }
