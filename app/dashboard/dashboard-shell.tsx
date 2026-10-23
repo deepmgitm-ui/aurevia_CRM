@@ -98,9 +98,9 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-// Official company logo (public/logo.png, transparent background). The
-// intrinsic dimensions (1693x929) give next/image the file's aspect ratio, so
-// the CSS height scales it cleanly without stretching.
+// Official company logo (public/logo.png, transparent background). The source
+// has generous transparent padding, so the sidebar viewport crops that padding
+// while keeping the complete wordmark visible inside its fixed bounds.
 function BrandLogo({
   className = "h-10 w-auto object-contain bg-transparent",
   sizes = "160px",
@@ -169,8 +169,10 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
 function Sidebar({ profile, pendingDeletionReviews }: { profile: DashboardProfile; pendingDeletionReviews: number }) {
   return (
     <aside className="hidden w-[232px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-[5.5rem] items-center justify-center border-b border-slate-100 px-5">
-        <BrandLogo className="h-14 w-auto object-contain bg-transparent" preload />
+      <div className="flex h-[5.5rem] items-center justify-center border-b border-slate-100 px-4">
+        <div className="relative h-[76px] w-full max-w-[200px] overflow-hidden">
+          <BrandLogo className="h-full w-full object-cover bg-transparent" preload />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-5">
         <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Workspace</p>
@@ -209,7 +211,9 @@ function MobileNavigation({ profile, pendingDeletionReviews }: { profile: Dashbo
       <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
         <SheetHeader className="border-b border-slate-200 px-6 py-5">
           <SheetTitle className="flex items-center justify-center">
-            <BrandLogo className="h-12 w-auto object-contain bg-transparent" sizes="150px" />
+            <div className="relative h-[76px] w-full max-w-[200px] overflow-hidden">
+              <BrandLogo className="h-full w-full object-cover bg-transparent" sizes="200px" />
+            </div>
           </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col px-4 py-6">
