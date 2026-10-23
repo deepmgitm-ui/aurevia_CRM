@@ -169,7 +169,7 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
 function Sidebar({ profile, pendingDeletionReviews }: { profile: DashboardProfile; pendingDeletionReviews: number }) {
   return (
     <aside className="hidden w-[232px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-[5.5rem] items-center justify-start border-b border-slate-100 px-5">
+      <div className="flex h-[5.5rem] items-center justify-center border-b border-slate-100 px-5">
         <BrandLogo className="h-14 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-5">
@@ -208,7 +208,7 @@ function MobileNavigation({ profile, pendingDeletionReviews }: { profile: Dashbo
       />
       <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
         <SheetHeader className="border-b border-slate-200 px-6 py-5">
-          <SheetTitle className="flex items-center">
+          <SheetTitle className="flex items-center justify-center">
             <BrandLogo className="h-12 w-auto object-contain bg-transparent" sizes="150px" />
           </SheetTitle>
         </SheetHeader>
