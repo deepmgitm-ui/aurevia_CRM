@@ -65,23 +65,23 @@ interface DashboardShellProps {
 
 // Keep every workspace destination in the sidebar so the header stays focused.
 const navigation = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
-  { label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
-  { label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
-  { label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
-  { label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
-  { label: "Upcoming Appointments", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
-  { label: "Consultations", href: "/dashboard/consultations", icon: CalendarDays, exact: false },
-  { label: "Surgeries", href: "/dashboard/surgeries", icon: Stethoscope, exact: false },
-  { label: "Lead Analysis", href: "/dashboard/lead-analysis", icon: BarChart3, exact: false },
-  { label: "Source Analysis", href: "/dashboard/source-analysis", icon: Megaphone, exact: false },
-  { label: "City Analysis", href: "/dashboard/city-analysis", icon: CalendarDays, exact: false },
-  { label: "Agents Performance", href: "/dashboard/agents", icon: UserCog, exact: false },
-  { label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
-  { label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
-  { label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
-  { label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
+  { group: "Overview", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
+  { group: "Leads & Follow-ups", label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
+  { group: "Leads & Follow-ups", label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+  { group: "Leads & Follow-ups", label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
+  { group: "Clinic", label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
+  { group: "Clinic", label: "Upcoming Appointments", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
+  { group: "Clinic", label: "Consultations", href: "/dashboard/consultations", icon: CalendarDays, exact: false },
+  { group: "Clinic", label: "Surgeries", href: "/dashboard/surgeries", icon: Stethoscope, exact: false },
+  { group: "Analytics", label: "Lead Analysis", href: "/dashboard/lead-analysis", icon: BarChart3, exact: false },
+  { group: "Analytics", label: "Source Analysis", href: "/dashboard/source-analysis", icon: Megaphone, exact: false },
+  { group: "Analytics", label: "City Analysis", href: "/dashboard/city-analysis", icon: CalendarDays, exact: false },
+  { group: "Analytics", label: "Agents Performance", href: "/dashboard/agents", icon: UserCog, exact: false },
+  { group: "Analytics", label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
+  { group: "Analytics", label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
+  { group: "Tools", label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
+  { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false },
+  { group: "Tools", label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
 ] as const;
 
 function isActivePath(pathname: string, href: string, exact: boolean): boolean {
@@ -134,47 +134,60 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
       if (item.href === "/dashboard/closed-lead-reviews") return role === "admin";
       return true;
     })
-    .map((item) => role === "employee" && item.href === "/dashboard/daily-report" ? { ...item, label: "My Daily Summary" } : item);
+    .map((item) => {
+      if (role === "employee" && item.href === "/dashboard/daily-report") return { ...item, label: "My Daily Summary", group: "My Work" };
+      if (role === "employee" && item.href === "/dashboard/agents") return { ...item, label: "My Profile", group: "My Work" };
+      return item;
+    });
+  const groups = [...new Set(items.map((item) => item.group))].map((group) => ({
+    label: group,
+    items: items.filter((item) => item.group === group),
+  }));
 
   return (
-    <nav aria-label="Workspace" className="space-y-1">
-      {items.map(({ label, href, icon: Icon, exact }) => {
-        const isActive = isActivePath(pathname, href, exact);
-        const link = (
-          <Link
-            href={href}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
-              isActive
-                ? "border-emerald-700 bg-emerald-50 text-emerald-950"
-                : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
-            )}
-          >
-            <Icon className="size-4.5" aria-hidden="true" />
-            <span>{label}</span>
-            {href === "/dashboard/closed-lead-reviews" && pendingDeletionReviews > 0 && (
-              <span className="ml-auto flex size-2.5 items-center justify-center rounded-full bg-rose-600" title={`${pendingDeletionReviews} pending reviews`}>
-                <span className="sr-only">{pendingDeletionReviews} pending reviews</span>
-              </span>
-            )}
-          </Link>
-        );
+    <nav aria-label="Workspace" className="space-y-4">
+      {groups.map(({ label: group, items: groupItems }) => (
+        <section key={group} aria-label={group} className="space-y-1">
+          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{group}</p>
+          {groupItems.map(({ label, href, icon: Icon, exact }) => {
+            const isActive = isActivePath(pathname, href, exact);
+            const link = (
+              <Link
+                href={href}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
+                  isActive
+                    ? "border-emerald-700 bg-emerald-50 text-emerald-950"
+                    : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+                )}
+              >
+                <Icon className="size-4.5" aria-hidden="true" />
+                <span>{label}</span>
+                {href === "/dashboard/closed-lead-reviews" && pendingDeletionReviews > 0 && (
+                  <span className="ml-auto flex size-2.5 items-center justify-center rounded-full bg-rose-600" title={`${pendingDeletionReviews} pending reviews`}>
+                    <span className="sr-only">{pendingDeletionReviews} pending reviews</span>
+                  </span>
+                )}
+              </Link>
+            );
 
-        if (role === "employee" && href === "/dashboard/leads") {
-          const isTotalLeads = pathname === href && searchParams.get("month") === "all" && !searchParams.get("bucket") && !searchParams.get("work") && !searchParams.get("status");
-          const totalLeadsLink = (
-            <Link href="/dashboard/leads?month=all" aria-current={isTotalLeads ? "page" : undefined}
-              className={cn("ml-7 mt-1 flex items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
-                isTotalLeads ? "bg-emerald-50 text-emerald-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
-            >Total Leads</Link>
-          );
-          return mobile
-            ? <div key={href}><SheetClose>{link}</SheetClose><SheetClose>{totalLeadsLink}</SheetClose></div>
-            : <div key={href}>{link}{totalLeadsLink}</div>;
-        }
-        return mobile ? <SheetClose key={href}>{link}</SheetClose> : <div key={href}>{link}</div>;
-      })}
+            if (role === "employee" && href === "/dashboard/leads") {
+              const isTotalLeads = pathname === href && searchParams.get("month") === "all" && !searchParams.get("bucket") && !searchParams.get("work") && !searchParams.get("status");
+              const totalLeadsLink = (
+                <Link href="/dashboard/leads?month=all" aria-current={isTotalLeads ? "page" : undefined}
+                  className={cn("ml-7 mt-1 flex items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
+                    isTotalLeads ? "bg-emerald-50 text-emerald-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
+                >Total Leads</Link>
+              );
+              return mobile
+                ? <div key={href}><SheetClose>{link}</SheetClose><SheetClose>{totalLeadsLink}</SheetClose></div>
+                : <div key={href}>{link}{totalLeadsLink}</div>;
+            }
+            return mobile ? <SheetClose key={href}>{link}</SheetClose> : <div key={href}>{link}</div>;
+          })}
+        </section>
+      ))}
     </nav>
   );
 }
@@ -188,7 +201,6 @@ function Sidebar({ profile, pendingDeletionReviews }: { profile: DashboardProfil
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-5">
-        <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Workspace</p>
         <Navigation role={profile.role} pendingDeletionReviews={pendingDeletionReviews} />
       </div>
       <div className="border-t border-slate-200 p-3">
@@ -230,9 +242,6 @@ function MobileNavigation({ profile, pendingDeletionReviews }: { profile: Dashbo
           </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col px-4 py-6">
-          <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Workspace
-          </p>
           <Navigation mobile role={profile.role} pendingDeletionReviews={pendingDeletionReviews} />
           <SheetClose
             render={
