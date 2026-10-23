@@ -3310,9 +3310,7 @@ export async function updateLeadAssignment(
   leadId: string,
   employeeName: string,
 ): Promise<ActionResult<Lead>> {
-  if (!leadId || !employeeName.trim()) {
-    return { success: false, error: "Lead and employee are required." };
-  }
+  if (!leadId) return { success: false, error: "A lead is required." };
 
   try {
     const supabase = await createClient();
@@ -3323,7 +3321,20 @@ export async function updateLeadAssignment(
       return { success: false, error: "Only admins and managers can reassign leads (403 Forbidden)." };
     }
 
-    const { data: targets, error: targetError } = await supabase.from("profiles").select("name, role").eq("name", employeeName.trim());
+    const targetName = employeeName.trim();
+    if (["", "-", "unassigned"].includes(targetName.toLowerCase())) {
+      const { data, error } = await supabase
+        .from("leads")
+        .update({ assigned_to: "-", assignment_batch_id: null })
+        .eq("id", leadId)
+        .select()
+        .single();
+      if (error) return { success: false, error: error.message };
+      revalidatePath("/dashboard");
+      return { success: true, data: data as Lead };
+    }
+
+    const { data: targets, error: targetError } = await supabase.from("profiles").select("name, role").eq("name", targetName);
     if (targetError) return { success: false, error: targetError.message };
     const target = targets?.find((profile) => viewerRole === "admin" || profile.role === "employee");
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
