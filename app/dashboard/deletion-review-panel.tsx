@@ -1,6 +1,7 @@
 import { AlertTriangle, Clock3 } from "lucide-react";
 
 import { getDeletionReviews, resolveDeletionReview } from "@/app/actions/deletion-reviews";
+import { DeletionReviewDeleteButton } from "./deletion-review-delete-button";
 
 function displayDate(value: string): string {
   return new Date(value).toLocaleString("en-IN", {
@@ -61,11 +62,7 @@ export async function DeletionReviewPanel({ role }: { role: string }) {
               )}
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <form action={resolveDeletionReview}>
-                    <input type="hidden" name="reviewId" value={review.id} />
-                    <input type="hidden" name="action" value="delete" />
-                    <button type="submit" className="rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-800">Delete permanently</button>
-                  </form>
+                  <DeletionReviewDeleteButton reviewId={review.id} />
                   <form action={resolveDeletionReview}>
                     <input type="hidden" name="reviewId" value={review.id} />
                     <input type="hidden" name="action" value="keep" />

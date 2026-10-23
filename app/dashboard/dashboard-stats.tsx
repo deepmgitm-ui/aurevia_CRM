@@ -8,6 +8,7 @@ export interface LeadPipelineCardsSummary {
   fresh: number;
   followUp: number;
   dnp: number;
+  lost: number;
   opdBooked: number;
   opdDone: number;
   ipdBooked: number;
@@ -30,6 +31,7 @@ export function DashboardStats({
         { label: "New Leads", value: dailyNewLeads.count, bucket: "" as const, tone: "border-indigo-200 bg-indigo-50 text-indigo-800" },
         { label: "Follow-up", value: summary.followUp, bucket: "followup" as const, tone: "border-sky-200 bg-sky-50 text-sky-800" },
         { label: "DNP", value: summary.dnp, bucket: "dnp" as const, tone: "border-amber-200 bg-amber-50 text-amber-800" },
+        { label: "Lost", value: summary.lost, bucket: "lost" as const, tone: "border-rose-200 bg-rose-50 text-rose-800" },
       ]
     : [
         { label: "Total Leads", value: summary.total, bucket: "" as const, tone: "border-slate-200 bg-white text-slate-800" },
@@ -39,10 +41,11 @@ export function DashboardStats({
         { label: "OPD Done", value: summary.opdDone, bucket: "opdDone" as const, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
         { label: "IPD Booked", value: summary.ipdBooked, bucket: "ipdBooked" as const, tone: "border-violet-200 bg-violet-50 text-violet-800" },
         { label: "IPD Done", value: summary.ipdDone, bucket: "ipdDone" as const, tone: "border-purple-200 bg-purple-50 text-purple-800" },
+        { label: "Lost", value: summary.lost, bucket: "lost" as const, tone: "border-rose-200 bg-rose-50 text-rose-800" },
       ];
 
   return (
-    <section aria-label="Lead pipeline" className={`grid gap-3 sm:grid-cols-2 ${dailyNewLeads ? "xl:grid-cols-4" : "xl:grid-cols-4 2xl:grid-cols-7"}`}>
+    <section aria-label="Lead pipeline" className={`grid gap-3 sm:grid-cols-2 ${dailyNewLeads ? "xl:grid-cols-3 2xl:grid-cols-5" : "xl:grid-cols-4 2xl:grid-cols-4"}`}>
       {cards.map((card, index) => {
         const href = dailyNewLeads && card.label === "New Leads"
           ? leadsHref({ work: "assigned", day: dailyNewLeads.day, allMonths: true })

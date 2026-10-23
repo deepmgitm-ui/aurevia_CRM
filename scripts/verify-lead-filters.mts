@@ -33,6 +33,8 @@ import {
   type LeadListFilters,
 } from "../app/dashboard/lead-filters.ts";
 import type { AnalyticsLead, StageKey } from "../app/dashboard/overview/analytics.ts";
+import { assignmentOrExpression } from "../lib/lead-assignment-filter.ts";
+import { leadStatusStorageValues } from "../lib/lead-status.ts";
 import { STAGE_TARGET_STATUS, stageForStatus } from "../app/dashboard/overview/analytics.ts";
 
 // ---------------------------------------------------------------------------
@@ -129,8 +131,21 @@ assert.equal(
   "",
   "unsupported assignment filters are ignored",
 );
+assert.equal(
+  assignmentOrExpression(false),
+  'assigned_to.is.null,assigned_to.eq."",assigned_to.eq.-,assigned_to.eq.Unassigned',
+  "assignment search defaults to all recognized unassigned records",
+);
+assert.equal(assignmentOrExpression(true), null, "including assigned leads intentionally removes the unassigned-only filter");
+const batchAssignmentFilter = assignmentOrExpression(false, "12345678-1234-1234-1234-123456789abc")!;
+assert.ok(batchAssignmentFilter.includes("assignment_batch_id.is.null"));
+assert.ok(batchAssignmentFilter.includes("assignment_batch_id.neq.12345678-1234-1234-1234-123456789abc"));
+assert.equal((batchAssignmentFilter.match(/and\(/g) ?? []).length, 8, "both assignment conditions share one PostgREST or expression");
+assert.deepEqual(leadStatusStorageValues("Follow-Up"), ["Follow-Up", "Follow Up", "Contacted"], "Follow-Up status filter matches legacy spellings");
+assert.equal(parseLeadFilters({ bucket: "lost" }).bucket, "lost", "Lost card drill-down remains filterable");
 assert.equal(prettifyFilterKey("eye-checkup"), "Eye checkup");
 assert.equal(filterChipLabels().surgery, "Won");
+assert.equal(stageForStatus("Wrong Number"), "lost", "Wrong Number follows the same Lost classification used by closed-lead counts");
 
 // ---------------------------------------------------------------------------
 // 4. Age windows: bounded single/open day ranges computed server-side.

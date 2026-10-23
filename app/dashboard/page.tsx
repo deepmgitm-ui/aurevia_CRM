@@ -43,18 +43,24 @@ const statCards = [
     icon: ListTodo,
     iconClassName: "bg-amber-50 text-amber-700",
   },
+  {
+    label: "Lost Leads",
+    icon: ListTodo,
+    iconClassName: "bg-rose-50 text-rose-700",
+  },
 ] as const;
 
 const emptyTeam = { employees: [], unassigned: 0, total: 0 };
 
-function StatCardSection({ values }: { values: [number, number, number] }) {
+function StatCardSection({ values, assignedTo }: { values: [number, number, number, number]; assignedTo: string }) {
   return (
     <section
       aria-label="Lead statistics"
-      className="grid grid-cols-1 gap-4 md:grid-cols-3"
+      className="grid grid-cols-2 gap-4 md:grid-cols-4"
     >
       {statCards.map(({ label, icon: Icon, iconClassName }, index) => (
-        <Card key={label} className="border-0 shadow-sm">
+        <Link key={label} href={leadsHref({ assigned: assignedTo, ...(index === 3 ? { bucket: "lost" as const } : index === 2 ? { bucket: "followup" as const } : index === 1 ? { status: "New" } : {}) })}>
+        <Card className="h-full border-0 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-slate-500">
               {label}
@@ -71,6 +77,7 @@ function StatCardSection({ values }: { values: [number, number, number] }) {
             </p>
           </CardContent>
         </Card>
+        </Link>
       ))}
     </section>
   );
@@ -123,7 +130,7 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <StatCardSection values={[counts.total, counts.new, counts.followUp]} />
+          <StatCardSection values={[counts.total, counts.new, counts.followUp, counts.lost]} assignedTo={employeeStats.name} />
 
           <LeadsTable
             leads={leadsPage.leads}
@@ -235,7 +242,7 @@ export default async function DashboardPage({
           <h2 className="text-lg font-semibold text-slate-950">My lead pipeline</h2>
           <p className="mt-1 text-sm text-slate-500">Tap a count to open the matching leads in your table.</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {([
             { label: "New Leads", detail: "Untouched assignments from today", value: dailyResult.success ? dailyResult.data.assigned : null, bucket: "", tone: "border-indigo-200 bg-indigo-50 text-indigo-800" },
             { label: "Fresh leads", detail: "Untouched assignments from earlier days", value: summaryResult.success ? summaryResult.data.fresh : null, bucket: "fresh", tone: "border-blue-200 bg-blue-50 text-blue-800" },
@@ -244,6 +251,7 @@ export default async function DashboardPage({
             { label: "OPD done", detail: "Leads whose OPD is complete", value: summaryResult.success ? summaryResult.data.opdDone : null, bucket: "opdDone", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
             { label: "IPD booked", detail: "Leads with an IPD booking", value: summaryResult.success ? summaryResult.data.ipdBooked : null, bucket: "ipdBooked", tone: "border-violet-200 bg-violet-50 text-violet-800" },
             { label: "IPD done", detail: "Leads whose IPD is complete", value: summaryResult.success ? summaryResult.data.ipdDone : null, bucket: "ipdDone", tone: "border-purple-200 bg-purple-50 text-purple-800" },
+            { label: "Lost leads", detail: "Closed or lost outcomes", value: summaryResult.success ? summaryResult.data.lost : null, bucket: "lost", tone: "border-rose-200 bg-rose-50 text-rose-800" },
           ] as const).map((card) => (
             <Link key={card.label} href={card.label === "New Leads" ? `/dashboard?work=assigned&day=${day}#today-leads` : `${leadsHref({ bucket: card.bucket, allMonths: true })}#lead-list`} aria-current={card.label === "New Leads" && work === "assigned" ? "page" : undefined} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone} ${card.label === "New Leads" && work === "assigned" ? "ring-2 ring-current ring-offset-2" : ""}`}>
               <p className="text-xs font-semibold">{card.label}</p>

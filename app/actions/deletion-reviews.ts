@@ -66,6 +66,31 @@ export async function getPendingDeletionReviewCount(): Promise<number> {
   return error ? 0 : count ?? 0;
 }
 
+/** Fetch the full authorized lead row before an admin deletes it from review. */
+export async function getDeletionReviewLeadForExport(reviewId: string): Promise<{
+  success: boolean;
+  lead?: Record<string, unknown>;
+  error?: string;
+}> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reviewId ?? "")) {
+    return { success: false, error: "Select a valid deletion review." };
+  }
+  const viewer = await getViewer();
+  if (!viewer.success || viewer.data?.role !== "admin") {
+    return { success: false, error: "Only admins can export a lead for deletion." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("crm_lead_deletion_reviews")
+    .select("lead:leads(*)")
+    .eq("id", reviewId)
+    .maybeSingle();
+  if (error) return { success: false, error: "The lead backup could not be prepared. Nothing was deleted." };
+  const lead = Array.isArray(data?.lead) ? data.lead[0] : data?.lead;
+  if (!lead) return { success: false, error: "This lead is no longer available. Nothing was deleted." };
+  return { success: true, lead: lead as Record<string, unknown> };
+}
+
 function formText(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }

@@ -40,6 +40,7 @@ import {
   addLeadsToAssignmentBatch,
   deleteLeadAssignmentBatch,
   getLeadAssignmentBatches,
+  getLeadsForAssignmentBatch,
   transferLeadAssignmentBatch,
   type LeadAssignmentCriteria,
   type LeadAssignmentBatch,
@@ -62,6 +63,7 @@ import {
 } from "@/lib/appointments";
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
 import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
+import { downloadLeadsExcel } from "@/lib/lead-excel";
 import { getMasterData } from "@/app/actions/master-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1112,7 +1114,7 @@ export function LeadsTable({
     setAssignmentMode(mode);
     setAssignmentBatchTarget(batch);
     setAssignmentEmployeeNames([]);
-    setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
+    setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", includeAssigned: false, excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
     setAssignmentSuggestions([]);
     setSelectedAssignmentLeads([]);
     setAssignmentSuggestionTotal(0);
@@ -1180,6 +1182,7 @@ export function LeadsTable({
       treatment: assignmentCriteria.treatment.trim(),
       city: assignmentCriteria.city.trim(),
       status: assignmentCriteria.status?.trim() ?? "",
+      includeAssigned: assignmentCriteria.includeAssigned === true,
       excludeBatchId: assignmentCriteria.excludeBatchId,
     };
     const timer = setTimeout(() => {
@@ -1193,6 +1196,7 @@ export function LeadsTable({
     assignmentCriteria.city,
     assignmentCriteria.search,
     assignmentCriteria.status,
+    assignmentCriteria.includeAssigned,
     assignmentCriteria.excludeBatchId,
     assignmentCriteria.treatment,
     assignmentMode,
@@ -1271,11 +1275,24 @@ export function LeadsTable({
     try {
       const { batch, kind } = assignmentBatchAction;
       if (kind === "delete") {
+        const backup = await getLeadsForAssignmentBatch(batch.id);
+        if (!backup.success || backup.data.length === 0) {
+          toast.add({
+            title: "Batch deletion cancelled",
+            description: backup.success ? "No active leads were found in this batch." : `An Excel backup could not be prepared. ${backup.error}`,
+            type: "error",
+          });
+          return;
+        }
+        downloadLeadsExcel(
+          backup.data,
+          `assignment-batch-backup-${batch.label.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
+        );
         const response = await deleteLeadAssignmentBatch(batch.id);
         if (!response.success) {
           toast.add({ title: "Batch deletion failed", description: response.error, type: "error" });
         } else {
-          toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. A recovery snapshot is saved in Recent Deletions.`, type: "success" });
+          toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. An Excel file and recovery snapshot were saved.`, type: "success" });
           setAssignmentBatchAction(null);
           router.refresh();
           await refreshAssignmentBatches();
@@ -1338,7 +1355,7 @@ export function LeadsTable({
       if (!backup.success) {
         toast.add({
           title: "Batch deletion cancelled",
-          description: `A CSV safety copy could not be prepared. ${backup.error}`,
+          description: `An Excel backup could not be prepared. ${backup.error}`,
           type: "error",
         });
         return;
@@ -1346,9 +1363,9 @@ export function LeadsTable({
       const batchLabel = selectedSourceBatches.length === 1
         ? selectedSourceBatches[0].label
         : `${selectedSourceBatches.length} selected batches`;
-      downloadLeadsCsv(
+      downloadLeadsExcel(
         backup.data,
-        `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`,
+        `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
       );
       const response = await deleteLeadSourceBatches(batchRefs);
       if (!response.success) {
@@ -1360,7 +1377,7 @@ export function LeadsTable({
       router.refresh();
       toast.add({
         title: "Import batches deleted",
-        description: `${response.data.deleted.toLocaleString()} leads from ${response.data.batches} batch${response.data.batches === 1 ? "" : "es"} were deleted. A CSV and recovery snapshot were saved.`,
+        description: `${response.data.deleted.toLocaleString()} leads from ${response.data.batches} batch${response.data.batches === 1 ? "" : "es"} were deleted. An Excel file and recovery snapshot were saved.`,
         type: "success",
       });
     } catch (error) {
@@ -1410,22 +1427,15 @@ export function LeadsTable({
       ? await getLeadsForExport(backupScope, activeStatusFilter, assignedTo, filters)
       : await getLeadsForExport("", "", "", undefined, selectedLeads);
     if (backup.success) {
-      downloadLeadsCsv(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`);
-    } else if (requiresTypedConfirm) {
-      // Wiping EVERY lead with no copy anywhere = data loss we cannot undo.
+      downloadLeadsExcel(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`);
+    } else {
       toast.add({
-        title: "Delete cancelled — no backup could be saved",
-        description: `${backup.error} Deleting every lead without a saved copy is not allowed; export the CSV first (admin) or run supabase-deletion-backup-migration.sql.`,
+        title: "Delete cancelled — Excel backup could not be prepared",
+        description: `${backup.error} Nothing was deleted. Try again or export the leads first.`,
         type: "error",
       });
       setIsBulkActionPending(false);
       return;
-    } else {
-      toast.add({
-        title: "No backup file saved",
-        description: `${backup.error} Continuing — the database snapshot is the only way back.`,
-        type: "error",
-      });
     }
     const response = await bulkDeleteLeads(
       deleteAll ? [] : selectedLeads,
@@ -2056,7 +2066,7 @@ export function LeadsTable({
                         </p>
                         {isPipelineEmpty && canDelete && (
                           <p className="mx-auto mt-2 max-w-xl text-xs text-slate-400">
-                            {"Deleted leads by mistake? Re-import the CSV that every delete downloads automatically (leads-backup-before-delete-*.csv), or restore an admin snapshot from \"Recent Deletions\"."}
+                            {"Deleted leads by mistake? Re-import the Excel backup downloaded before deletion, or restore an admin snapshot from \"Recent Deletions\"."}
                           </p>
                         )}
                       </div>
@@ -2336,7 +2346,9 @@ export function LeadsTable({
                 ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}.`
                 : assignmentMode === "selected"
                   ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose and saved as one batch.`
-                  : "Find unassigned leads by any combination of optional filters. Select the exact records for this batch."}
+                  : assignmentCriteria.includeAssigned
+                    ? "Find matching leads by optional filters. Current owners are shown; select only leads you intend to transfer."
+                    : "Find unassigned leads by any combination of optional filters. Select the exact records for this batch."}
             </DialogDescription>
           </DialogHeader>
 
@@ -2383,10 +2395,23 @@ export function LeadsTable({
                     </SelectContent>
                   </Select>
                 </div>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={assignmentCriteria.includeAssigned === true}
+                    disabled={isBulkActionPending}
+                    onChange={(event) => updateAssignmentCriteria({ includeAssigned: event.target.checked })}
+                  />
+                  <span>
+                    <span className="block font-medium text-slate-800">Include leads already assigned to someone</span>
+                    <span className="block text-xs text-slate-500">Turn this on to intentionally transfer or reassign leads.</span>
+                  </span>
+                </label>
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label>
-                      Matching unassigned leads
+                      {assignmentCriteria.includeAssigned ? "Matching leads" : "Matching unassigned leads"}
                       {assignmentSuggestionTotal > 0 && ` (${assignmentSuggestionTotal.toLocaleString()})`}
                     </Label>
                     {isLoadingAssignmentSuggestions && (
@@ -2426,7 +2451,14 @@ export function LeadsTable({
                             <span className="min-w-0 flex-1">
                               <span className="block font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
                               <span className="block truncate text-xs text-slate-500">
-                                {[lead.status || "New", lead.phone, lead.disease, lead.city, lead.source].filter(Boolean).join(" · ") || "No extra details"}
+                                {[
+                                  lead.status || "New",
+                                  lead.assigned_to && lead.assigned_to !== "-" ? `Assigned: ${lead.assigned_to}` : "Unassigned",
+                                  lead.phone,
+                                  lead.disease,
+                                  lead.city,
+                                  lead.source,
+                                ].filter(Boolean).join(" · ") || "No extra details"}
                               </span>
                             </span>
                           </label>
@@ -2631,7 +2663,7 @@ export function LeadsTable({
           <DialogHeader>
             <DialogTitle>Delete specific import batches</DialogTitle>
             <DialogDescription>
-              Each Excel/CSV upload, Meta lead, and manual lead is listed separately. Select one or more batches; a CSV and recovery snapshot are saved before deletion.
+              Each Excel/CSV upload, Meta lead, and manual lead is listed separately. Select one or more batches; an Excel file and recovery snapshot are saved before deletion.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2745,7 +2777,7 @@ export function LeadsTable({
           <DialogHeader>
             <DialogTitle>Recent Deletions</DialogTitle>
             <DialogDescription>
-              Every bulk delete stores a snapshot of the leads and activities it removed. Restore one to put the rows back —
+              Every lead deletion, including a single lead, stores a snapshot of the lead and its activities. Restore one to put the rows back —
               leads that already exist are skipped, so restoring twice is safe.
             </DialogDescription>
           </DialogHeader>

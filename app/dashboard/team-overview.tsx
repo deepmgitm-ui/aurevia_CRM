@@ -72,9 +72,10 @@ export function TeamOverview({
             />
           </Link>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name })} label="Total leads" value={employee.total} className="col-span-2 bg-slate-100 text-slate-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name })} label="Total leads" value={employee.total} className="bg-slate-100 text-slate-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "fresh" })} label="Fresh leads" value={employee.fresh} className="bg-blue-50 text-blue-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "followup" })} label="Follow-up" value={employee.followUp} className="bg-sky-50 text-sky-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "lost" })} label="Lost leads" value={employee.lost} className="bg-rose-50 text-rose-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "opdBooked" })} label="OPD booked" value={employee.opdBooked} className="bg-amber-50 text-amber-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "opdDone" })} label="OPD Done" value={employee.opdDone} className="bg-emerald-50 text-emerald-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "ipdBooked" })} label="IPD booked" value={employee.ipdBooked} className="bg-violet-50 text-violet-700" />

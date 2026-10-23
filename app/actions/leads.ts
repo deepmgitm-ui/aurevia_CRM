@@ -38,6 +38,7 @@ import {
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
 import { isWonStatus, normaliseAppointmentDate } from "@/lib/appointments";
+import { assignmentOrExpression } from "@/lib/lead-assignment-filter";
 import { createClient } from "@/lib/supabase/server";
 import { canonicalLeadStatus, isLeadStatusOption, leadStatusStorageValues } from "@/lib/lead-status";
 import {
@@ -550,7 +551,7 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   if (resolved.bucket === "dnp") {
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
   } else if (resolved.bucket) {
-    filtered = filtered.eq("workflow_bucket", resolved.bucket);
+    filtered = filtered.eq("workflow_bucket", resolved.bucket === "lost" ? "closed" : resolved.bucket);
   }
   if (resolved.bucket === "fresh") {
     filtered = filtered.lt("assigned_fresh_since", assignmentDayWindow(clinicDate()).from);
@@ -950,7 +951,7 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
       statusCountQuery("New"),
       followUpQuery,
       statusValuesCountQuery(["OPD Done", "Consultation Attended", "IPD Done", "Won", "Surgery Completed"]),
-      statusCountQuery("Dropped"),
+      buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).eq("workflow_bucket", "closed"),
     ]);
 
     for (const result of [totalRes, newRes, followUpRes, wonRes, lostRes]) {
@@ -982,6 +983,7 @@ export interface EmployeeLeadSummary {
   fresh: number;
   followUp: number;
   dnp: number;
+  lost: number;
   opdBooked: number;
   opdDone: number;
   ipdBooked: number;
@@ -990,7 +992,7 @@ export interface EmployeeLeadSummary {
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
 export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
-  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
+  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -1016,6 +1018,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       fresh: Number(row.fresh ?? 0),
       followUp: Number(row.followUp ?? 0),
       dnp: dnpCount ?? 0,
+      lost: Number(row.lost ?? 0),
       opdBooked: Number(row.opdBooked ?? 0),
       opdDone: Number(row.opdDone ?? 0),
       ipdBooked: Number(row.ipdBooked ?? 0),
@@ -1460,7 +1463,10 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
 
     const { data: bucketRows, error: bucketError } = await supabase.rpc("crm_team_bucket_groups");
     if (bucketError) return { success: false, error: bucketError.message };
-    for (const stats of statsByName.values()) stats.newLeads = 0;
+    for (const stats of statsByName.values()) {
+      stats.newLeads = 0;
+      stats.lost = 0;
+    }
     for (const row of bucketRows ?? []) {
       const stats = statsByName.get(String(row.assigned_to ?? "").trim());
       if (!stats) continue;
@@ -1473,6 +1479,7 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         case "opdDone": stats.opdDone = value; break;
         case "ipdBooked": stats.ipdBooked = value; break;
         case "ipdDone": stats.ipd = value; break;
+        case "lost": stats.lost = value; break;
       }
     }
 
@@ -1500,7 +1507,7 @@ export async function createLead(
       data: { user },
     } = await supabase.auth.getUser();
     const { data: profile } = user
-      ? await supabase.from("profiles").select("name").eq("id", user.id).single()
+      ? await supabase.from("profiles").select("name, role").eq("id", user.id).single()
       : { data: null };
     const { data, error } = await supabase
       .from("leads")
@@ -1519,7 +1526,9 @@ export async function createLead(
         source_batch_id: randomUUID(),
         source_batch_label: `Manual entry — ${input.name.trim()}`.slice(0, 240),
         source_batch_created_at: new Date().toISOString(),
-        assigned_to: dashIfEmpty(profile?.name),
+        // Admin/manager-created leads should be assignable through the
+        // unassigned filter. Employee-created leads stay with their owner.
+        assigned_to: profile?.role === "employee" ? dashIfEmpty(profile.name) : "-",
         status,
       })
       .select()
@@ -2607,6 +2616,7 @@ export interface LeadAssignmentCriteria {
   treatment: string;
   city: string;
   status?: string;
+  includeAssigned?: boolean;
   excludeBatchId?: string;
 }
 
@@ -2618,6 +2628,7 @@ export interface LeadAssignmentSuggestion {
   disease: string;
   source: string;
   status: string;
+  assigned_to: string | null;
 }
 
 const ASSIGNMENT_SUGGESTION_PAGE_SIZE = 25;
@@ -2720,6 +2731,30 @@ export async function getLeadAssignmentBatches(): Promise<ActionResult<LeadAssig
     };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load assignment batches.") };
+  }
+}
+
+/** Admin-only Excel backup rows for an assignment-batch deletion. */
+export async function getLeadsForAssignmentBatch(batchId: string): Promise<ActionResult<Lead[]>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(batchId ?? "")) {
+    return { success: false, error: "Select a valid assignment batch." };
+  }
+  try {
+    const supabase = await createClient();
+    if (await getViewerRole(supabase) !== "admin") {
+      return { success: false, error: "Only admins can export assignment batches (403 Forbidden)." };
+    }
+    const { data, error } = await supabase.from("leads").select("*")
+      .eq("assignment_batch_id", batchId)
+      .order("created_at", { ascending: true })
+      .range(0, 4999);
+    if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+    if ((data ?? []).length >= 5000) {
+      return { success: false, error: "This batch is too large for one safe Excel backup. Delete a smaller selection instead." };
+    }
+    return { success: true, data: (data ?? []) as Lead[] };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to prepare the assignment-batch Excel backup.") };
   }
 }
 
@@ -2889,6 +2924,8 @@ export async function getUnassignedLeadAssignmentSuggestions(
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
+    includeAssigned: criteria.includeAssigned === true,
+    excludeBatchId: criteria.excludeBatchId,
   };
   const safeOffset = Number.isInteger(offset) && offset >= 0 && offset < BULK_ASSIGNMENT_LIMIT ? offset : 0;
 
@@ -2901,13 +2938,10 @@ export async function getUnassignedLeadAssignmentSuggestions(
 
     let query = supabase
       .from("leads")
-      .select("id, name, phone, city, disease, source, status", { count: "exact" })
+      .select("id, name, phone, city, disease, source, status, assigned_to", { count: "exact" })
       .order("name", { ascending: true })
       .order("created_at", { ascending: false });
     query = applyAssignmentCriteria(query, normalized);
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(criteria.excludeBatchId ?? "")) {
-      query = query.or(`assignment_batch_id.is.null,assignment_batch_id.neq.${criteria.excludeBatchId}`);
-    }
     const { data, count, error } = await query.range(
       safeOffset,
       safeOffset + ASSIGNMENT_SUGGESTION_PAGE_SIZE - 1,
@@ -2921,6 +2955,7 @@ export async function getUnassignedLeadAssignmentSuggestions(
       disease: lead.disease ?? "",
       source: lead.source ?? "",
       status: lead.status ?? "",
+      assigned_to: lead.assigned_to ?? null,
     }));
     const total = count ?? 0;
     return {
@@ -2932,7 +2967,7 @@ export async function getUnassignedLeadAssignmentSuggestions(
       },
     };
   } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to search unassigned leads.") };
+      return { success: false, error: getErrorMessage(error, "Unable to search leads for assignment.") };
   }
 }
 
@@ -2958,9 +2993,8 @@ function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria):
       ? filtered.eq("status", values[0])
       : filtered.in("status", values);
   }
-  // Filter-based assignment is strictly for unassigned records. Even leads
-  // assigned to a removed or renamed profile must not leak into this queue.
-  filtered = filtered.or('assigned_to.is.null,assigned_to.eq."",assigned_to.eq.-,assigned_to.eq.Unassigned');
+  const assignmentFilter = assignmentOrExpression(criteria.includeAssigned === true, criteria.excludeBatchId);
+  if (assignmentFilter) filtered = filtered.or(assignmentFilter);
   return filtered as unknown as Q;
 }
 
@@ -2976,6 +3010,8 @@ export async function getLeadAssignmentPreview(
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
+    includeAssigned: criteria.includeAssigned === true,
+    excludeBatchId: criteria.excludeBatchId,
   };
   try {
     const supabase = await createClient();
@@ -3033,6 +3069,8 @@ export async function assignLeadsToEmployees(input: {
         treatment: typeof input.criteria.treatment === "string" ? input.criteria.treatment.trim() : "",
         city: typeof input.criteria.city === "string" ? input.criteria.city.trim() : "",
         status: typeof input.criteria.status === "string" ? input.criteria.status.trim() : "",
+        includeAssigned: input.criteria.includeAssigned === true,
+        excludeBatchId: input.criteria.excludeBatchId,
       }
     : null;
 

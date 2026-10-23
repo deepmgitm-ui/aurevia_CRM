@@ -267,7 +267,7 @@ export interface LeadListFilters {
   assignmentBatchId?: string;
   status: string;
   /** Agent workflow bucket used by dashboard cards. */
-  bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp";
+  bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp" | "lost";
 }
 
 export const EMPTY_LEAD_FILTERS: LeadListFilters = {
@@ -317,7 +317,7 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
       ? firstValue(params.assignmentBatchId)
       : "",
     status: firstValue(params.status),
-    bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp"].includes(firstValue(params.bucket))
+    bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"].includes(firstValue(params.bucket))
       ? firstValue(params.bucket) as LeadListFilters["bucket"]
       : "",
   };
@@ -416,7 +416,7 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   }
   if (filters.assignmentBatchId) chips.push(`Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`);
   if (filters.status) chips.push(filters.status);
-  if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP" }[filters.bucket]);
+  if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP", lost: "Lost Leads" }[filters.bucket]);
   if (filters.q) chips.push(`Search: ${filters.q}`);
   return chips;
 }

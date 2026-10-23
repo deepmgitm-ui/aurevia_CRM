@@ -350,6 +350,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
     ["opdDone", "Bucket OPD done", "OPD Done"],
     ["ipdBooked", "Bucket IPD booked", "IPD Booked"],
     ["ipdDone", "Bucket IPD done", "IPD Done"],
+    ["lost", "Bucket lost", "Dropped"],
   ]) {
     bucketIds[key] = (await db.query(
       "insert into leads(name,phone,assigned_to,status) values($1,$2,'Agent A',$3) returning id",
@@ -363,6 +364,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   const initialGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
   assert.ok(initialGroups.some((row) => row.bucket === "new" && Number(row.lead_count) >= 2), "today's untouched assignments are grouped as New Today");
   assert.ok(initialGroups.some((row) => row.bucket === "fresh" && Number(row.lead_count) >= 1), "untouched assignments from earlier days are grouped as Fresh");
+  assert.ok(initialGroups.some((row) => row.bucket === "lost" && Number(row.lead_count) >= 1), "closed outcomes are grouped as Lost");
   const dailyBeforeTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   await db.query("update leads set remarks='First agent edit' where id=$1", [bucketIds.edited]);
@@ -378,6 +380,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.ok(bucketSummary.fresh >= 1, "earlier untouched assignment counts as Fresh");
   assert.ok(!((await db.query("select bucket from crm_team_bucket_groups() where assigned_to='Agent A' and bucket='fresh'")).rows.length === 0), "earlier untouched lead remains in Fresh grouping");
   assert.ok(bucketSummary.followUp >= 2, "first edits and activities count as Follow-up");
+  assert.ok(bucketSummary.lost >= 1, "closed outcomes are included in role-scoped lead summaries");
   assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
 
   // Appointment RLS follows the current employee assignment and changes on reassignment.
