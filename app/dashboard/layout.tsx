@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { markMyAttendance } from "@/app/actions/attendance";
 import { getDashboardWindow } from "@/app/actions/leads";
+import { getPendingDeletionReviewCount } from "@/app/actions/deletion-reviews";
 import { DashboardShell } from "./dashboard-shell";
 import { createClient, getUserSafely } from "@/lib/supabase/server";
 import type { ReactNode } from "react";
@@ -84,9 +85,10 @@ async function DashboardShellData({
 
   // Keep sign-in marking idempotent, but do not block the loading shell while
   // the check-in and date-window data resolve.
-  const [attendance, window] = await Promise.all([
+  const [attendance, window, pendingDeletionReviews] = await Promise.all([
     markMyAttendance({ id: userId, role: profileRole }),
     profileRole === "employee" ? Promise.resolve(null) : getDashboardWindow(),
+    profileRole === "admin" ? getPendingDeletionReviewCount() : Promise.resolve(0),
   ]);
   if (!attendance.success) {
     console.warn("[attendance] Could not record the check-in:", attendance.error);
@@ -101,6 +103,7 @@ async function DashboardShellData({
       }}
       attendanceToday={attendance.success ? attendance.data : null}
       initialRange={window?.range}
+      pendingDeletionReviews={pendingDeletionReviews}
     >
       {children}
     </DashboardShell>

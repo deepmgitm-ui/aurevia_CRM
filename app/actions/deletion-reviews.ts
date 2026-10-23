@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { getViewer } from "./leads";
 
 export interface LeadDeletionReviewView {
   id: string;
@@ -22,11 +23,9 @@ export async function getDeletionReviews(): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { role: "", reviews: [], error: null };
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  const role = profile?.role ?? "";
-  if (role !== "admin" && role !== "employee") return { role, reviews: [], error: null };
+  const viewer = await getViewer();
+  const role = viewer.success ? viewer.data?.role ?? "" : "";
+  if (role !== "admin") return { role, reviews: [], error: null };
 
   const { data, error } = await supabase
     .from("crm_lead_deletion_reviews")
@@ -56,6 +55,17 @@ export async function getDeletionReviews(): Promise<{
   };
 }
 
+export async function getPendingDeletionReviewCount(): Promise<number> {
+  const viewer = await getViewer();
+  if (!viewer.success || viewer.data?.role !== "admin") return 0;
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("crm_lead_deletion_reviews")
+    .select("id", { count: "exact", head: true })
+    .eq("decision", "pending");
+  return error ? 0 : count ?? 0;
+}
+
 function formText(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -71,6 +81,7 @@ export async function submitDeletionReviewNote(formData: FormData): Promise<void
   });
   if (error) throw new Error("Your note could not be sent. Refresh and try again.");
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/closed-lead-reviews");
 }
 
 export async function resolveDeletionReview(formData: FormData): Promise<void> {
@@ -86,6 +97,7 @@ export async function resolveDeletionReview(formData: FormData): Promise<void> {
     p_snooze_days: action === "snooze" ? snoozeDays : null,
   });
   if (error) throw new Error("The deletion review could not be updated. Refresh and try again.");
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
+  revalidatePath("/dashboard/closed-lead-reviews");
   revalidatePath("/dashboard/leads");
 }

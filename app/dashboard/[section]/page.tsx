@@ -17,6 +17,7 @@ import { LeadListTable } from "../overview/lead-list-table";
 import { PipelineDetail } from "../overview/pipeline-detail";
 import { CitiesChart, SourcesChart, TreatmentCoverageNote, TrendChart } from "../overview/charts";
 import { DashboardGreeting } from "../overview/greeting";
+import { getStarOfMonthProfileId } from "@/app/actions/star-of-month";
 import { KpiCards } from "../overview/kpi-cards";
 import { SectionCard, SectionHeader, StatTable, type StatTableColumn, type StatTableRow } from "../overview/stat-table";
 import {
@@ -232,6 +233,8 @@ function renderSection(
   viewerName: string | null,
   profileMessage: string | null,
   openOwnProfile: boolean,
+  initialStarProfileId: string | null,
+  canManageStar: boolean,
 ) {
   switch (section) {
     case "lead-analysis":
@@ -353,18 +356,18 @@ function renderSection(
             editableProfileId={viewerId}
             openOwnProfile={openOwnProfile}
             canManageProfiles={isTeamLead}
+            canManageStar={canManageStar}
+            initialStarProfileId={initialStarProfileId}
           />
-          <LeadListCard
-            title={isTeamLead ? "Team leads" : "My leads"}
-            description={
-              isTeamLead
-                ? "Every agent's assigned leads — use the Assigned To column to see who owns which"
-                : "Leads assigned to your account."
-            }
-            rows={rows}
-            limit={100}
-            emptyMessage="No leads in this date range."
-          />
+          {!isTeamLead && (
+            <LeadListCard
+              title="My leads"
+              description="Leads assigned to your account."
+              rows={rows}
+              limit={100}
+              emptyMessage="No leads in this date range."
+            />
+          )}
         </>
       );
 
@@ -490,6 +493,7 @@ export default async function SectionPage({
 
   const viewer = viewerResult.success ? viewerResult.data : null;
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
+  const initialStarProfileId = section === "agents" && isTeamLead ? await getStarOfMonthProfileId() : null;
   if(!leadsResult.success) throw new Error(leadsResult.error);
   const allRows = leadsResult.data.map(toAnalyticsLead);
   let employees = directoryResult.success ? directoryResult.data : [];
@@ -528,6 +532,8 @@ export default async function SectionPage({
         viewer?.name ?? null,
         profileMessage,
         section === "agents" && query.editProfile === "1",
+        initialStarProfileId,
+        viewer?.role === "admin",
       )}
     </div>
   );

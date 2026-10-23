@@ -18,7 +18,6 @@ import {
   Stethoscope,
   UserCheck,
   UserCog,
-  UserRound,
   Users,
 } from "lucide-react";
 
@@ -61,37 +60,28 @@ interface DashboardShellProps {
    * data really lives in.
    */
   initialRange?: DateRange;
+  pendingDeletionReviews?: number;
 }
 
-// Sidebar modules, exactly as in the Aurevia HealthCare design reference.
+// Keep every workspace destination in the sidebar so the header stays focused.
 const navigation = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
   { label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
-  { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
-  { label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
   { label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
   { label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
   { label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
+  { label: "Upcoming Appointments", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
   { label: "Consultations", href: "/dashboard/consultations", icon: CalendarDays, exact: false },
   { label: "Surgeries", href: "/dashboard/surgeries", icon: Stethoscope, exact: false },
-  { label: "Patients", href: "/dashboard/patients", icon: UserRound, exact: false },
-  { label: "Agents", href: "/dashboard/agents", icon: UserCog, exact: false },
+  { label: "Lead Analysis", href: "/dashboard/lead-analysis", icon: BarChart3, exact: false },
+  { label: "Source Analysis", href: "/dashboard/source-analysis", icon: Megaphone, exact: false },
+  { label: "City Analysis", href: "/dashboard/city-analysis", icon: CalendarDays, exact: false },
+  { label: "Agents Performance", href: "/dashboard/agents", icon: UserCog, exact: false },
+  { label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
   { label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
   { label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
+  { label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false },
   { label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
-] as const;
-
-// Secondary (in-dashboard) tab navigation shown in the top white bar.
-const topTabs = [
-  { label: "Overview", href: "/dashboard", exact: true },
-  { label: "Pipeline Board", href: "/dashboard/board", exact: false },
-  { label: "Lead Analysis", href: "/dashboard/lead-analysis", exact: false },
-  { label: "Consultations", href: "/dashboard/consultations", exact: false },
-  { label: "Surgeries", href: "/dashboard/surgeries", exact: false },
-  { label: "Source Analysis", href: "/dashboard/source-analysis", exact: false },
-  { label: "Agents Performance", href: "/dashboard/agents", exact: false },
-  { label: "City Analysis", href: "/dashboard/city-analysis", exact: false },
-  { label: "Upcoming Appointments", href: "/dashboard/calendar", exact: false },
 ] as const;
 
 function isActivePath(pathname: string, href: string, exact: boolean): boolean {
@@ -133,9 +123,17 @@ function BrandLogo({
   );
 }
 
-function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string }) {
+function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobile?: boolean; role?: string; pendingDeletionReviews?: number }) {
   const pathname = usePathname();
-  const items = role === "employee" ? navigation.filter(item=>["/dashboard","/dashboard/leads","/dashboard/tasks","/dashboard/calendar","/dashboard/attendance","/dashboard/agents","/dashboard/daily-report"].includes(item.href)).map(item=>item.href==="/dashboard/daily-report"?{...item,label:"My Daily Summary"}:item) : navigation;
+  const items = navigation
+    .filter((item) => {
+      if (role === "employee") {
+        return ["/dashboard", "/dashboard/leads", "/dashboard/calendar", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report"].includes(item.href);
+      }
+      if (item.href === "/dashboard/closed-lead-reviews") return role === "admin";
+      return true;
+    })
+    .map((item) => role === "employee" && item.href === "/dashboard/daily-report" ? { ...item, label: "My Daily Summary" } : item);
 
   return (
     <nav aria-label="Workspace" className="space-y-1">
@@ -153,7 +151,12 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
             )}
           >
             <Icon className="size-4.5" aria-hidden="true" />
-            {label}
+            <span>{label}</span>
+            {href === "/dashboard/closed-lead-reviews" && pendingDeletionReviews > 0 && (
+              <span className="ml-auto flex size-2.5 items-center justify-center rounded-full bg-rose-600" title={`${pendingDeletionReviews} pending reviews`}>
+                <span className="sr-only">{pendingDeletionReviews} pending reviews</span>
+              </span>
+            )}
           </Link>
         );
 
@@ -163,15 +166,15 @@ function Navigation({ mobile = false, role }: { mobile?: boolean; role?: string 
   );
 }
 
-function Sidebar({ profile }: { profile: DashboardProfile }) {
+function Sidebar({ profile, pendingDeletionReviews }: { profile: DashboardProfile; pendingDeletionReviews: number }) {
   return (
     <aside className="hidden w-[232px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-      <div className="flex h-[4.75rem] items-center justify-start border-b border-slate-100 px-5">
-        <BrandLogo className="h-12 w-auto object-contain bg-transparent" preload />
+      <div className="flex h-[5.5rem] items-center justify-start border-b border-slate-100 px-5">
+        <BrandLogo className="h-14 w-auto object-contain bg-transparent" preload />
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-5">
         <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Workspace</p>
-        <Navigation role={profile.role} />
+        <Navigation role={profile.role} pendingDeletionReviews={pendingDeletionReviews} />
       </div>
       <div className="border-t border-slate-200 p-3">
         <Link
@@ -193,7 +196,7 @@ function Sidebar({ profile }: { profile: DashboardProfile }) {
   );
 }
 
-function MobileNavigation({ profile }: { profile: DashboardProfile }) {
+function MobileNavigation({ profile, pendingDeletionReviews }: { profile: DashboardProfile; pendingDeletionReviews: number }) {
   return (
     <Sheet>
       <SheetTrigger
@@ -206,14 +209,14 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
       <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
         <SheetHeader className="border-b border-slate-200 px-6 py-5">
           <SheetTitle className="flex items-center">
-            <BrandLogo className="h-11 w-auto object-contain bg-transparent" sizes="140px" />
+            <BrandLogo className="h-12 w-auto object-contain bg-transparent" sizes="150px" />
           </SheetTitle>
         </SheetHeader>
         <div className="flex flex-1 flex-col px-4 py-6">
           <p className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
-          <Navigation mobile role={profile.role} />
+          <Navigation mobile role={profile.role} pendingDeletionReviews={pendingDeletionReviews} />
           <SheetClose
             render={
               <Link
@@ -240,43 +243,6 @@ function MobileNavigation({ profile }: { profile: DashboardProfile }) {
   );
 }
 
-function TopTabs({ mobile = false, role }: { mobile?: boolean; role?: string }) {
-  const pathname = usePathname();
-
-  return (
-    <nav
-      aria-label="Dashboard sections"
-      className={cn(
-        "crm-tabs-scroll flex items-center gap-1 overflow-x-auto overflow-y-hidden",
-        // Desktop: the tabs share ONE header row with the date button + icons, so
-        // cap the strip and scroll it instead of sliding underneath them.
-        mobile
-          ? "pb-1"
-          : "w-fit max-w-full border-b border-slate-200",
-      )}
-    >
-      {(role === "employee" ? [{label:"My day",href:"/dashboard",exact:true},{label:"Leads",href:"/dashboard/leads",exact:false},{label:"Follow-ups",href:"/dashboard/tasks",exact:false},{label:"Calendar",href:"/dashboard/calendar",exact:false}] : topTabs).map(({ label, href, exact }) => {
-        const isActive = isActivePath(pathname, href, exact);
-        return (
-          <Link
-            key={href}
-            href={href}
-            aria-current={isActive ? "page" : undefined}
-            className={cn(
-              "-mb-px rounded-none border-b-2 border-transparent px-3.5 py-3 text-sm font-medium whitespace-nowrap transition-colors",
-              isActive
-                ? "border-emerald-700 text-emerald-900"
-                : "text-slate-600 hover:border-slate-300 hover:text-slate-950",
-            )}
-          >
-            {label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
 /** "Today: Present · 09:42" — confirms that signing in marked the day. */
 function AttendanceChip({
   attendance,
@@ -297,7 +263,7 @@ function AttendanceChip({
   );
 }
 
-export function DashboardShell({ children, profile, attendanceToday, initialRange }: DashboardShellProps) {
+export function DashboardShell({ children, profile, attendanceToday, initialRange, pendingDeletionReviews = 0 }: DashboardShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   // Seeded from the server's resolved window so the button and the cards agree;
@@ -334,26 +300,23 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
   return (
     <div className="crm-app-shell flex min-h-screen">
       <ActivityTracker />
-      <Sidebar profile={profile} />
+      <Sidebar profile={profile} pendingDeletionReviews={pendingDeletionReviews} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
           <div className="flex min-h-[4.25rem] items-center gap-3 px-4 sm:px-6">
-            <MobileNavigation profile={profile} />
-            <div className="hidden min-w-0 flex-1 items-center lg:flex">
-              <TopTabs role={profile.role} />
-            </div>
+            <MobileNavigation profile={profile} pendingDeletionReviews={pendingDeletionReviews} />
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
               <RealtimeNotifications />
               <GlobalSearch role={profile.role} />
-              <Link
+              {profile.role !== "employee" && <Link
                 href="/dashboard/tasks"
                 aria-label="Tasks"
                 className="flex items-center gap-2 rounded-full border border-emerald-900/10 bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:flex"
               >
                 <CheckSquare className="size-4" aria-hidden="true" />
                 <span className="hidden xl:inline">Tasks</span>
-              </Link>
+              </Link>}
               <div className="hidden text-right lg:block">
                 <Link
                   href="/dashboard/agents?editProfile=1"
@@ -376,10 +339,6 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
                 </Button>
               </form>
             </div>
-          </div>
-          {/* Tab row for phones / tablets, where the sidebar is collapsed. */}
-          <div className="overflow-hidden px-4 sm:px-6 lg:hidden">
-            <TopTabs mobile role={profile.role} />
           </div>
         </header>
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>

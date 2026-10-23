@@ -14,11 +14,13 @@ import { useRouter } from "next/navigation";
 import { Crown, ImagePlus, Lock, Search, ShieldCheck, Upload, X } from "lucide-react";
 
 import { updateEmployeeProfile } from "@/app/actions/profile";
+import { setStarOfMonthProfileId } from "@/app/actions/star-of-month";
 import { createClient } from "@/lib/supabase/client";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import type { EmployeeDirectoryEntry } from "@/app/actions/leads";
 
@@ -287,12 +289,16 @@ export function AgentSection({
   editableProfileId,
   openOwnProfile = false,
   canManageProfiles = false,
+  canManageStar = false,
+  initialStarProfileId = null,
 }: {
   employees: EmployeeDirectoryEntry[];
   agents: AgentStat[];
   editableProfileId: string | null;
   openOwnProfile?: boolean;
   canManageProfiles?: boolean;
+  canManageStar?: boolean;
+  initialStarProfileId?: string | null;
 }) {
   const [search, setSearch] = useState("");
   const [directory, setDirectory] = useState(employees);
@@ -300,6 +306,9 @@ export function AgentSection({
     if (!openOwnProfile || !editableProfileId) return null;
     return buildAgentCards(employees, agents).find((card) => card.id === editableProfileId) ?? null;
   });
+  const [starProfileId, setStarProfileId] = useState(initialStarProfileId ?? "automatic");
+  const [savingStar, setSavingStar] = useState(false);
+  const router = useRouter();
 
   const cards = useMemo(() => buildAgentCards(directory, agents), [directory, agents]);
 
@@ -309,12 +318,14 @@ export function AgentSection({
     return cards.filter((card) => card.name.toLowerCase().includes(term));
   }, [cards, search]);
 
-  // Gamification: whoever completed the most surgeries (then consultations, then
-  // leads) in the selected window wears the crown. Purely derived, so it always
-  // follows the dashboard filters and never needs a write.
+  // The admin may choose the monthly star; otherwise the strongest performer
+  // in the selected date window is crowned automatically.
   const topPerformer = useMemo(() => findTopPerformer(agents), [agents]);
-  const crownedName = topPerformer ? topPerformer.name.trim().toLowerCase() : null;
-  const isCrowned = (name: string) => crownedName !== null && name.trim().toLowerCase() === crownedName;
+  const crownedProfileId = starProfileId === "automatic" ? topPerformer?.id ?? null : starProfileId;
+  const isCrowned = (profileId: string) => crownedProfileId !== null && profileId === crownedProfileId;
+  const selectedStar = starProfileId === "automatic"
+    ? topPerformer
+    : directory.find((employee) => employee.id === starProfileId) ?? null;
   const editableProfile = selected
     ? directory.find((employee) => employee.id === selected.id) ??
       employees.find((employee) => employee.id === selected.id) ??
@@ -324,6 +335,21 @@ export function AgentSection({
     selected && (selected.id === editableProfileId || canManageProfiles),
   );
 
+  async function changeStar(value: string) {
+    if (!canManageStar || savingStar) return;
+    const nextId = value === "automatic" ? null : value;
+    setSavingStar(true);
+    const result = await setStarOfMonthProfileId(nextId);
+    setSavingStar(false);
+    if (!result.success) {
+      toast.add({ title: "Star of the Month was not changed", description: result.error, type: "error" });
+      return;
+    }
+    setStarProfileId(value);
+    toast.add({ title: "Star of the Month updated", description: value === "automatic" ? "Automatic selection restored." : "Your selection has been saved for this month.", type: "success" });
+    router.refresh();
+  }
+
   return (
     <div className="space-y-4">
       <div className="crm-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-950/[0.07] bg-white/85 p-4 shadow-sm backdrop-blur-sm">
@@ -332,13 +358,29 @@ export function AgentSection({
             <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
             Tap your own profile to edit it. Admins and managers can update any agent&apos;s profile details.
           </p>
-          {topPerformer && (
+          {selectedStar && (
             <span className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
               <Crown className="size-3.5" aria-hidden="true" />
-              Star of the Month: {topPerformer.name}
+              Star of the Month: {selectedStar.name}
             </span>
           )}
         </div>
+        {canManageStar && (
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <span className="shrink-0 text-xs font-medium text-slate-600">Monthly star</span>
+            <Select value={starProfileId} onValueChange={(value) => void changeStar(String(value ?? "automatic"))} disabled={savingStar}>
+              <SelectTrigger className="h-9 min-w-52 bg-white" aria-label="Choose Star of the Month">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="automatic">Automatic · top performer</SelectItem>
+                {directory.filter((employee) => employee.role === "employee").map((employee) => (
+                  <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="relative min-w-56 w-full sm:w-auto sm:max-w-xs">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400"
@@ -364,12 +406,12 @@ export function AgentSection({
               card.id === editableProfileId ? "Open and edit your agent profile" : `Open secure details for ${card.name}`
             }
             className={`crm-card-interactive group flex flex-col items-center gap-3 rounded-2xl border bg-white/90 p-4 text-center shadow-sm backdrop-blur-sm ${
-              isCrowned(card.name) ? "border-amber-200 ring-1 ring-amber-200" : "border-emerald-950/[0.07] hover:border-emerald-300"
+              isCrowned(card.id) ? "border-amber-200 ring-1 ring-amber-200" : "border-emerald-950/[0.07] hover:border-emerald-300"
             }`}
           >
             <span className="relative">
               <AgentAvatar card={card} size="lg" />
-              {isCrowned(card.name) && (
+              {isCrowned(card.id) && (
                 <Crown
                   className="absolute -top-2 -right-2 size-6 rotate-12 fill-amber-400 text-amber-500 drop-shadow-sm"
                   aria-hidden="true"
@@ -377,7 +419,7 @@ export function AgentSection({
               )}
             </span>
             <span className="text-sm font-semibold text-slate-800 group-hover:underline">{card.name}</span>
-            {isCrowned(card.name) ? (
+            {isCrowned(card.id) ? (
               <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 <Crown className="size-3" aria-hidden="true" />
                 Star of the Month
@@ -407,7 +449,7 @@ export function AgentSection({
                   <span className="flex flex-col">
                     <span className="flex flex-wrap items-center gap-2">
                       {selected.name}
-                      {isCrowned(selected.name) && (
+                      {isCrowned(selected.id) && (
                         <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                           <Crown className="size-3" aria-hidden="true" />
                           Star of the Month

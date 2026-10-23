@@ -14,6 +14,12 @@ export async function getTaskPage(bucket = "all", search = "", page = 1) {
   const viewer = await getViewer();
   if (!viewer.success || !viewer.data)
     return { success: false as const, error: "Sign in to view follow-ups." };
+  if (viewer.data.role === "employee") {
+    return {
+      success: true as const,
+      data: { leads: [], total: 0, stats: { total: 0, overdue: 0, today: 0, upcoming: 0, stale: 0 } },
+    };
+  }
   const { data, error } = await supabase.rpc("crm_task_page", {
     p_bucket: ["all", "overdue", "today", "upcoming", "stale"].includes(bucket)
       ? bucket

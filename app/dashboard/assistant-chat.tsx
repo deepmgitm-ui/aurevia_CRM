@@ -20,7 +20,7 @@ export function AssistantChat({ role }: { role: "admin" | "manager" | "employee"
     {
       role: "assistant",
       text: role === "employee"
-        ? "Hello! Ask how to manage assigned leads, follow-ups, or attendance."
+        ? "Hello! Ask how to manage assigned leads, add notes, or view attendance."
         : "Hello! Ask how to use CRM features, manage assignments, or view reports.",
     },
   ]);

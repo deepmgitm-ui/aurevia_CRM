@@ -16,7 +16,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { TeamActivityPanel } from "./team-activity-panel";
-import { DeletionReviewPanel } from "./deletion-review-panel";
 import { LeadsTable } from "./leads-table";
 import { DashboardGreeting } from "./overview/greeting";
 import { OverviewDashboard } from "./overview/overview-dashboard";
@@ -160,8 +159,6 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
-        <DeletionReviewPanel role={viewer?.role ?? ""} />
-        <TeamActivityPanel day={clinicDate()} />
         <OverviewDashboard
           rows={rows}
           employees={employees}
@@ -173,6 +170,7 @@ export default async function DashboardPage({
         {teamResult.success ? <LeadAssignmentTabs team={team} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
         {insights && <PipelineInsights insights={insights} />}
+        <TeamActivityPanel day={clinicDate()} />
       </div>
     );
   }
@@ -206,7 +204,6 @@ export default async function DashboardPage({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
-      <DeletionReviewPanel role={viewer?.role ?? ""} />
       <TeamActivityPanel key={day} day={day} own />
 
       <div>

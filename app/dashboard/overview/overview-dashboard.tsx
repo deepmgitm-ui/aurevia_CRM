@@ -175,6 +175,8 @@ export function OverviewDashboard({
 
       <DashboardGreeting name={viewer?.name} role={viewer?.role} />
 
+      <KpiCards kpis={metrics.kpis} />
+
       <FilterBar filters={filters} options={options} isSample={isSample} onChange={updateFilter} onReset={resetFilters} />
 
       {rangeNote && (
@@ -183,8 +185,6 @@ export function OverviewDashboard({
           {rangeNote}
         </p>
       )}
-
-      <KpiCards kpis={metrics.kpis} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
