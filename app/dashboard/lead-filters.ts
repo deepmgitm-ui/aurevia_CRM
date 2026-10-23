@@ -233,7 +233,7 @@ export function shortLeadAge(value: Date | string | null | undefined, today = ne
 }
 
 // ---------------------------------------------------------------------------
-// Lead list filters (?stage=&treatment=&age=&city=&source=&assigned=&q=)
+// Lead list filters (?stage=&treatment=&age=&city=&source=&assigned=&batch=&q=)
 // ---------------------------------------------------------------------------
 
 export interface LeadListFilters {
@@ -264,6 +264,7 @@ export interface LeadListFilters {
   source: string;
   assigned: string;
   assignmentStatus: "" | "assigned" | "unassigned";
+  assignmentBatchId?: string;
   status: string;
   /** Agent workflow bucket used by dashboard cards. */
   bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp";
@@ -283,6 +284,7 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   source: "",
   assigned: "",
   assignmentStatus: "",
+  assignmentBatchId: "",
   status: "",
   bucket: "",
 };
@@ -311,6 +313,9 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     assignmentStatus: ["assigned", "unassigned"].includes(firstValue(params.assignmentStatus))
       ? (firstValue(params.assignmentStatus) as LeadListFilters["assignmentStatus"])
       : "",
+    assignmentBatchId: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(firstValue(params.assignmentBatchId))
+      ? firstValue(params.assignmentBatchId)
+      : "",
     status: firstValue(params.status),
     bucket: ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp"].includes(firstValue(params.bucket))
       ? firstValue(params.bucket) as LeadListFilters["bucket"]
@@ -331,6 +336,7 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
     filters.source.length > 0 ||
     filters.assigned.length > 0 ||
     filters.assignmentStatus.length > 0 ||
+    Boolean(filters.assignmentBatchId) ||
     filters.status.length > 0
     || Boolean(filters.bucket)
   );
@@ -408,6 +414,7 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   if (filters.assignmentStatus) {
     chips.push(filters.assignmentStatus === "unassigned" ? "Unassigned leads" : "Assigned leads");
   }
+  if (filters.assignmentBatchId) chips.push(`Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`);
   if (filters.status) chips.push(filters.status);
   if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP" }[filters.bucket]);
   if (filters.q) chips.push(`Search: ${filters.q}`);

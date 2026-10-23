@@ -6,7 +6,7 @@ import { voiceBotTreatment } from "@/lib/lead-treatment";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
 import {
   findLeadImportHeaderRow,
   getRecognizedLeadImportFields,
@@ -38,7 +38,12 @@ import {
   updateLeadAppointment,
   randomAssignLeads,
   assignLeadsToEmployees,
+  addLeadsToAssignmentBatch,
+  deleteLeadAssignmentBatch,
+  getLeadAssignmentBatches,
+  transferLeadAssignmentBatch,
   type LeadAssignmentCriteria,
+  type LeadAssignmentBatch,
   type LeadAssignmentSuggestion,
   type LeadSourceBatch,
   type Lead,
@@ -312,6 +317,9 @@ function drillDownChips(filters: LeadListFilters): {
       next: { assignmentStatus: "" },
     });
   }
+  if (filters.assignmentBatchId) {
+    chips.push({ key: "assignmentBatchId", label: `Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`, next: { assignmentBatchId: "" } });
+  }
   if (filters.status) chips.push({ key: "status", label: filters.status, next: { status: "" } });
   if (filters.q) chips.push({ key: "q", label: `Search: "${filters.q}"`, next: { q: "" } });
   return chips;
@@ -469,12 +477,15 @@ export function LeadsTable({
   const [isBulkActionPending, setIsBulkActionPending] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
-  const [assignmentMode, setAssignmentMode] = useState<"selected" | "filters">("filters");
+  const [assignmentMode, setAssignmentMode] = useState<"selected" | "filters" | "add-to-batch">("filters");
+  const [assignmentBatchTarget, setAssignmentBatchTarget] = useState<LeadAssignmentBatch | null>(null);
   const [assignmentEmployeeNames, setAssignmentEmployeeNames] = useState<string[]>([]);
   const [assignmentCriteria, setAssignmentCriteria] = useState<LeadAssignmentCriteria>({
     search: "",
     treatment: "",
     city: "",
+    status: "",
+    assignmentScope: "unassigned",
   });
   const [assignmentSuggestions, setAssignmentSuggestions] = useState<LeadAssignmentSuggestion[]>([]);
   const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
@@ -488,6 +499,13 @@ export function LeadsTable({
   const [isLoadingSourceBatches, setIsLoadingSourceBatches] = useState(false);
   const [sourceBatchLoadError, setSourceBatchLoadError] = useState("");
   const [isDeletingSource, setIsDeletingSource] = useState(false);
+  const [isAssignmentBatchesOpen, setIsAssignmentBatchesOpen] = useState(false);
+  const [assignmentBatches, setAssignmentBatches] = useState<LeadAssignmentBatch[]>([]);
+  const [isLoadingAssignmentBatches, setIsLoadingAssignmentBatches] = useState(false);
+  const [assignmentBatchError, setAssignmentBatchError] = useState("");
+  const [assignmentBatchTargets, setAssignmentBatchTargets] = useState<Record<string, string>>({});
+  const [assignmentBatchAction, setAssignmentBatchAction] = useState<{ batch: LeadAssignmentBatch; kind: "delete" | "transfer" } | null>(null);
+  const [isAssignmentBatchActionPending, setIsAssignmentBatchActionPending] = useState(false);
   const [selectedSource, setSelectedSource] = useState("all");
   // Search/status seeded from the URL drill-down so paging and debounced typing
   // never drop the filter the admin arrived with.
@@ -1102,15 +1120,15 @@ export function LeadsTable({
     if (!employeeName || employeeName === "-") return;
     setIsBulkActionPending(true);
     trackLeadMutations(selectedLeads);
-    const results = await Promise.all(selectedLeads.map((leadId) => updateLeadAssignment(leadId, employeeName)));
-    const failed = results.find((result) => !result.success);
-    if (failed && !failed.success) {
-      toast.add({ title: "Assignment failed", description: failed.error, type: "error" });
+    const response = await assignLeadsToEmployees({ leadIds: selectedLeads, employeeNames: [employeeName] });
+    if (!response.success) {
+      toast.add({ title: "Assignment failed", description: response.error, type: "error" });
     } else {
       setLeads((current) => current.map((lead) => selectedLeads.includes(lead.id) ? { ...lead, assigned_to: employeeName } : lead));
       setSelectedLeads([]);
       setIsSelectAllChecked(false);
-      queueSuccessSummary("assigned", selectedLeads.length);
+      router.refresh();
+      queueSuccessSummary("assigned", response.data.assigned);
     }
     setIsBulkActionPending(false);
   }
@@ -1130,11 +1148,12 @@ export function LeadsTable({
     setIsBulkActionPending(false);
   }
 
-  function openAssignment(mode: "selected" | "filters") {
+  function openAssignment(mode: "selected" | "filters" | "add-to-batch", batch: LeadAssignmentBatch | null = null) {
     assignmentSuggestionSequenceRef.current += 1;
     setAssignmentMode(mode);
+    setAssignmentBatchTarget(batch);
     setAssignmentEmployeeNames([]);
-    setAssignmentCriteria({ search: "", treatment: "", city: "" });
+    setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", assignmentScope: "unassigned", excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
     setAssignmentSuggestions([]);
     setSelectedAssignmentLeads([]);
     setAssignmentSuggestionTotal(0);
@@ -1196,13 +1215,16 @@ export function LeadsTable({
   );
 
   useEffect(() => {
-    if (!isAssignmentOpen || assignmentMode !== "filters") return;
+    if (!isAssignmentOpen || assignmentMode === "selected") return;
     const criteria = {
       search: assignmentCriteria.search.trim(),
       treatment: assignmentCriteria.treatment.trim(),
       city: assignmentCriteria.city.trim(),
+      status: assignmentCriteria.status?.trim() ?? "",
+      assignmentScope: assignmentCriteria.assignmentScope ?? "unassigned",
+      excludeBatchId: assignmentCriteria.excludeBatchId,
     };
-    if (!criteria.search && !criteria.treatment && !criteria.city) {
+    if (!criteria.search && !criteria.treatment && !criteria.city && !criteria.status) {
       return;
     }
     const timer = setTimeout(() => {
@@ -1215,6 +1237,9 @@ export function LeadsTable({
   }, [
     assignmentCriteria.city,
     assignmentCriteria.search,
+    assignmentCriteria.status,
+    assignmentCriteria.assignmentScope,
+    assignmentCriteria.excludeBatchId,
     assignmentCriteria.treatment,
     assignmentMode,
     fetchAssignmentSuggestions,
@@ -1225,10 +1250,24 @@ export function LeadsTable({
     const leadIdsToAssign = assignmentMode === "selected"
       ? selectedLeads
       : selectedAssignmentLeads.map((lead) => lead.id);
-    if (assignmentEmployeeNames.length === 0 || leadIdsToAssign.length === 0 || isBulkActionPending) return;
+    if ((assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) || leadIdsToAssign.length === 0 || isBulkActionPending) return;
     setIsBulkActionPending(true);
     try {
       trackLeadMutations(leadIdsToAssign);
+      if (assignmentMode === "add-to-batch" && assignmentBatchTarget) {
+        const response = await addLeadsToAssignmentBatch({ batchId: assignmentBatchTarget.id, leadIds: leadIdsToAssign });
+        if (!response.success) {
+          toast.add({ title: "Unable to add leads to batch", description: response.error, type: "error" });
+        } else {
+          setIsAssignmentOpen(false);
+          setSelectedAssignmentLeads([]);
+          router.refresh();
+          const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
+          queueSuccessSummary("assigned", response.data.added, perEmployee);
+          void refreshAssignmentBatches();
+        }
+        return;
+      }
       const response = await assignLeadsToEmployees({
         leadIds: leadIdsToAssign,
         employeeNames: assignmentEmployeeNames,
@@ -1255,6 +1294,52 @@ export function LeadsTable({
       });
     } finally {
       setIsBulkActionPending(false);
+    }
+  }
+
+  async function refreshAssignmentBatches() {
+    setIsLoadingAssignmentBatches(true);
+    setAssignmentBatchError("");
+    const response = await getLeadAssignmentBatches();
+    if (!response.success) setAssignmentBatchError(response.error);
+    else setAssignmentBatches(response.data);
+    setIsLoadingAssignmentBatches(false);
+  }
+
+  async function openAssignmentBatches() {
+    setIsAssignmentBatchesOpen(true);
+    await refreshAssignmentBatches();
+  }
+
+  async function confirmAssignmentBatchAction() {
+    if (!assignmentBatchAction || isAssignmentBatchActionPending) return;
+    setIsAssignmentBatchActionPending(true);
+    try {
+      const { batch, kind } = assignmentBatchAction;
+      if (kind === "delete") {
+        const response = await deleteLeadAssignmentBatch(batch.id);
+        if (!response.success) {
+          toast.add({ title: "Batch deletion failed", description: response.error, type: "error" });
+        } else {
+          toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. A recovery snapshot is saved in Recent Deletions.`, type: "success" });
+          setAssignmentBatchAction(null);
+          router.refresh();
+          await refreshAssignmentBatches();
+        }
+      } else {
+        const employeeName = assignmentBatchTargets[batch.id] ?? "";
+        const response = await transferLeadAssignmentBatch({ batchId: batch.id, employeeName });
+        if (!response.success) {
+          toast.add({ title: "Batch transfer failed", description: response.error, type: "error" });
+        } else {
+          toast.add({ title: "Assignment batch transferred", description: `${response.data.transferred.toLocaleString()} leads moved to ${employeeName}.`, type: "success" });
+          setAssignmentBatchAction(null);
+          router.refresh();
+          await refreshAssignmentBatches();
+        }
+      }
+    } finally {
+      setIsAssignmentBatchActionPending(false);
     }
   }
 
@@ -1754,6 +1839,12 @@ export function LeadsTable({
               <Button type="button" variant="outline" onClick={() => openAssignment("filters")}>
                 <UserRoundPlus aria-hidden="true" />
                 Assign by Filters
+              </Button>
+            )}
+            {canDelete && (
+              <Button type="button" variant="outline" onClick={() => void openAssignmentBatches()}>
+                <Users aria-hidden="true" />
+                Assignment Batches
               </Button>
             )}
             {isAdmin && (
@@ -2298,17 +2389,21 @@ export function LeadsTable({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {assignmentMode === "selected" ? "Split selected leads among employees" : "Select unassigned leads to assign"}
+              {assignmentMode === "add-to-batch"
+                ? `Add leads to ${assignmentBatchTarget?.label ?? "assignment batch"}`
+                : assignmentMode === "selected" ? "Assign selected leads" : "Find leads to assign"}
             </DialogTitle>
             <DialogDescription>
-              {assignmentMode === "selected"
-                ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose.`
-                : "Search unassigned leads by the beginning of a name, treatment, or city. Select the exact leads to assign."}
+              {assignmentMode === "add-to-batch"
+                ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}.`
+                : assignmentMode === "selected"
+                  ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose and saved as one batch.`
+                  : "Find leads by name, status, treatment, city, or current assignment. Select the exact records for this batch."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {assignmentMode === "filters" && (
+            {assignmentMode !== "selected" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="assign-lead-search">Lead name starts with</Label>
@@ -2340,10 +2435,31 @@ export function LeadsTable({
                     onChange={(event) => updateAssignmentCriteria({ city: event.target.value })}
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="assign-status">Lead status</Label>
+                  <Select value={assignmentCriteria.status || "all"} onValueChange={(value) => updateAssignmentCriteria({ status: value === "all" ? "" : String(value ?? "") })}>
+                    <SelectTrigger id="assign-status" className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger>
+                    <SelectContent className="max-h-72 overflow-y-auto">
+                      <SelectItem value="all">All statuses</SelectItem>
+                      {statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="assign-scope">Current assignment</Label>
+                  <Select value={assignmentCriteria.assignmentScope ?? "unassigned"} onValueChange={(value) => updateAssignmentCriteria({ assignmentScope: value === "all" || value === "assigned" ? value : "unassigned" })}>
+                    <SelectTrigger id="assign-scope" className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned only</SelectItem>
+                      <SelectItem value="assigned">Already assigned</SelectItem>
+                      <SelectItem value="all">Any assignment</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label>
-                      Matching unassigned leads
+                      Matching leads
                       {assignmentSuggestionTotal > 0 && ` (${assignmentSuggestionTotal.toLocaleString()})`}
                     </Label>
                     {isLoadingAssignmentSuggestions && (
@@ -2383,7 +2499,7 @@ export function LeadsTable({
                             <span className="min-w-0 flex-1">
                               <span className="block font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
                               <span className="block truncate text-xs text-slate-500">
-                                {[lead.phone, lead.disease, lead.city, lead.source].filter(Boolean).join(" · ") || "No extra details"}
+                                {[lead.status || "New", lead.phone, lead.disease, lead.city, lead.source].filter(Boolean).join(" · ") || "No extra details"}
                               </span>
                             </span>
                           </label>
@@ -2405,13 +2521,14 @@ export function LeadsTable({
                     </>
                   ) : isLoadingAssignmentSuggestions ? null : assignmentCriteria.search.trim() ||
                     assignmentCriteria.treatment.trim() ||
-                    assignmentCriteria.city.trim() ? (
+                    assignmentCriteria.city.trim() ||
+                    assignmentCriteria.status?.trim() ? (
                     <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                      No unassigned leads match. Try a different name, treatment, or city.
+                      No leads match. Try a different name, status, treatment, city, or assignment filter.
                     </p>
                   ) : (
                     <p className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
-                      Start typing a name to see matching leads here. Names match from the first letter.
+                      Start typing or choose a status to find matching leads. Names match from the first letter.
                     </p>
                   )}
                   {selectedAssignmentLeads.length > 0 && (
@@ -2442,7 +2559,7 @@ export function LeadsTable({
               </div>
             )}
 
-            <div className="space-y-2">
+            {assignmentMode !== "add-to-batch" && <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Assign to team members</Label>
                 <button
@@ -2489,7 +2606,7 @@ export function LeadsTable({
                   Leads are split as evenly as possible; the first selected team members get any remainder.
                 </p>
               )}
-            </div>
+            </div>}
           </div>
 
           <DialogFooter>
@@ -2500,7 +2617,7 @@ export function LeadsTable({
               type="button"
               disabled={
                 isBulkActionPending ||
-                assignmentEmployeeNames.length === 0 ||
+                (assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) ||
                 (assignmentMode === "selected"
                   ? selectedLeads.length === 0
                   : selectedAssignmentLeads.length === 0)
@@ -2508,7 +2625,71 @@ export function LeadsTable({
               onClick={() => void handleAssignAmongSelectedEmployees()}
             >
               {isBulkActionPending && <Loader2 className="animate-spin" aria-hidden="true" />}
-              Assign equally
+              {assignmentMode === "add-to-batch" ? "Add selected leads to batch" : "Create assignment batch"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isAssignmentBatchesOpen} onOpenChange={setIsAssignmentBatchesOpen}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Assignment batches</DialogTitle>
+            <DialogDescription>Each assignment action is grouped here. Open its leads, add more leads, transfer the batch, or safely delete it.</DialogDescription>
+          </DialogHeader>
+          {isLoadingAssignmentBatches ? (
+            <p className="flex items-center gap-2 py-8 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading assignment batches…</p>
+          ) : assignmentBatchError ? (
+            <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{assignmentBatchError}</p>
+          ) : assignmentBatches.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">No assignment batches yet. The next assignment will appear here automatically.</p>
+          ) : (
+            <div className="space-y-3">
+              {assignmentBatches.map((batch) => (
+                <section key={batch.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold text-slate-900">{batch.label}</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {new Date(batch.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST · Created by {batch.createdByName}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">Current team: {batch.targetNames.join(", ") || "No team members"} · {batch.activeLeadCount.toLocaleString()} active leads</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => { setIsAssignmentBatchesOpen(false); router.push(leadsHref({ ...filters, assignmentBatchId: batch.id, allMonths: true })); }}>Open leads</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => { setIsAssignmentBatchesOpen(false); openAssignment("add-to-batch", batch); }}>Add leads</Button>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center">
+                    <Select value={assignmentBatchTargets[batch.id] ?? ""} onValueChange={(value) => setAssignmentBatchTargets((current) => ({ ...current, [batch.id]: String(value ?? "") }))}>
+                      <SelectTrigger className="sm:max-w-xs" aria-label={`Choose employee for ${batch.label}`}><SelectValue placeholder="Choose employee to transfer to" /></SelectTrigger>
+                      <SelectContent>
+                        {assignableEmployees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="outline" size="sm" disabled={!assignmentBatchTargets[batch.id] || batch.activeLeadCount === 0} onClick={() => setAssignmentBatchAction({ batch, kind: "transfer" })}>Transfer batch</Button>
+                    {isAdmin && <Button type="button" variant="destructive" size="sm" disabled={batch.activeLeadCount === 0} onClick={() => setAssignmentBatchAction({ batch, kind: "delete" })}><Trash2 aria-hidden="true" />Delete batch</Button>}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(assignmentBatchAction)} onOpenChange={(open) => { if (!open && !isAssignmentBatchActionPending) setAssignmentBatchAction(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{assignmentBatchAction?.kind === "delete" ? "Delete this assignment batch?" : "Transfer this assignment batch?"}</DialogTitle>
+            <DialogDescription>
+              {assignmentBatchAction?.kind === "delete"
+                ? `${assignmentBatchAction.batch.activeLeadCount.toLocaleString()} active leads from “${assignmentBatchAction.batch.label}” will be deleted. A recovery snapshot must be saved first.`
+                : `${assignmentBatchAction?.batch.activeLeadCount.toLocaleString() ?? 0} active leads from “${assignmentBatchAction?.batch.label ?? ""}” will be assigned to ${assignmentBatchTargets[assignmentBatchAction?.batch.id ?? ""] ?? "the selected employee"}.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isAssignmentBatchActionPending} onClick={() => setAssignmentBatchAction(null)}>Cancel</Button>
+            <Button type="button" variant={assignmentBatchAction?.kind === "delete" ? "destructive" : "default"} disabled={isAssignmentBatchActionPending} onClick={() => void confirmAssignmentBatchAction()}>
+              {isAssignmentBatchActionPending && <Loader2 className="animate-spin" aria-hidden="true" />}
+              {assignmentBatchAction?.kind === "delete" ? "Delete leads" : "Transfer leads"}
             </Button>
           </DialogFooter>
         </DialogContent>

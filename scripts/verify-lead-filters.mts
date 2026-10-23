@@ -88,6 +88,15 @@ assert.equal(hasLeadFilters(workflowFilters), true, "workflow bucket activates t
 assert.ok(describeActiveFilters(workflowFilters).includes("Follow-up"), "workflow bucket has a readable filter label");
 assert.equal(parseLeadFilters({ bucket: "unsupported" }).bucket, "", "unknown workflow buckets are ignored");
 
+const assignmentBatchId = "4bbd4903-a954-4a6c-9ba5-11b152ced04d";
+const assignmentBatchHref = leadsHref({ assignmentBatchId, allMonths: true });
+assert.equal(
+  parseLeadFilters(Object.fromEntries(new URL(`http://localhost${assignmentBatchHref}`).searchParams)).assignmentBatchId,
+  assignmentBatchId,
+  "assignment batch links preserve their exact batch id",
+);
+assert.equal(parseLeadFilters({ assignmentBatchId: "not-a-uuid" }).assignmentBatchId, "", "invalid assignment batch IDs are ignored");
+
 // ---------------------------------------------------------------------------
 // 2. Stage keys: valid ones kept in canonical order, junk silently dropped.
 // ---------------------------------------------------------------------------

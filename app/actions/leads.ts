@@ -71,6 +71,7 @@ export interface Lead {
   source_batch_id?: string | null;
   source_batch_label?: string | null;
   source_batch_created_at?: string | null;
+  assignment_batch_id?: string | null;
   /**
    * OPD / IPD appointment dates — one per status (see lib/appointments.ts).
    * Nullable rather than "-": these columns were added after the original
@@ -493,6 +494,7 @@ interface ResolvedLeadFilters {
   assigned: string | null;
   assignmentStatus: "" | "assigned" | "unassigned";
   assignmentNames: string[];
+  assignmentBatchId: string;
   bucket: LeadListFilters["bucket"];
 }
 
@@ -510,6 +512,7 @@ function emptyResolvedFilters(): ResolvedLeadFilters {
     assigned: null,
     assignmentStatus: "",
     assignmentNames: [],
+    assignmentBatchId: "",
     bucket: "",
   };
 }
@@ -559,6 +562,7 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   if (resolved.city) filtered = filtered.ilike("city", resolved.city);
   if (resolved.source) filtered = filtered.ilike("source", resolved.source);
   if (resolved.assigned) filtered = filtered.eq("assigned_to", resolved.assigned);
+  if (resolved.assignmentBatchId) filtered = filtered.eq("assignment_batch_id", resolved.assignmentBatchId);
   if (resolved.assignmentStatus === "assigned") {
     filtered = filtered.in("assigned_to", resolved.assignmentNames);
   } else if (resolved.assignmentStatus === "unassigned" && resolved.assignmentNames.length > 0) {
@@ -602,12 +606,14 @@ async function resolveLeadFilters(
   const city = (filters.city ?? "").trim();
   const source = (filters.source ?? "").trim();
   const assigned = (filters.assigned ?? "").trim();
+  const assignmentBatchId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filters.assignmentBatchId ?? "") ? filters.assignmentBatchId!.trim() : "";
   const assignmentStatus = filters.assignmentStatus === "assigned" || filters.assignmentStatus === "unassigned"
     ? filters.assignmentStatus
     : "";
-  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned && !assignmentStatus) {
+  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned && !assignmentStatus && !assignmentBatchId) {
     return resolved;
   }
+  resolved.assignmentBatchId = assignmentBatchId;
   if (assignmentStatus) {
     const { data: profiles, error } = await supabase
       .from("profiles")
@@ -1574,7 +1580,7 @@ export async function bulkInsertLeads(
   const batchSource = "Excel/CSV";
   const batchId = randomUUID();
   const batchCreatedAt = new Date().toISOString();
-  const batchLabel = `Excel/CSV import — ${fileName.trim() || "uploaded file"}`.slice(0, 240);
+  const batchLabel = `Excel/CSV import - ${fileName.trim() || "uploaded file"}`.slice(0, 240);
   const supabase = await createClient();
 
   // RBAC: bulk import is an Admin/Manager capability. Employees add leads
@@ -2599,7 +2605,7 @@ export async function randomAssignLeads(
 
     const { data: profiles, error: employeeError } = await supabase
       .from("profiles")
-      .select("name")
+      .select("name, role")
       .order("name", { ascending: true });
     if (employeeError) return { success: false, error: employeeError.message };
 
@@ -2607,17 +2613,20 @@ export async function randomAssignLeads(
       (profile) =>
         profile.name &&
         profile.name !== "-" &&
-        profile.name !== "Unassigned",
+        profile.name !== "Unassigned" &&
+        (viewerRole === "admin" || profile.role === "employee"),
     );
     if (validUsers.length === 0) return { success: false, error: "No valid users are available for assignment." };
 
-    for (let i = 0; i < leadIds.length; i++) {
-      const employeeName = validUsers[i % validUsers.length].name;
-      const { error } = await supabase
-        .from("leads")
-        .update({ assigned_to: employeeName })
-        .eq("id", leadIds[i]);
-      if (error) return { success: false, error: error.message };
+    const distribution = validUsers.map((user) => ({ name: user.name, ids: [] as string[] }));
+    leadIds.forEach((id, index) => distribution[index % distribution.length].ids.push(id));
+    const batch = await createLeadAssignmentBatch(supabase, distribution.filter((entry) => entry.ids.length > 0).map((entry) => entry.name), leadIds.length);
+    if (!batch.success) return batch;
+    for (const entry of distribution) {
+      for (let offset = 0; offset < entry.ids.length; offset += 500) {
+        const { error } = await supabase.from("leads").update({ assigned_to: entry.name, assignment_batch_id: batch.data.id }).in("id", entry.ids.slice(offset, offset + 500));
+        if (error) return { success: false, error: `Assigned some leads before failing: ${assignmentBatchSetupError(error.message)}` };
+      }
     }
 
     revalidatePath("/dashboard");
@@ -2631,6 +2640,9 @@ export interface LeadAssignmentCriteria {
   search: string;
   treatment: string;
   city: string;
+  status?: string;
+  assignmentScope?: "all" | "assigned" | "unassigned";
+  excludeBatchId?: string;
 }
 
 export interface LeadAssignmentSuggestion {
@@ -2640,12 +2652,262 @@ export interface LeadAssignmentSuggestion {
   city: string;
   disease: string;
   source: string;
+  status: string;
 }
 
 const ASSIGNMENT_SUGGESTION_PAGE_SIZE = 25;
 const BULK_ASSIGNMENT_LIMIT = 10000;
 
-/** Searches unassigned leads live, using a name prefix and optional city/treatment filters. */
+export interface LeadAssignmentBatch {
+  id: string;
+  label: string;
+  createdByName: string;
+  targetNames: string[];
+  leadCount: number;
+  activeLeadCount: number;
+  createdAt: string;
+}
+
+function assignmentBatchSetupError(message: string): string {
+  return /crm_assignment_batches|assignment_batch_id/i.test(message)
+    ? "Assignment batches need a database update. Apply the latest Supabase migration, then retry."
+    : message;
+}
+
+async function createLeadAssignmentBatch(
+  supabase: LeadsSupabaseClient,
+  targetNames: string[],
+  leadCount: number,
+  label?: string,
+): Promise<ActionResult<{ id: string }>> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "You must be signed in." };
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .single();
+  if (profileError) return { success: false, error: profileError.message };
+  const createdAt = new Date();
+  const batchLabel = label?.trim() || `Assignment - ${createdAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} - ${targetNames.join(", ")}`;
+  const { data, error } = await supabase
+    .from("crm_assignment_batches")
+    .insert({
+      label: batchLabel.slice(0, 120),
+      created_by: user.id,
+      created_by_name: profile.name?.trim() || "Team member",
+      target_names: targetNames,
+      lead_count: leadCount,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    return { success: false, error: assignmentBatchSetupError(error?.message ?? "Could not create the assignment batch.") };
+  }
+  return { success: true, data: { id: data.id } };
+}
+
+/** Recent assignment groups used for batch review, transfer, and deletion. */
+export async function getLeadAssignmentBatches(): Promise<ActionResult<LeadAssignmentBatch[]>> {
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can view assignment batches (403 Forbidden)." };
+    }
+    const { data, error } = await supabase
+      .from("crm_assignment_batches")
+      .select("id, label, created_by_name, target_names, lead_count, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+
+    const batches = (data ?? []) as Array<Record<string, unknown>>;
+    const batchIds = batches.map((batch) => String(batch.id));
+    const activeCounts = new Map<string, number>();
+    for (let offset = 0; offset < batchIds.length; offset += 100) {
+      const ids = batchIds.slice(offset, offset + 100);
+      for (let from = 0; ; from += 1000) {
+        const { data: leads, error: leadsError } = await supabase
+          .from("leads")
+          .select("assignment_batch_id")
+          .in("assignment_batch_id", ids)
+          .range(from, from + 999);
+        if (leadsError) return { success: false, error: assignmentBatchSetupError(leadsError.message) };
+        for (const lead of leads ?? []) {
+          const id = typeof lead.assignment_batch_id === "string" ? lead.assignment_batch_id : "";
+          if (id) activeCounts.set(id, (activeCounts.get(id) ?? 0) + 1);
+        }
+        if (!leads || leads.length < 1000) break;
+      }
+    }
+    return {
+      success: true,
+      data: batches.map((batch) => ({
+        id: String(batch.id),
+        label: String(batch.label ?? "Assignment batch"),
+        createdByName: String(batch.created_by_name ?? "Team member"),
+        targetNames: Array.isArray(batch.target_names) ? batch.target_names.filter((name): name is string => typeof name === "string") : [],
+        leadCount: Number(batch.lead_count ?? 0),
+        activeLeadCount: activeCounts.get(String(batch.id)) ?? 0,
+        createdAt: String(batch.created_at ?? ""),
+      })),
+    };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load assignment batches.") };
+  }
+}
+
+/** Transfers every still-active lead in a batch to one team member. */
+export async function transferLeadAssignmentBatch(input: {
+  batchId: string;
+  employeeName: string;
+}): Promise<ActionResult<{ transferred: number }>> {
+  if (!input || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.batchId ?? "") || !input.employeeName?.trim()) {
+    return { success: false, error: "Select a valid batch and team member." };
+  }
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can transfer assignment batches (403 Forbidden)." };
+    const { data: profiles, error: profileError } = await supabase.from("profiles").select("name, role").eq("name", input.employeeName.trim());
+    if (profileError) return { success: false, error: profileError.message };
+    const target = profiles?.find((profile) => profile.role === "employee" || viewerRole === "admin");
+    if (!target) return { success: false, error: "That team member is unavailable for assignment." };
+    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
+    if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
+    let transferred = 0;
+    for (;;) {
+      const { data: leads, error: fetchError } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("assignment_batch_id", input.batchId)
+        .neq("assigned_to", target.name)
+        .limit(500);
+      if (fetchError) return { success: false, error: assignmentBatchSetupError(fetchError.message) };
+      const ids = (leads ?? []).map((lead) => lead.id);
+      if (ids.length === 0) break;
+      const { data: updated, error: updateError } = await supabase
+        .from("leads")
+        .update({ assigned_to: target.name })
+        .in("id", ids)
+        .select("id");
+      if (updateError) return { success: false, error: `Transferred ${transferred} leads before the remaining update failed. ${updateError.message}` };
+      const changed = updated?.length ?? 0;
+      transferred += changed;
+      if (changed < ids.length) break;
+    }
+    if (transferred === 0) return { success: false, error: "This batch has no leads that need transferring." };
+    const { error: rosterError } = await supabase.from("crm_assignment_batches").update({ target_names: [target.name] }).eq("id", input.batchId);
+    if (rosterError) return { success: false, error: `Leads transferred, but the batch roster could not be updated: ${rosterError.message}` };
+    revalidatePath("/dashboard");
+    return { success: true, data: { transferred } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to transfer this assignment batch.") };
+  }
+}
+
+/** Adds selected leads to a batch and distributes them across its current owners. */
+export async function addLeadsToAssignmentBatch(input: {
+  batchId: string;
+  leadIds: string[];
+}): Promise<ActionResult<{ added: number; perEmployee: { name: string; count: number }[] }>> {
+  if (!input || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.batchId ?? "") || !Array.isArray(input.leadIds)) {
+    return { success: false, error: "Select a valid assignment batch and leads." };
+  }
+  const ids = [...new Set(input.leadIds.filter((id) => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))];
+  if (ids.length === 0 || ids.length > BULK_ASSIGNMENT_LIMIT) return { success: false, error: `Select between 1 and ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} valid leads.` };
+  if (ids.length !== input.leadIds.length) return { success: false, error: "One or more selected leads are invalid. Refresh and try again." };
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can add leads to assignment batches (403 Forbidden)." };
+    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names, lead_count").eq("id", input.batchId).single();
+    if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
+    const targetNames = Array.isArray(batch.target_names) ? batch.target_names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
+    if (targetNames.length === 0) return { success: false, error: "This batch has no active team members. Transfer the batch first." };
+    const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name, role").in("name", targetNames);
+    if (profilesError) return { success: false, error: profilesError.message };
+    const validTargets = [...new Set((profiles ?? []).filter((profile) => viewerRole === "admin" || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
+    if (validTargets.length === 0) return { success: false, error: "The batch team is no longer available. Transfer the batch to an active employee first." };
+    const existing: Array<{ id: string; assignment_batch_id: string | null }> = [];
+    for (let offset = 0; offset < ids.length; offset += 500) {
+      const { data, error: existingError } = await supabase.from("leads").select("id, assignment_batch_id").in("id", ids.slice(offset, offset + 500));
+      if (existingError) return { success: false, error: existingError.message };
+      existing.push(...(data ?? []));
+    }
+    const availableIds = existing.filter((lead) => lead.assignment_batch_id !== input.batchId).map((lead) => lead.id);
+    if (availableIds.length !== ids.length) return { success: false, error: "Some selected leads already belong to this batch or are no longer available. Refresh and try again." };
+    const perEmployee = validTargets.map((name) => ({ name, count: 0 }));
+    const buckets = validTargets.map(() => [] as string[]);
+    availableIds.forEach((id, index) => {
+      const targetIndex = index % validTargets.length;
+      buckets[targetIndex].push(id);
+      perEmployee[targetIndex].count += 1;
+    });
+    let added = 0;
+    for (let targetIndex = 0; targetIndex < buckets.length; targetIndex++) {
+      const name = validTargets[targetIndex];
+      for (let offset = 0; offset < buckets[targetIndex].length; offset += 500) {
+        const { data, error } = await supabase.from("leads").update({ assigned_to: name, assignment_batch_id: input.batchId }).in("id", buckets[targetIndex].slice(offset, offset + 500)).select("id");
+        if (error) return { success: false, error: `Added ${added} leads before the remaining update failed: ${error.message}` };
+        added += data?.length ?? 0;
+      }
+    }
+    const { error: countError } = await supabase.from("crm_assignment_batches").update({ lead_count: Number(batch.lead_count ?? 0) + added }).eq("id", input.batchId);
+    if (countError) return { success: false, error: `Added ${added} leads, but the batch count could not be updated: ${countError.message}` };
+    revalidatePath("/dashboard");
+    return { success: true, data: { added, perEmployee: perEmployee.filter((item) => item.count > 0) } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to add leads to this assignment batch.") };
+  }
+}
+
+/** Deletes the active leads in one assignment batch after saving a recovery copy. */
+export async function deleteLeadAssignmentBatch(batchId: string): Promise<ActionResult<{ deleted: number; snapshotSkipped: boolean }>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(batchId ?? "")) {
+    return { success: false, error: "Select a valid assignment batch." };
+  }
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "You must be signed in." };
+    const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
+    if (profile?.role !== "admin") return { success: false, error: "Only admins can delete assignment batches (403 Forbidden)." };
+    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("label").eq("id", batchId).single();
+    if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
+    const leadIds: string[] = [];
+    for (let offset = 0; offset <= 5000; offset += 500) {
+      const { data, error: leadsError } = await supabase.from("leads").select("id").eq("assignment_batch_id", batchId).range(offset, offset + 499);
+      if (leadsError) return { success: false, error: assignmentBatchSetupError(leadsError.message) };
+      leadIds.push(...(data ?? []).map((lead) => lead.id));
+      if (!data || data.length < 500) break;
+      if (leadIds.length >= 5000) return { success: false, error: "This batch is too large for a single safe deletion. Open the batch and delete a smaller selection." };
+    }
+    if (leadIds.length === 0) return { success: false, error: "This assignment batch has no active leads." };
+    if (leadIds.length > 5000) return { success: false, error: "This batch is too large for a single safe deletion. Open the batch and delete a smaller selection." };
+    const snapshot = await snapshotLeadsForDeletion(
+      supabase,
+      { assignedTo: "", searchFilter: "", unscoped: false, ids: leadIds },
+      { scopeLabel: "assignment-batch", search: `${batchId} · ${String(batch.label)}`, deletedByName: profile.name?.trim() || "-" },
+      user.id,
+    );
+    if (!snapshot.ok) return { success: false, error: snapshot.error };
+    if (snapshot.skipped) return { success: false, error: `Batch deletion is blocked because no recovery snapshot could be saved. ${LEAD_DELETION_BACKUP_SETUP_HINT}` };
+    let deleted = 0;
+    for (let offset = 0; offset < leadIds.length; offset += 500) {
+      const { data, error } = await supabase.from("leads").delete().in("id", leadIds.slice(offset, offset + 500)).select("id");
+      if (error) return { success: false, error: `Deleted ${deleted} leads before the remaining deletion failed. Restore from Recent Deletions if needed. ${error.message}` };
+      deleted += data?.length ?? 0;
+    }
+    revalidatePath("/dashboard");
+    return { success: true, data: { deleted, snapshotSkipped: false } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to delete this assignment batch.") };
+  }
+}
+
+/** Searches leads live, using a name prefix and optional status/city/treatment filters. */
 export async function getUnassignedLeadAssignmentSuggestions(
   criteria: LeadAssignmentCriteria,
   offset = 0,
@@ -2661,8 +2923,10 @@ export async function getUnassignedLeadAssignmentSuggestions(
     search: typeof criteria.search === "string" ? criteria.search.trim() : "",
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
+    status: typeof criteria.status === "string" ? criteria.status.trim() : "",
+    assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
-  if (!normalized.search && !normalized.treatment && !normalized.city) {
+  if (!normalized.search && !normalized.treatment && !normalized.city && !normalized.status) {
     return { success: true, data: { leads: [], total: 0, hasMore: false } };
   }
   const safeOffset = Number.isInteger(offset) && offset >= 0 && offset < BULK_ASSIGNMENT_LIMIT ? offset : 0;
@@ -2686,11 +2950,12 @@ export async function getUnassignedLeadAssignmentSuggestions(
 
     let query = supabase
       .from("leads")
-      .select("id, name, phone, city, disease, source", { count: "exact" })
+      .select("id, name, phone, city, disease, source, status", { count: "exact" })
       .order("name", { ascending: true })
       .order("created_at", { ascending: false });
-    if (assignedNames.length > 0) {
-      query = query.or(`assigned_to.is.null,assigned_to.not.in.(${inListExpression(assignedNames)})`);
+    query = applyAssignmentCriteria(query, normalized, assignedNames);
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(criteria.excludeBatchId ?? "")) {
+      query = query.or(`assignment_batch_id.is.null,assignment_batch_id.neq.${criteria.excludeBatchId}`);
     }
     if (normalized.search) {
       query = query.ilike("name", `${escapeLikePattern(normalized.search)}%`);
@@ -2714,6 +2979,7 @@ export async function getUnassignedLeadAssignmentSuggestions(
       city: lead.city ?? "",
       disease: lead.disease ?? "",
       source: lead.source ?? "",
+      status: lead.status ?? "",
     }));
     const total = count ?? 0;
     return {
@@ -2729,18 +2995,41 @@ export async function getUnassignedLeadAssignmentSuggestions(
   }
 }
 
-function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria): Q {
-  const filtered = query as unknown as {
-    or(expression: string): unknown;
-    ilike(column: string, pattern: string): unknown;
-  };
+interface AssignmentFilterQuery {
+  or(expression: string): AssignmentFilterQuery;
+  ilike(column: string, pattern: string): AssignmentFilterQuery;
+  in(column: string, values: readonly string[]): AssignmentFilterQuery;
+  eq(column: string, value: string): AssignmentFilterQuery;
+  neq(column: string, value: string): AssignmentFilterQuery;
+}
+
+function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria, assignedNames: string[] = []): Q {
+  let filtered = query as unknown as AssignmentFilterQuery;
   const searchFilter = buildLeadSearchFilter(criteria.search);
-  if (searchFilter) filtered.or(searchFilter);
+  if (searchFilter) filtered = filtered.or(searchFilter);
   const treatment = criteria.treatment.trim();
-  if (treatment) filtered.ilike("disease", `%${escapeLikePattern(treatment)}%`);
+  if (treatment) filtered = filtered.ilike("disease", `%${escapeLikePattern(treatment)}%`);
   const city = criteria.city.trim();
-  if (city) filtered.ilike("city", `%${escapeLikePattern(city)}%`);
-  return query;
+  if (city) filtered = filtered.ilike("city", `%${escapeLikePattern(city)}%`);
+  const status = criteria.status?.trim() ?? "";
+  if (status) {
+    const canonical = canonicalLeadStatus(status);
+    const values = leadStatusStorageValues(status);
+    filtered = values.length === 1
+      ? filtered.eq("status", values[0])
+      : filtered.or(canonical === "New"
+        ? `status.is.null,${`status.in.(${inListExpression(values)})`}`
+        : `status.in.(${inListExpression(values)})`);
+  }
+  const scope = criteria.assignmentScope ?? "unassigned";
+  if (scope === "assigned") {
+    filtered = assignedNames.length > 0 ? filtered.in("assigned_to", assignedNames) : filtered.eq("assigned_to", "");
+  } else if (scope === "unassigned") {
+    filtered = filtered.or(assignedNames.length > 0
+      ? `assigned_to.is.null,assigned_to.eq.-,assigned_to.eq.Unassigned,assigned_to.not.in.(${inListExpression(assignedNames)})`
+      : "assigned_to.is.null,assigned_to.eq.-,assigned_to.eq.Unassigned");
+  }
+  return filtered as unknown as Q;
 }
 
 /** Returns the number of leads matching an explicit admin assignment filter. */
@@ -2754,9 +3043,11 @@ export async function getLeadAssignmentPreview(
     search: typeof criteria.search === "string" ? criteria.search.trim() : "",
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
+    status: typeof criteria.status === "string" ? criteria.status.trim() : "",
+    assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
-  if (!normalized.search && !normalized.treatment && !normalized.city) {
-    return { success: false, error: "Add a name/search, treatment or city filter first." };
+  if (!normalized.search && !normalized.treatment && !normalized.city && !normalized.status) {
+    return { success: false, error: "Add a name, status, treatment or city filter first." };
   }
 
   try {
@@ -2765,9 +3056,13 @@ export async function getLeadAssignmentPreview(
     if (viewerRole !== "admin" && viewerRole !== "manager") {
       return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
     }
+    const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name");
+    if (profilesError) return { success: false, error: profilesError.message };
+    const assignedNames = [...new Set((profiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name && name !== "-" && name !== "Unassigned")))];
     const query = applyAssignmentCriteria(
       supabase.from("leads").select("id", { count: "exact", head: true }),
       normalized,
+      assignedNames,
     );
     const { count, error } = await query;
     if (error) return { success: false, error: error.message };
@@ -2782,6 +3077,7 @@ export async function assignLeadsToEmployees(input: {
   leadIds?: string[];
   criteria?: LeadAssignmentCriteria;
   employeeNames: string[];
+  batchLabel?: string;
 }): Promise<ActionResult<SmartAssignmentResult>> {
   if (!input || typeof input !== "object" || !Array.isArray(input.employeeNames)) {
     return { success: false, error: "Select employees and leads to assign." };
@@ -2813,11 +3109,13 @@ export async function assignLeadsToEmployees(input: {
         search: typeof input.criteria.search === "string" ? input.criteria.search.trim() : "",
         treatment: typeof input.criteria.treatment === "string" ? input.criteria.treatment.trim() : "",
         city: typeof input.criteria.city === "string" ? input.criteria.city.trim() : "",
+        status: typeof input.criteria.status === "string" ? input.criteria.status.trim() : "",
+        assignmentScope: input.criteria.assignmentScope === "assigned" || input.criteria.assignmentScope === "unassigned" ? input.criteria.assignmentScope : "all" as const,
       }
     : null;
 
-  if (leadIds.length === 0 && (!criteria || (!criteria.search && !criteria.treatment && !criteria.city))) {
-    return { success: false, error: "Select leads or enter a search, treatment or city filter." };
+  if (leadIds.length === 0 && (!criteria || (!criteria.search && !criteria.treatment && !criteria.city && !criteria.status))) {
+    return { success: false, error: "Select leads or enter a name, status, treatment or city filter." };
   }
   if (leadIds.length > BULK_ASSIGNMENT_LIMIT) {
     return { success: false, error: `Select no more than ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} leads at a time.` };
@@ -2858,9 +3156,13 @@ export async function assignLeadsToEmployees(input: {
 
     let matchingIds = leadIds;
     if (matchingIds.length === 0 && criteria) {
+      const { data: allProfiles, error: allProfilesError } = await supabase.from("profiles").select("name");
+      if (allProfilesError) return { success: false, error: allProfilesError.message };
+      const assignedNames = [...new Set((allProfiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name && name !== "-" && name !== "Unassigned")))];
       const countQuery = applyAssignmentCriteria(
         supabase.from("leads").select("id", { count: "exact", head: true }),
         criteria,
+        assignedNames,
       );
       const { count, error } = await countQuery;
       if (error) return { success: false, error: error.message };
@@ -2879,6 +3181,7 @@ export async function assignLeadsToEmployees(input: {
         const pageQuery = applyAssignmentCriteria(
           supabase.from("leads").select("id"),
           criteria,
+          assignedNames,
         );
         const { data, error: fetchError } = await pageQuery
           .order("created_at", { ascending: true })
@@ -2899,6 +3202,11 @@ export async function assignLeadsToEmployees(input: {
       perEmployee.push({ name, count: ids.length, leadIds: ids });
     });
 
+    const activeTargets = perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name);
+    const batchResult = await createLeadAssignmentBatch(supabase, activeTargets, matchingIds.length, input.batchLabel);
+    if (!batchResult.success) return batchResult;
+    const assignmentBatchId = batchResult.data.id;
+
     let assigned = 0;
     for (const entry of perEmployee) {
       for (let offset = 0; offset < entry.leadIds.length; offset += 500) {
@@ -2906,7 +3214,7 @@ export async function assignLeadsToEmployees(input: {
         if (ids.length === 0) continue;
         const { error } = await supabase
           .from("leads")
-          .update({ assigned_to: entry.name })
+          .update({ assigned_to: entry.name, assignment_batch_id: assignmentBatchId })
           .in("id", ids);
         if (error) {
           return { success: false, error: `Assigned ${assigned} leads before failing: ${error.message}` };
@@ -3004,6 +3312,9 @@ export async function assignUnassignedLeads(
       perEmployee.push({ name, count: ids.length, leadIds: ids });
     });
 
+    const batch = await createLeadAssignmentBatch(supabase, perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name), leadIds.length);
+    if (!batch.success) return batch;
+
     // Bulk update per employee, chunked so `.in()` never exceeds URL limits.
     const chunkSize = 500;
     let assigned = 0;
@@ -3013,7 +3324,7 @@ export async function assignUnassignedLeads(
         if (chunk.length === 0) continue;
         const { error } = await supabase
           .from("leads")
-          .update({ assigned_to: entry.name })
+          .update({ assigned_to: entry.name, assignment_batch_id: batch.data.id })
           .in("id", chunk);
         if (error) {
           return {
@@ -3057,9 +3368,16 @@ export async function updateLeadAssignment(
       return { success: false, error: "Only admins and managers can reassign leads (403 Forbidden)." };
     }
 
+    const { data: targets, error: targetError } = await supabase.from("profiles").select("name, role").eq("name", employeeName.trim());
+    if (targetError) return { success: false, error: targetError.message };
+    const target = targets?.find((profile) => viewerRole === "admin" || profile.role === "employee");
+    if (!target) return { success: false, error: "That team member is unavailable for assignment." };
+    const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
+    if (!batch.success) return batch;
+
     const { data, error } = await supabase
       .from("leads")
-      .update({ assigned_to: employeeName })
+      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id })
       .eq("id", leadId)
       .select()
       .single();
