@@ -498,6 +498,7 @@ export function AgentSection({
               <div className="space-y-2">
                 <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Performance stats</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <PerformanceChip label="New Today" value={selected.stats.newLeads} tone="bg-indigo-50 text-indigo-700" />
                   <PerformanceChip label="DNP" value={selected.stats.dnp} tone="bg-slate-100 text-slate-700" />
                   <PerformanceChip label="Follow-Up" value={selected.stats.followUp} tone="bg-blue-50 text-blue-700" />
                   <PerformanceChip
@@ -514,7 +515,7 @@ export function AgentSection({
                   <PerformanceChip label="Lost Leads" value={selected.stats.lost} tone="bg-rose-50 text-rose-700" />
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  DNP = cold leads and Fresh = hot + warm, because the CRM does not capture call outcomes yet.
+                  New Today = untouched leads assigned today. Fresh = untouched leads from earlier days.
                 </p>
               </div>
 

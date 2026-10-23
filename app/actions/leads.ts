@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
-import { applyDailyWorkFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { applyDailyWorkFilter, assignmentDayWindow, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -544,10 +544,16 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
   else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
+  if (resolved.work === "assigned" && resolved.day === clinicDate()) {
+    filtered = filtered.eq("workflow_bucket", "fresh");
+  }
   if (resolved.bucket === "dnp") {
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
   } else if (resolved.bucket) {
     filtered = filtered.eq("workflow_bucket", resolved.bucket);
+  }
+  if (resolved.bucket === "fresh") {
+    filtered = filtered.lt("assigned_fresh_since", assignmentDayWindow(clinicDate()).from);
   }
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
@@ -886,9 +892,11 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
     const supabase = await createClient();
     const counts = new Map<string | null, number>();
     for (let offset = 0; ; offset += 500) {
-      const query = supabase.from("leads").select("id,status")
+      let query = supabase.from("leads").select("id,status")
         .ilike("assigned_to", escapeLikePattern(viewer.name)).order("id").range(offset, offset + 499);
-      const { data, error } = await applyDailyWorkFilter(query, "assigned", day);
+      query = applyDailyWorkFilter(query, "assigned", day);
+      if (day === clinicDate()) query = query.eq("workflow_bucket", "fresh");
+      const { data, error } = await query;
       if (error) return { success: false, error: "Assignment statuses could not be loaded." };
       for (const row of data ?? []) {
         const status = row.status ?? null;
@@ -1452,11 +1460,13 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
 
     const { data: bucketRows, error: bucketError } = await supabase.rpc("crm_team_bucket_groups");
     if (bucketError) return { success: false, error: bucketError.message };
+    for (const stats of statsByName.values()) stats.newLeads = 0;
     for (const row of bucketRows ?? []) {
       const stats = statsByName.get(String(row.assigned_to ?? "").trim());
       if (!stats) continue;
       const value = Number(row.lead_count ?? 0);
       switch (row.bucket) {
+        case "new": stats.newLeads = value; break;
         case "fresh": stats.fresh = value; break;
         case "followup": stats.followUp = value; break;
         case "opdBooked": stats.opdBooked = value; break;

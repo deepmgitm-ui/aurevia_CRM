@@ -339,8 +339,8 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
     0,
   );
 
-  // Agent bucket lifecycle: initial assignments are Fresh; any agent field
-  // edit or logged activity changes that lead to Follow-up.
+  // Today's untouched assignments are New Today, become Follow-up on first
+  // touch, and become Fresh only after the clinic-day boundary.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   const bucketIds = {};
   for (const [key, name, status] of [
@@ -356,17 +356,27 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
       [name, String(9100000000 + Object.keys(bucketIds).length), status],
     )).rows[0].id;
   }
+  const oldFreshId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assigned_at) values('Bucket old fresh','9191000000','Agent A','New',(date_trunc('day',now() at time zone 'Asia/Kolkata') - interval '1 day') at time zone 'Asia/Kolkata') returning id",
+  )).rows[0].id;
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "fresh");
+  const initialGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
+  assert.ok(initialGroups.some((row) => row.bucket === "new" && Number(row.lead_count) >= 2), "today's untouched assignments are grouped as New Today");
+  assert.ok(initialGroups.some((row) => row.bucket === "fresh" && Number(row.lead_count) >= 1), "untouched assignments from earlier days are grouped as Fresh");
+  const dailyBeforeTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   await db.query("update leads set remarks='First agent edit' where id=$1", [bucketIds.edited]);
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,auth.uid(),'Note','First agent activity')", [bucketIds.activity]);
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "followup");
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.activity])).rows[0].workflow_bucket, "followup");
+  const dailyAfterTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
+  assert.equal(Number(dailyBeforeTouch) - Number(dailyAfterTouch), 2, "first note or field edit removes the lead from New Today");
   for (const [key, expected] of [["opdBooked", "opdBooked"], ["opdDone", "opdDone"], ["ipdBooked", "ipdBooked"], ["ipdDone", "ipdDone"]]) {
     assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds[key]])).rows[0].workflow_bucket, expected);
   }
   const bucketSummary = (await db.query("select crm_lead_bucket_summary('Agent A') x")).rows[0].x;
-  assert.ok(bucketSummary.fresh >= 1205, "new unedited assignment counts as Fresh");
+  assert.ok(bucketSummary.fresh >= 1, "earlier untouched assignment counts as Fresh");
+  assert.ok(!((await db.query("select bucket from crm_team_bucket_groups() where assigned_to='Agent A' and bucket='fresh'")).rows.length === 0), "earlier untouched lead remains in Fresh grouping");
   assert.ok(bucketSummary.followUp >= 2, "first edits and activities count as Follow-up");
   assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
 
