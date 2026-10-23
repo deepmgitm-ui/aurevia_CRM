@@ -2597,7 +2597,6 @@ export interface LeadAssignmentCriteria {
   treatment: string;
   city: string;
   status?: string;
-  assignmentScope?: "all" | "assigned" | "unassigned";
   excludeBatchId?: string;
 }
 
@@ -2880,7 +2879,6 @@ export async function getUnassignedLeadAssignmentSuggestions(
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
-    assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
   const safeOffset = Number.isInteger(offset) && offset >= 0 && offset < BULK_ASSIGNMENT_LIMIT ? offset : 0;
 
@@ -2891,35 +2889,15 @@ export async function getUnassignedLeadAssignmentSuggestions(
       return { success: false, error: "Only admins and managers can search leads for assignment (403 Forbidden)." };
     }
 
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("name");
-    if (profilesError) return { success: false, error: profilesError.message };
-    const assignedNames = [...new Set(
-      (profiles ?? [])
-        .map((profile) => typeof profile.name === "string" ? profile.name.trim() : "")
-        .filter((name) => name && name !== "-" && name !== "Unassigned"),
-    )];
-
     let query = supabase
       .from("leads")
       .select("id, name, phone, city, disease, source, status", { count: "exact" })
       .order("name", { ascending: true })
       .order("created_at", { ascending: false });
-    query = applyAssignmentCriteria(query, normalized, assignedNames);
+    query = applyAssignmentCriteria(query, normalized);
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(criteria.excludeBatchId ?? "")) {
       query = query.or(`assignment_batch_id.is.null,assignment_batch_id.neq.${criteria.excludeBatchId}`);
     }
-    if (normalized.search) {
-      query = query.ilike("name", `${escapeLikePattern(normalized.search)}%`);
-    }
-    if (normalized.treatment) {
-      query = query.ilike("disease", `%${escapeLikePattern(normalized.treatment)}%`);
-    }
-    if (normalized.city) {
-      query = query.ilike("city", `%${escapeLikePattern(normalized.city)}%`);
-    }
-
     const { data, count, error } = await query.range(
       safeOffset,
       safeOffset + ASSIGNMENT_SUGGESTION_PAGE_SIZE - 1,
@@ -2953,35 +2931,26 @@ interface AssignmentFilterQuery {
   ilike(column: string, pattern: string): AssignmentFilterQuery;
   in(column: string, values: readonly string[]): AssignmentFilterQuery;
   eq(column: string, value: string): AssignmentFilterQuery;
-  neq(column: string, value: string): AssignmentFilterQuery;
 }
 
-function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria, assignedNames: string[] = []): Q {
+function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria): Q {
   let filtered = query as unknown as AssignmentFilterQuery;
-  const searchFilter = buildLeadSearchFilter(criteria.search);
-  if (searchFilter) filtered = filtered.or(searchFilter);
+  const search = criteria.search.trim();
+  if (search) filtered = filtered.ilike("name", `%${escapeLikePattern(search)}%`);
   const treatment = criteria.treatment.trim();
   if (treatment) filtered = filtered.ilike("disease", `%${escapeLikePattern(treatment)}%`);
   const city = criteria.city.trim();
   if (city) filtered = filtered.ilike("city", `%${escapeLikePattern(city)}%`);
   const status = criteria.status?.trim() ?? "";
   if (status) {
-    const canonical = canonicalLeadStatus(status);
     const values = leadStatusStorageValues(status);
     filtered = values.length === 1
       ? filtered.eq("status", values[0])
-      : filtered.or(canonical === "New"
-        ? `status.is.null,${`status.in.(${inListExpression(values)})`}`
-        : `status.in.(${inListExpression(values)})`);
+      : filtered.in("status", values);
   }
-  const scope = criteria.assignmentScope ?? "unassigned";
-  if (scope === "assigned") {
-    filtered = assignedNames.length > 0 ? filtered.in("assigned_to", assignedNames) : filtered.eq("assigned_to", "");
-  } else if (scope === "unassigned") {
-    filtered = filtered.or(assignedNames.length > 0
-      ? `assigned_to.is.null,assigned_to.eq.-,assigned_to.eq.Unassigned,assigned_to.not.in.(${inListExpression(assignedNames)})`
-      : "assigned_to.is.null,assigned_to.eq.-,assigned_to.eq.Unassigned");
-  }
+  // Filter-based assignment is strictly for unassigned records. Even leads
+  // assigned to a removed or renamed profile must not leak into this queue.
+  filtered = filtered.or('assigned_to.is.null,assigned_to.eq."",assigned_to.eq.-,assigned_to.eq.Unassigned');
   return filtered as unknown as Q;
 }
 
@@ -2997,7 +2966,6 @@ export async function getLeadAssignmentPreview(
     treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
     city: typeof criteria.city === "string" ? criteria.city.trim() : "",
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
-    assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
   try {
     const supabase = await createClient();
@@ -3005,13 +2973,9 @@ export async function getLeadAssignmentPreview(
     if (viewerRole !== "admin" && viewerRole !== "manager") {
       return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
     }
-    const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name");
-    if (profilesError) return { success: false, error: profilesError.message };
-    const assignedNames = [...new Set((profiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name && name !== "-" && name !== "Unassigned")))];
     const query = applyAssignmentCriteria(
       supabase.from("leads").select("id", { count: "exact", head: true }),
       normalized,
-      assignedNames,
     );
     const { count, error } = await query;
     if (error) return { success: false, error: error.message };
@@ -3059,7 +3023,6 @@ export async function assignLeadsToEmployees(input: {
         treatment: typeof input.criteria.treatment === "string" ? input.criteria.treatment.trim() : "",
         city: typeof input.criteria.city === "string" ? input.criteria.city.trim() : "",
         status: typeof input.criteria.status === "string" ? input.criteria.status.trim() : "",
-        assignmentScope: input.criteria.assignmentScope === "assigned" || input.criteria.assignmentScope === "unassigned" ? input.criteria.assignmentScope : "all" as const,
       }
     : null;
 
@@ -3105,13 +3068,9 @@ export async function assignLeadsToEmployees(input: {
 
     let matchingIds = leadIds;
     if (matchingIds.length === 0 && criteria) {
-      const { data: allProfiles, error: allProfilesError } = await supabase.from("profiles").select("name");
-      if (allProfilesError) return { success: false, error: allProfilesError.message };
-      const assignedNames = [...new Set((allProfiles ?? []).map((profile) => profile.name?.trim()).filter((name): name is string => Boolean(name && name !== "-" && name !== "Unassigned")))];
       const countQuery = applyAssignmentCriteria(
         supabase.from("leads").select("id", { count: "exact", head: true }),
         criteria,
-        assignedNames,
       );
       const { count, error } = await countQuery;
       if (error) return { success: false, error: error.message };
@@ -3130,7 +3089,6 @@ export async function assignLeadsToEmployees(input: {
         const pageQuery = applyAssignmentCriteria(
           supabase.from("leads").select("id"),
           criteria,
-          assignedNames,
         );
         const { data, error: fetchError } = await pageQuery
           .order("created_at", { ascending: true })

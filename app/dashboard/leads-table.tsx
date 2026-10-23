@@ -476,7 +476,6 @@ export function LeadsTable({
     treatment: "",
     city: "",
     status: "",
-    assignmentScope: "unassigned",
   });
   const [assignmentSuggestions, setAssignmentSuggestions] = useState<LeadAssignmentSuggestion[]>([]);
   const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
@@ -1113,7 +1112,7 @@ export function LeadsTable({
     setAssignmentMode(mode);
     setAssignmentBatchTarget(batch);
     setAssignmentEmployeeNames([]);
-    setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", assignmentScope: "unassigned", excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
+    setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
     setAssignmentSuggestions([]);
     setSelectedAssignmentLeads([]);
     setAssignmentSuggestionTotal(0);
@@ -1181,7 +1180,6 @@ export function LeadsTable({
       treatment: assignmentCriteria.treatment.trim(),
       city: assignmentCriteria.city.trim(),
       status: assignmentCriteria.status?.trim() ?? "",
-      assignmentScope: assignmentCriteria.assignmentScope ?? "unassigned",
       excludeBatchId: assignmentCriteria.excludeBatchId,
     };
     const timer = setTimeout(() => {
@@ -1195,7 +1193,6 @@ export function LeadsTable({
     assignmentCriteria.city,
     assignmentCriteria.search,
     assignmentCriteria.status,
-    assignmentCriteria.assignmentScope,
     assignmentCriteria.excludeBatchId,
     assignmentCriteria.treatment,
     assignmentMode,
@@ -2339,7 +2336,7 @@ export function LeadsTable({
                 ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}.`
                 : assignmentMode === "selected"
                   ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose and saved as one batch.`
-                  : "Find leads by name, status, treatment, city, or current assignment. Select the exact records for this batch."}
+                  : "Find unassigned leads by any combination of optional filters. Select the exact records for this batch."}
             </DialogDescription>
           </DialogHeader>
 
@@ -2347,11 +2344,11 @@ export function LeadsTable({
             {assignmentMode !== "selected" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="assign-lead-search">Lead name</Label>
+                  <Label htmlFor="assign-lead-search">Lead name <span className="font-normal text-slate-400">(optional)</span></Label>
                   <Input
                     id="assign-lead-search"
                     value={assignmentCriteria.search}
-                    placeholder="Optional: search a lead name"
+                    placeholder="Optional: search any part of a lead name"
                     disabled={isBulkActionPending}
                     onChange={(event) => updateAssignmentCriteria({ search: event.target.value })}
                   />
@@ -2386,21 +2383,10 @@ export function LeadsTable({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="assign-scope">Current assignment</Label>
-                  <Select value={assignmentCriteria.assignmentScope ?? "unassigned"} onValueChange={(value) => updateAssignmentCriteria({ assignmentScope: value === "all" || value === "assigned" ? value : "unassigned" })}>
-                    <SelectTrigger id="assign-scope" className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="unassigned">Unassigned only</SelectItem>
-                      <SelectItem value="assigned">Already assigned</SelectItem>
-                      <SelectItem value="all">Any assignment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label>
-                      Matching leads
+                      Matching unassigned leads
                       {assignmentSuggestionTotal > 0 && ` (${assignmentSuggestionTotal.toLocaleString()})`}
                     </Label>
                     {isLoadingAssignmentSuggestions && (
