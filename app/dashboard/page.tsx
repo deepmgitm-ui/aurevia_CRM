@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Flame, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
+import { ArrowLeft, ListTodo, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
 
 import {
   getAnalyticsLeads,
@@ -38,9 +38,9 @@ const statCards = [
     iconClassName: "bg-blue-50 text-blue-600",
   },
   {
-    label: "Hot Leads",
-    icon: Flame,
-    iconClassName: "bg-orange-50 text-orange-600",
+    label: "Follow-Up Leads",
+    icon: ListTodo,
+    iconClassName: "bg-amber-50 text-amber-700",
   },
 ] as const;
 
@@ -101,7 +101,7 @@ export default async function DashboardPage({
       const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
       const counts = countsResult.success
         ? countsResult.data
-        : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
+        : { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
 
       return (
         <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -122,7 +122,7 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <StatCardSection values={[counts.total, counts.new, counts.hot]} />
+          <StatCardSection values={[counts.total, counts.new, counts.followUp]} />
 
           <LeadsTable
             leads={leadsPage.leads}

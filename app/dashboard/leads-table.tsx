@@ -33,7 +33,6 @@ import {
   updateLeadDetails,
   updateLeadStatus,
   updateLeadAssignment,
-  updateLeadTemperature,
   updateLeadFollowUpDate,
   updateLeadAppointment,
   randomAssignLeads,
@@ -121,7 +120,7 @@ interface ImportRow {
   source?: string;
 }
 
-// Dropdown options (status / temperature / source) live in the DATABASE so an
+// Dropdown options (status / source) live in the DATABASE so an
 // admin can edit them in Settings → Master Data without a deploy
 // (supabase-master-data-migration.sql). `seedMasterData()` is the fallback: the
 // selects render real options immediately, before the fetch resolves.
@@ -166,12 +165,6 @@ function sourceBadgeClass(source: string): string {
 
 // DD/MM/YYYY -> YYYY-MM-DD so dates compare chronologically instead of alphabetically.
 type DateFilterField = "lead_date" | "follow_up_date";
-
-const temperatureLabels: Record<string, string> = {
-  Hot: "Hot 🔥",
-  Warm: "Warm ☀️",
-  Cold: "Cold ❄️",
-};
 
 function buildDateFilter(dateField: DateFilterField, from: string, to: string) {
   const fromIso = from ? `${from}T00:00:00.000Z` : "";
@@ -342,7 +335,6 @@ function downloadLeadsCsv(leads: Lead[], fileName: string) {
     "Follow-Up Date": lead.follow_up_date,
     Source: lead.source,
     Status: lead.status,
-    Temperature: lead.temperature,
     "Assigned To": lead.assigned_to,
     "Created At": lead.created_at,
   }));
@@ -436,7 +428,6 @@ export function LeadsTable({
     remarks: "",
     assigned_to: "",
     status: "",
-    temperature: "",
     lead_date: "",
     follow_up_date: "",
     source: "",
@@ -514,9 +505,7 @@ export function LeadsTable({
   // (.or / .ilike across ALL leads in the database), not against the 50 rows
   // loaded on the current page.
   const [activeSearch, setActiveSearch] = useState(filters.q);
-  const [selectedTemperature, setSelectedTemperature] = useState("all");
-  // Advanced status filter (server-side): "" = all; Hot/Warm/Cold target the
-  // temperature column, everything else targets the status column.
+  // Advanced status filter (server-side): "" = all.
   const [selectedStatus, setSelectedStatus] = useState(() =>
     filters.status && LEAD_STATUS_OPTIONS.some((status) => status === filters.status)
       ? filters.status
@@ -585,7 +574,6 @@ export function LeadsTable({
   // Admin-editable picklists (master data) with the loaded page merged in, so a
   // filter/edit still offers whatever values leads actually carry.
   const statuses = LEAD_STATUS_OPTIONS;
-  const temperatures = masterData.lists.temperatures;
   const masterSourceOptions = Array.from(
     new Set([...masterData.lists.sources, ...sourceOptions]),
   );
@@ -608,14 +596,12 @@ export function LeadsTable({
     activeSearch.length > 0 ||
     activeStatusFilter.length > 0 ||
     selectedSource !== "all" ||
-    selectedTemperature !== "all" ||
     dateFilter !== null;
 
   function resetFilters() {
     setSearchTerm("");
     setSelectedStatus("all");
     setSelectedSource("all");
-    setSelectedTemperature("all");
     setDateField("lead_date");
     setDateFrom("");
     setDateTo("");
@@ -627,7 +613,7 @@ export function LeadsTable({
     }
   }
 
-  // Chained layers: search (server-side) -> source -> temperature -> date range (Lead Date or Follow-up Date) -> sorting.
+  // Chained layers: search (server-side) -> source -> date range (Lead Date or Follow-up Date) -> sorting.
   // Memoized: filtering only reruns when the page data or one of the filters
   // actually changes (not on every keystroke-driven re-render).
   const filteredLeads = useMemo(() => leads.filter((lead) => {
@@ -635,8 +621,6 @@ export function LeadsTable({
     // on every page of the database. Only these remaining filters run on the
     // rows currently loaded in the table.
     if (selectedSource !== "all" && lead.source !== selectedSource) return false;
-
-    if (selectedTemperature !== "all" && lead.temperature !== selectedTemperature) return false;
 
     if (dateFilter) {
       const rawDate = dateFilter.dateField === "follow_up_date" ? lead.follow_up_date : lead.lead_date;
@@ -658,7 +642,7 @@ export function LeadsTable({
     }
 
     return true;
-  }), [leads, selectedSource, selectedTemperature, dateFilter]);
+  }), [leads, selectedSource, dateFilter]);
 
   const activeFilterChips: { key: string; label: string; onRemove: () => void }[] = [];
   if (activeSearch) {
@@ -675,7 +659,7 @@ export function LeadsTable({
   if (activeStatusFilter) {
     activeFilterChips.push({
       key: "status",
-      label: `Status: ${temperatureLabels[activeStatusFilter] ?? activeStatusFilter}`,
+      label: `Status: ${activeStatusFilter}`,
       onRemove: () => {
         setSelectedStatus("all");
         setActiveStatusFilter("");
@@ -685,13 +669,6 @@ export function LeadsTable({
   }
   if (selectedSource !== "all") {
     activeFilterChips.push({ key: "source", label: `Source: ${selectedSource}`, onRemove: () => setSelectedSource("all") });
-  }
-  if (selectedTemperature !== "all") {
-    activeFilterChips.push({
-      key: "temp",
-      label: `Temp: ${temperatureLabels[selectedTemperature] ?? selectedTemperature}`,
-      onRemove: () => setSelectedTemperature("all"),
-    });
   }
   if (dateFilter) {
     activeFilterChips.push({
@@ -723,7 +700,7 @@ export function LeadsTable({
 
   // Fetches a page of leads from the server and swaps it into the table.
   // `search` is the server-side search term and `status` the server-side
-  // status/temperature filter ("" = no filter).
+  // status filter ("" = no filter).
   async function fetchPage(nextPage: number, search: string = activeSearch, status: string = activeStatusFilter) {
     const requestId = ++fetchSequenceRef.current;
     setIsPaging(true);
@@ -985,7 +962,6 @@ export function LeadsTable({
       insurance_status: String(formData.get("insurance_status") ?? ""),
       remarks: String(formData.get("remarks") ?? ""),
       follow_up_date: String(formData.get("follow_up_date") ?? ""),
-      temperature: String(formData.get("temperature") ?? "Warm"),
       status: String(formData.get("status") ?? "New"),
     });
     if (!response.success) {
@@ -1006,7 +982,7 @@ export function LeadsTable({
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { status });
-    const response = await updateLeadStatus({ id: lead.id, status, temperature: lead.temperature });
+    const response = await updateLeadStatus({ id: lead.id, status });
     if (!response.success) {
       updateLeadLocally(lead);
       toast.add({ title: "Status update failed", description: response.error, type: "error" });
@@ -1090,22 +1066,6 @@ export function LeadsTable({
     } else {
       updateLeadLocally(response.data);
       queueSuccessSummary("assigned");
-    }
-    setLeadSaving(lead.id, false);
-  }
-
-  async function handleTemperatureChange(lead: Lead, temperature: string | null) {
-    if (!temperature || temperature === lead.temperature || savingLeadIds.has(lead.id)) return;
-    trackLeadMutations(lead.id);
-    setLeadSaving(lead.id, true);
-    patchLeadLocally(lead.id, { temperature });
-    const response = await updateLeadTemperature(lead.id, temperature);
-    if (!response.success) {
-      updateLeadLocally(lead);
-      toast.add({ title: "Temperature update failed", description: response.error, type: "error" });
-    } else {
-      updateLeadLocally(response.data);
-      queueSuccessSummary("updated");
     }
     setLeadSaving(lead.id, false);
   }
@@ -1224,9 +1184,6 @@ export function LeadsTable({
       assignmentScope: assignmentCriteria.assignmentScope ?? "unassigned",
       excludeBatchId: assignmentCriteria.excludeBatchId,
     };
-    if (!criteria.search && !criteria.treatment && !criteria.city && !criteria.status) {
-      return;
-    }
     const timer = setTimeout(() => {
       void fetchAssignmentSuggestions(criteria);
     }, 250);
@@ -1687,7 +1644,6 @@ export function LeadsTable({
       remarks: lead.remarks === "-" ? "" : lead.remarks,
       assigned_to: lead.assigned_to && lead.assigned_to !== "-" ? lead.assigned_to : "",
       status: canonicalLeadStatus(lead.status),
-      temperature: lead.temperature ?? "",
       // Date input needs ISO format; unparseable stored values start empty.
       lead_date: parseLeadDateForSort(lead.lead_date) || "",
       follow_up_date: parseLeadDateForSort(lead.follow_up_date) || "",
@@ -1716,7 +1672,6 @@ export function LeadsTable({
           follow_up_date: editForm.follow_up_date,
           remarks: editForm.remarks,
           status: editForm.status,
-          temperature: editForm.temperature,
         };
     const optimisticLead: Lead = canEditCore
       ? {
@@ -1745,7 +1700,6 @@ export function LeadsTable({
           lead_date: editForm.lead_date || "-",
           follow_up_date: editForm.follow_up_date || "-",
           status: editForm.status,
-          temperature: editForm.temperature,
           remarks: editForm.remarks || "-",
         };
     updateLeadLocally(optimisticLead);
@@ -1773,7 +1727,8 @@ export function LeadsTable({
     if (!response.success) {
       toast.add({ title: "Unable to add note", description: response.error, type: "error" });
     } else {
-      setActivities((currentActivities) => [response.data, ...currentActivities]);
+      const refreshedActivities = await getLeadActivities(selectedLead.id);
+      if (refreshedActivities.success) setActivities(refreshedActivities.data);
       setNote("");
       queueSuccessSummary("notes");
     }
@@ -1944,8 +1899,8 @@ export function LeadsTable({
                 <SelectTrigger className="w-44" aria-label="Filter by status"><SelectValue placeholder="All Statuses" /></SelectTrigger>
                 <SelectContent className="max-h-72 overflow-y-auto">
                   <SelectItem value="all">All Statuses</SelectItem>
-                  {["Hot", "Warm", "Cold", ...statuses].map((option) => (
-                    <SelectItem key={option} value={option}>{temperatureLabels[option] ?? option}</SelectItem>
+                  {statuses.map((option) => (
+                    <SelectItem key={option} value={option}>{option}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1960,15 +1915,6 @@ export function LeadsTable({
                 </Select>
               )}
 
-              <Select value={selectedTemperature} onValueChange={(value) => setSelectedTemperature(typeof value === "string" ? value : "all")}>
-                <SelectTrigger className="w-32" aria-label="Filter by temperature"><SelectValue placeholder="All Temps" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Temps</SelectItem>
-                  <SelectItem value="Hot">Hot 🔥</SelectItem>
-                  <SelectItem value="Warm">Warm ☀️</SelectItem>
-                  <SelectItem value="Cold">Cold ❄️</SelectItem>
-                </SelectContent>
-              </Select>
 
               <Popover open={isDatePopoverOpen} onOpenChange={setIsDatePopoverOpen}>
                 <PopoverTrigger
@@ -2255,10 +2201,6 @@ export function LeadsTable({
                       <AppointmentDateInput lead={lead} />
                     </div>
                   </TableCell>
-                  <TableCell className="w-[180px] py-3"><Select value={lead.temperature} onValueChange={(value) => handleTemperatureChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
-                    <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperature === "Hot" ? "Hot 🔥" : temperature === "Warm" ? "Warm ☀️" : "Cold ❄️"}</SelectItem>)}</SelectContent>
-                  </Select></TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                     <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
@@ -2343,7 +2285,6 @@ export function LeadsTable({
               <div className="space-y-2"><Label htmlFor="lead-insurance-status">Insurance Status</Label><Input id="lead-insurance-status" name="insurance_status" /></div>
             </div>
             <div className="space-y-2"><Label htmlFor="lead-status">Status</Label><Select name="status" defaultValue="New"><SelectTrigger id="lead-status"><SelectValue /></SelectTrigger><SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label htmlFor="lead-temperature">Temperature</Label><Select name="temperature" defaultValue="Warm"><SelectTrigger id="lead-temperature"><SelectValue /></SelectTrigger><SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperature === "Hot" ? "Hot 🔥" : temperature === "Warm" ? "Warm ☀️" : "Cold ❄️"}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="lead-remarks">Remarks</Label><Textarea id="lead-remarks" name="remarks" rows={3} /></div>
             <div className="space-y-2"><Label htmlFor="lead-follow-up-date">Next Follow-Up Date</Label><Input id="lead-follow-up-date" name="follow_up_date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} /></div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button><Button type="submit" disabled={isCreatingLead}>{isCreatingLead ? "Adding..." : "Add Lead"}</Button></DialogFooter>
@@ -2406,17 +2347,17 @@ export function LeadsTable({
             {assignmentMode !== "selected" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="assign-lead-search">Lead name starts with</Label>
+                  <Label htmlFor="assign-lead-search">Lead name</Label>
                   <Input
                     id="assign-lead-search"
                     value={assignmentCriteria.search}
-                    placeholder="Type a name or its first letters"
+                    placeholder="Optional: search a lead name"
                     disabled={isBulkActionPending}
                     onChange={(event) => updateAssignmentCriteria({ search: event.target.value })}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="assign-treatment">Treatment / disease</Label>
+                  <Label htmlFor="assign-treatment">Treatment / disease <span className="font-normal text-slate-400">(optional)</span></Label>
                   <Input
                     id="assign-treatment"
                     value={assignmentCriteria.treatment}
@@ -2426,7 +2367,7 @@ export function LeadsTable({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="assign-city">City</Label>
+                  <Label htmlFor="assign-city">City <span className="font-normal text-slate-400">(optional)</span></Label>
                   <Input
                     id="assign-city"
                     value={assignmentCriteria.city}
@@ -2436,7 +2377,7 @@ export function LeadsTable({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="assign-status">Lead status</Label>
+                  <Label htmlFor="assign-status">Lead status <span className="font-normal text-slate-400">(optional)</span></Label>
                   <Select value={assignmentCriteria.status || "all"} onValueChange={(value) => updateAssignmentCriteria({ status: value === "all" ? "" : String(value ?? "") })}>
                     <SelectTrigger id="assign-status" className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger>
                     <SelectContent className="max-h-72 overflow-y-auto">
@@ -2974,12 +2915,6 @@ export function LeadsTable({
                 <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-1"><Label htmlFor="full-edit-temp">Temp</Label>
-              <Select value={editForm.temperature} onValueChange={(value) => setEditForm((current) => ({ ...current, temperature: String(value ?? "") }))}>
-                <SelectTrigger id="full-edit-temp"><SelectValue /></SelectTrigger>
-                <SelectContent>{temperatures.map((temperature) => <SelectItem key={temperature} value={temperature}>{temperatureLabels[temperature] ?? temperature}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
             <div className="sm:col-span-2 space-y-1"><Label htmlFor="full-edit-remarks">Remarks</Label><Textarea id="full-edit-remarks" rows={3} value={editForm.remarks} onChange={(event) => setEditForm((current) => ({ ...current, remarks: event.target.value }))} /></div>
           </div>
           <DialogFooter>
@@ -3019,7 +2954,7 @@ export function LeadsTable({
                   </Button>
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
-                <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.temperature}</span></div>
+                <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
               <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>

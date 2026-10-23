@@ -48,8 +48,6 @@ import {
 
 export type LeadStatus = string;
 
-export type LeadTemperature = string;
-
 export interface Lead {
   id: string;
   name: string;
@@ -64,7 +62,6 @@ export interface Lead {
   follow_up_date: string;
   source: string;
   status: LeadStatus;
-  temperature: LeadTemperature;
   assigned_to: string | null;
   created_at: string;
   updated_at: string;
@@ -81,6 +78,16 @@ export interface Lead {
   opd_done_date?: string | null;
   ipd_done_date?: string | null;
 }
+
+// Keep the retired temperature field out of dashboard responses while
+// preserving its stored legacy values in Supabase.
+const LEAD_SELECT_COLUMNS = [
+  "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
+  "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
+  "created_at", "updated_at", "source_batch_id", "source_batch_label",
+  "source_batch_created_at", "assignment_batch_id", "opd_booked_date", "opd_done_date",
+  "ipd_done_date",
+].join(", ");
 
 export interface LeadActivity {
   id: string;
@@ -102,7 +109,6 @@ export interface CreateLeadInput {
   remarks?: string | null;
   source?: string;
   lead_date?: string | null;
-  temperature?: string | null;
   status?: string | null;
   follow_up_date?: string | null;
 }
@@ -120,7 +126,6 @@ export interface BulkLeadInput {
   follow_up_date: string;
   source: string;
   status: string;
-  temperature: string;
   assigned_to: string;
 }
 
@@ -133,7 +138,6 @@ export interface Employee {
 export interface UpdateLeadStatusInput {
   id: string;
   status: string;
-  temperature: LeadTemperature;
 }
 
 export interface AddLeadActivityInput {
@@ -210,7 +214,6 @@ const LEADS_INSERT_COLUMNS = [
   "follow_up_date",
   "source",
   "status",
-  "temperature",
   "assigned_to",
   // Exported so a clinic can open the sheet and see which patients are
   // booked for OPD/IPD and on what date, without opening the CRM.
@@ -270,7 +273,6 @@ function parseLeadDate(value: unknown): string {
 //   lead_date, created_at → month-by-month trend (lead_date preferred)
 //   city             → "Top Cities" chart
 //   source           → "Lead Source Performance" chart + filter
-//   temperature      → agent hot/warm/cold chips
 //   assigned_to      → agent roster + agent filter
 //   name, disease    → patients table / legacy treatment fallback
 /**
@@ -316,7 +318,7 @@ const LEADS_PAGE_SIZE = 50;
 export interface LeadCounts {
   total: number;
   new: number;
-  hot: number;
+  followUp: number;
   won: number;
   lost: number;
 }
@@ -344,7 +346,6 @@ export interface BoardLead {
   city: string;
   disease: string;
   status: LeadStatus;
-  temperature: LeadTemperature;
   assigned_to: string | null;
   follow_up_date: string;
   created_at: string;
@@ -669,10 +670,6 @@ async function resolveLeadFilters(
   return resolved;
 }
 
-// Status-filter values that actually live in the temperature column
-// (Hot/Warm/Cold); every other filter value targets the status column.
-const TEMPERATURE_FILTERS = new Set(["hot", "warm", "cold"]);
-
 function applyStatusChoice<Q extends { eq(column: string, value: string): Q; in(column: string, values: readonly string[]): Q; or(filters: string): Q }>(
   query: Q,
   status: string,
@@ -731,7 +728,7 @@ export async function getLeadsPage(
     // count: "exact" returns the total row count alongside the current page,
     // and .range() fetches only this page's rows from Supabase.
     const searchFilter = buildLeadSearchFilter(search);
-    let leadsQuery = supabase.from("leads").select("*", { count: "exact" });
+    let leadsQuery = supabase.from("leads").select(LEAD_SELECT_COLUMNS, { count: "exact" });
     if (profile.role === "employee") {
       leadsQuery = leadsQuery.ilike("assigned_to", profile.name);
     } else if (assignedTo.trim()) {
@@ -750,13 +747,8 @@ export async function getLeadsPage(
     }
     // ?status= from the URL folds into the existing advanced status filter.
     const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
-    const statusFilterNormalized = effectiveStatus.toLowerCase();
-    if (statusFilterNormalized) {
-      // Advanced temperature labels target the temperature column; every lead
-      // workflow status uses its canonical and legacy stored spellings.
-      leadsQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
-        ? leadsQuery.eq("temperature", effectiveStatus)
-        : applyStatusChoice(leadsQuery, effectiveStatus);
+    if (effectiveStatus) {
+      leadsQuery = applyStatusChoice(leadsQuery, effectiveStatus);
     }
     leadsQuery = applyLeadFilters(leadsQuery, resolved);
     const { data, error, count } = await leadsQuery
@@ -773,7 +765,7 @@ export async function getLeadsPage(
     return {
       success: true,
       data: {
-        leads: (data ?? []) as Lead[],
+        leads: (data ?? []) as unknown as Lead[],
         total,
         page: Math.min(safePage, totalPages),
         pageSize: safePageSize,
@@ -814,17 +806,14 @@ export async function getLeadsForExport(
     const resolved = await resolveLeadFilters(supabase, filters);
     if (resolved.empty) return { success: true, data: [] };
 
-    let exportQuery = supabase.from("leads").select("*");
+    let exportQuery = supabase.from("leads").select(LEAD_SELECT_COLUMNS);
     if (ids && ids.length > 0) exportQuery = exportQuery.in("id", ids);
     if (assignedTo.trim()) exportQuery = exportQuery.eq("assigned_to", assignedTo.trim());
     const searchFilter = buildLeadSearchFilter(search);
     if (searchFilter) exportQuery = exportQuery.or(searchFilter);
     const effectiveStatus = statusFilter.trim() || (filters?.status ?? "").trim();
-    const statusFilterNormalized = effectiveStatus.toLowerCase();
-    if (statusFilterNormalized) {
-      exportQuery = TEMPERATURE_FILTERS.has(statusFilterNormalized)
-        ? exportQuery.eq("temperature", effectiveStatus)
-        : applyStatusChoice(exportQuery, effectiveStatus);
+    if (effectiveStatus) {
+      exportQuery = applyStatusChoice(exportQuery, effectiveStatus);
     }
     exportQuery = applyLeadFilters(exportQuery, resolved);
     exportQuery = exportQuery.order("created_at", { ascending: false }).order("id");
@@ -833,7 +822,7 @@ export async function getLeadsForExport(
     for (let from = 0; from < EXPORT_LIMIT; from += chunkSize) {
       const { data, error } = await exportQuery.range(from, from + chunkSize - 1);
       if (error) return { success: false, error: error.message };
-      const chunk = (data ?? []) as Lead[];
+      const chunk = (data ?? []) as unknown as Lead[];
       rows.push(...chunk);
       if (chunk.length < chunkSize) break;
     }
@@ -914,7 +903,7 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
 }
 
 export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadCounts>> {
-  const emptyCounts: LeadCounts = { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
+  const emptyCounts: LeadCounts = { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
   try {
     const supabase = await createClient();
     const {
@@ -946,17 +935,17 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
       );
     const statusValuesCountQuery = (statuses: string[]) =>
       buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).in("status", statuses);
-    const hotQuery = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).eq("temperature", "Hot");
+  const followUpQuery = applyStatusChoice(buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo), "Follow-Up");
 
-    const [totalRes, newRes, hotRes, wonRes, lostRes] = await Promise.all([
+    const [totalRes, newRes, followUpRes, wonRes, lostRes] = await Promise.all([
       totalQuery,
       statusCountQuery("New"),
-      hotQuery,
+      followUpQuery,
       statusValuesCountQuery(["OPD Done", "Consultation Attended", "IPD Done", "Won", "Surgery Completed"]),
       statusCountQuery("Dropped"),
     ]);
 
-    for (const result of [totalRes, newRes, hotRes, wonRes, lostRes]) {
+    for (const result of [totalRes, newRes, followUpRes, wonRes, lostRes]) {
       if (result.error) {
         return { success: false, error: result.error.message };
       }
@@ -967,7 +956,7 @@ export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadC
       data: {
         total: totalRes.count ?? 0,
         new: newRes.count ?? 0,
-        hot: hotRes.count ?? 0,
+        followUp: followUpRes.count ?? 0,
         won: wonRes.count ?? 0,
         lost: lostRes.count ?? 0,
       },
@@ -1037,7 +1026,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
 // column stays honest instead of pretending 40 cards is the whole stage.
 const BOARD_CARD_LIMIT = 40;
 const BOARD_CARD_COLUMNS =
-  "id, name, phone, city, disease, status, temperature, assigned_to, follow_up_date, created_at";
+  "id, name, phone, city, disease, status, assigned_to, follow_up_date, created_at";
 
 const BOARD_COLUMNS: { key: StageKey; label: string }[] = [
   ...PIPELINE_STAGES,
@@ -1365,9 +1354,6 @@ export interface EmployeeLeadStats {
   id: string;
   name: string;
   total: number;
-  hot: number;
-  warm: number;
-  cold: number;
   newLeads: number;
   fresh: number;
   followUp: number;
@@ -1386,9 +1372,7 @@ export interface TeamStats {
   total: number;
 }
 
-// Team Overview data for the admin dashboard: total leads plus key
-// temperature/status breakdowns for every employee. Aggregates by fetching
-// only 3 small columns in bounded chunks, so it stays fast with 10k+ leads.
+// Team Overview counts are grouped server-side into bounded, small result sets.
 export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
   try {
     const supabase = await createClient();
@@ -1422,9 +1406,6 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         id: row.id,
         name: row.name.trim(),
         total: 0,
-        hot: 0,
-        warm: 0,
-        cold: 0,
         newLeads: 0,
         fresh: 0,
         followUp: 0,
@@ -1457,10 +1438,6 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
           continue;
         }
         stats.total += weight;
-        const temperature = typeof row.temperature === "string" ? row.temperature.trim().toLowerCase() : "";
-        if (temperature.startsWith("hot")) stats.hot += weight;
-        else if (temperature.startsWith("warm")) stats.warm += weight;
-        else if (temperature.startsWith("cold")) stats.cold += weight;
         const status = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
         if (status === "new") stats.newLeads += weight;
         else if (status === "won") stats.won += weight;
@@ -1533,7 +1510,6 @@ export async function createLead(
         source_batch_label: `Manual entry — ${input.name.trim()}`.slice(0, 240),
         source_batch_created_at: new Date().toISOString(),
         assigned_to: dashIfEmpty(profile?.name),
-        temperature: dashIfEmpty(input.temperature),
         status,
       })
       .select()
@@ -1660,7 +1636,6 @@ export async function bulkInsertLeads(
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: importedSource || batchSource,
         status: dashIfEmpty(normalizeImportedLeadStatus(importedStatus)),
-        temperature: "Warm",
         assigned_to: assignedProfileName,
       });
     } catch (rowError) {
@@ -1840,7 +1815,6 @@ export async function updateLeadStatus(
       .from("leads")
       .update({
         status,
-        temperature: input.temperature,
       })
       .eq("id", input.id)
       .select()
@@ -1933,31 +1907,6 @@ export async function updateLeadAppointment(input: {
   }
 }
 
-export async function updateLeadTemperature(
-  leadId: string,
-  temp: string,
-): Promise<ActionResult<Lead>> {
-  if (!leadId || !temp.trim()) {
-    return { success: false, error: "Lead and temperature are required." };
-  }
-
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("leads")
-      .update({ temperature: temp.trim() })
-      .eq("id", leadId)
-      .select()
-      .single();
-
-    if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard");
-    return { success: true, data: data as Lead };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to update temperature.") };
-  }
-}
-
 export async function updateLeadFollowUpDate(
   leadId: string,
   followUpDate: string,
@@ -2024,7 +1973,7 @@ interface DeleteScope {
   assignedTo: string;
   /** Pre-built `and/or` search expression, if the search box was active. */
   searchFilter: string | null;
-  /** The selected status/temperature filter for a select-all delete. */
+  /** The selected status filter for a select-all delete. */
   statusFilter?: string;
   /** Exact ticked ids — the only scope used by the "selected rows" delete. */
   ids?: readonly string[];
@@ -2040,9 +1989,7 @@ function applyDeleteScope<Q>(query: Q, scope: DeleteScope): Q {
   if (scope.searchFilter) scoped = scoped.or(scope.searchFilter);
   const statusFilter = scope.statusFilter?.trim() ?? "";
   if (statusFilter) {
-    scoped = TEMPERATURE_FILTERS.has(statusFilter.toLowerCase())
-      ? scoped.eq("temperature", statusFilter)
-      : applyStatusChoice(scoped, statusFilter);
+    scoped = applyStatusChoice(scoped, statusFilter);
   }
   if (scope.ids?.length) scoped = scoped.in("id", scope.ids);
   else if (scope.unscoped) scoped = scoped.not("id", "is", null);
@@ -2935,9 +2882,6 @@ export async function getUnassignedLeadAssignmentSuggestions(
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
     assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
-  if (!normalized.search && !normalized.treatment && !normalized.city && !normalized.status) {
-    return { success: true, data: { leads: [], total: 0, hasMore: false } };
-  }
   const safeOffset = Number.isInteger(offset) && offset >= 0 && offset < BULK_ASSIGNMENT_LIMIT ? offset : 0;
 
   try {
@@ -3055,10 +2999,6 @@ export async function getLeadAssignmentPreview(
     status: typeof criteria.status === "string" ? criteria.status.trim() : "",
     assignmentScope: criteria.assignmentScope === "assigned" || criteria.assignmentScope === "all" ? criteria.assignmentScope : "unassigned" as const,
   };
-  if (!normalized.search && !normalized.treatment && !normalized.city && !normalized.status) {
-    return { success: false, error: "Add a name, status, treatment or city filter first." };
-  }
-
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
@@ -3410,7 +3350,6 @@ export interface UpdateLeadDetailsInput {
   insurance_status?: string;
   remarks?: string;
   status?: string;
-  temperature?: string;
   assigned_to?: string;
   lead_date?: string;
   follow_up_date?: string;
@@ -3439,7 +3378,6 @@ export async function updateLeadDetails(
   if (input.insurance_status !== undefined) updates.insurance_status = input.insurance_status.trim() || "-";
   if (input.remarks !== undefined) updates.remarks = input.remarks.trim();
   if (status) updates.status = status;
-  if (input.temperature !== undefined && input.temperature.trim()) updates.temperature = input.temperature.trim();
   if (input.assigned_to !== undefined) updates.assigned_to = input.assigned_to.trim() || "-";
   if (input.lead_date !== undefined) updates.lead_date = input.lead_date.trim() || "-";
   if (input.follow_up_date !== undefined) updates.follow_up_date = input.follow_up_date.trim() || "-";
@@ -3539,7 +3477,7 @@ export async function updateLeadDetails(
 
 export async function addLeadActivity(
   input: AddLeadActivityInput,
-): Promise<ActionResult<LeadActivity>> {
+): Promise<ActionResult<LeadActivity | null>> {
   if (!input.lead_id || !input.action_type.trim()) {
     return { success: false, error: "Lead and activity type are required." };
   }
@@ -3555,6 +3493,18 @@ export async function addLeadActivity(
       return { success: false, error: "You must be signed in to add activity." };
     }
 
+    if (input.action_type.trim().toLowerCase() === "note") {
+      const note = input.description?.trim() ?? "";
+      if (!note) return { success: false, error: "Enter a note before saving." };
+      const { error } = await supabase.rpc("crm_add_lead_note", {
+        p_lead_id: input.lead_id,
+        p_note: note,
+      });
+      if (error) return { success: false, error: error.message };
+      revalidatePath("/dashboard");
+      return { success: true, data: null };
+    }
+
     const { data, error } = await supabase
       .from("lead_activities")
       .insert({
@@ -3568,28 +3518,6 @@ export async function addLeadActivity(
 
     if (error) {
       return { success: false, error: error.message };
-    }
-
-    if (input.action_type.trim().toLowerCase() === "note") {
-      const { data: currentLead, error: currentLeadError } = await supabase
-        .from("leads")
-        .select("remarks")
-        .eq("id", input.lead_id)
-        .single();
-
-      if (currentLeadError) return { success: false, error: currentLeadError.message };
-      const currentRemarks = currentLead?.remarks && currentLead.remarks !== "-"
-        ? currentLead.remarks
-        : "";
-      const nextRemarks = [currentRemarks, input.description?.trim() || "-"]
-        .filter(Boolean)
-        .join("\n");
-      const { error: remarkError } = await supabase
-        .from("leads")
-        .update({ remarks: nextRemarks })
-        .eq("id", input.lead_id);
-
-      if (remarkError) return { success: false, error: remarkError.message };
     }
 
     revalidatePath("/dashboard");
@@ -3614,7 +3542,6 @@ export interface PipelineInsights {
   unassigned: number;
   bySource: Array<{ label: string; count: number }>;
   byStatus: Array<{ label: string; count: number }>;
-  byTemperature: Array<{ label: string; count: number }>;
 }
 
 function parseStoredDateKey(value: string | null | undefined): string {
@@ -3754,7 +3681,6 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
     unassigned: 0,
     bySource: [],
     byStatus: [],
-    byTemperature: [],
   };
 
   try {
@@ -3774,7 +3700,6 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
 
     const sourceMap = new Map<string, number>();
     const statusMap = new Map<string, number>();
-    const temperatureMap = new Map<string, number>();
     let total = 0;
     let won = 0;
     let lost = 0;
@@ -3788,7 +3713,7 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
     for (let from = 0; from < limit; from += chunkSize) {
       let query = supabase
         .from("leads")
-        .select("status, source, temperature, assigned_to, follow_up_date");
+        .select("status, source, assigned_to, follow_up_date");
       if (profile.role === "employee") {
         query = query.ilike("assigned_to", profile.name ?? "");
       }
@@ -3801,10 +3726,8 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
         total += 1;
         const status = String(row.status ?? "-");
         const source = String(row.source ?? "-");
-        const temperature = String(row.temperature ?? "-");
         statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
         sourceMap.set(source, (sourceMap.get(source) ?? 0) + 1);
-        temperatureMap.set(temperature, (temperatureMap.get(temperature) ?? 0) + 1);
 
         if (isWonStatus(status)) won += 1;
         if (stageForStatus(status) === "lost") lost += 1;
@@ -3839,7 +3762,6 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
         unassigned,
         bySource: toSorted(sourceMap, 6),
         byStatus: toSorted(statusMap, 10),
-        byTemperature: toSorted(temperatureMap, 3),
       },
     };
   } catch (error) {

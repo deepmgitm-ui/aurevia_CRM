@@ -27,7 +27,6 @@ export type TaskLead = {
   disease: string;
   follow_up_date: string | null;
   status: string;
-  temperature: string;
   assigned_to: string | null;
   source: string;
   remarks: string;
@@ -268,7 +267,6 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div className="font-medium text-slate-700">{lead.status}</div>
-                      <div className="mt-1 text-xs text-slate-500">{lead.temperature}</div>
                     </td>
                     <td className="px-4 py-3 align-top text-slate-600">{lead.assigned_to || "-"}</td>
                     <td className="px-4 py-3 align-top">

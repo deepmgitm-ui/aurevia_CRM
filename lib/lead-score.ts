@@ -1,6 +1,5 @@
 export type LeadScoreInput = {
   status?: string | null;
-  temperature?: string | null;
   follow_up_date?: string | null;
   phone?: string | null;
   insurance_status?: string | null;
@@ -25,14 +24,9 @@ function todayKey(): string {
 // It helps the team decide which follow-up deserves attention first.
 export function getLeadPriorityScore(lead: LeadScoreInput): number {
   let score = 0;
-  const temperature = String(lead.temperature ?? "").toLowerCase();
   const status = String(lead.status ?? "").toLowerCase();
   const followUp = dateKey(lead.follow_up_date);
   const today = todayKey();
-
-  if (temperature === "hot") score += 35;
-  else if (temperature === "warm") score += 20;
-  else if (temperature === "cold") score += 5;
 
   if (status === "new") score += 15;
   else if (status === "follow up") score += 12;

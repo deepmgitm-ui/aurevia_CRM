@@ -7,7 +7,7 @@
 -- once CRON_SECRET is set and the /api/automation/run route is called by a
 -- cron job. Every run writes a receipt row to crm_automation_runs, so an admin
 -- can always see what the robot did and undo nothing (it only ever touches
--- status, temperature, assigned_to and follow_up_date — NEVER deletes).
+  -- assigned_to and follow_up_date — NEVER deletes).
 --
 -- ---------------------------------------------------------------------------
 -- crm_automation_rules: admin-defined rules, one row each.
@@ -42,7 +42,7 @@ with check (public.current_user_role() in ('admin', 'manager'));
 insert into public.crm_automation_rules (key, label, kind, stage) values
   ('welcome', 'Welcome new leads (New + Warm + follow-up tomorrow)', 'welcome', 'new'),
   ('nudge', 'Nudge cooling leads (Warm, inactive 7+ days)', 'nudge', 'contacted'),
-  ('overdue', 'Escalate overdue follow-ups (Hot temperature)', 'overdue', 'contacted'),
+  ('overdue', 'Escalate overdue follow-ups', 'overdue', 'contacted'),
   ('balance', 'Balance workload (auto-assign unassigned)', 'balance', 'new'),
   ('celebrate', 'Celebrate surgery wins (Surgery Completed)', 'celebrate', 'surgery')
 on conflict (key) do nothing;

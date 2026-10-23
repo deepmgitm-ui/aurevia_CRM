@@ -2,11 +2,16 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { markMyAttendance } from "@/app/actions/attendance";
+import type { Metadata } from "next";
 import { getDashboardWindow } from "@/app/actions/leads";
 import { getPendingDeletionReviewCount } from "@/app/actions/deletion-reviews";
 import { DashboardShell } from "./dashboard-shell";
 import { createClient, getUserSafely } from "@/lib/supabase/server";
 import type { ReactNode } from "react";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, noarchive: true },
+};
 
 const roles = ["admin", "manager", "employee"] as const;
 type UserRole = (typeof roles)[number];

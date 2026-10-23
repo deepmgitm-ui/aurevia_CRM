@@ -29,7 +29,6 @@ export interface AnalyticsLead {
   treatment: string;
   source: string;
   status: string;
-  temperature: string;
   assigned_to: string;
   lead_date: string;
 }
@@ -259,9 +258,9 @@ export interface AgentStat {
   role: string;
   leads: number;
   newLeads: number;
-  hot: number;
-  warm: number;
-  cold: number;
+  fresh: number;
+  followUp: number;
+  dnp: number;
   consultations: number;
   surgeries: number;
   lost: number;
@@ -580,7 +579,6 @@ export function toAnalyticsLead(lead: Lead): AnalyticsLead {
     treatment: resolvedTreatment || "-",
     source: lead.source ?? "Manual",
     status: lead.status ?? "New",
-    temperature: lead.temperature ?? "Warm",
     assigned_to: lead.assigned_to ?? "-",
     lead_date: rawLeadDate && rawLeadDate !== "-" ? rawLeadDate : createdAt || "-",
   };
@@ -708,9 +706,9 @@ function emptyAgentStat(id: string, name: string, role: string): AgentStat {
     role,
     leads: 0,
     newLeads: 0,
-    hot: 0,
-    warm: 0,
-    cold: 0,
+    fresh: 0,
+    followUp: 0,
+    dnp: 0,
     consultations: 0,
     surgeries: 0,
     lost: 0,
@@ -806,14 +804,16 @@ export function buildDashboardMetrics(
       const stat = agents.get(agentKey) ?? emptyAgentStat(`lead-${agentKey}`, assigned, "employee");
       agents.set(agentKey, stat);
       stat.leads += weight;
-      if (stage === "new") stat.newLeads += weight;
+      if (stage === "new") {
+        stat.newLeads += weight;
+        stat.fresh += weight;
+      }
+      const normalizedStatus = (row.status || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (/^dnp(?:\s?\d+)?$/.test(normalizedStatus)) stat.dnp += weight;
+      else if (stage === "contacted") stat.followUp += weight;
       if (reachedConsultation(stage)) stat.consultations += weight;
       if (stage === "surgery") stat.surgeries += weight;
       if (stage === "lost") stat.lost += weight;
-      const temperature = (row.temperature || "").trim().toLowerCase();
-      if (temperature.startsWith("hot")) stat.hot += weight;
-      else if (temperature.startsWith("cold")) stat.cold += weight;
-      else stat.warm += weight;
     }
   }
 
@@ -1051,12 +1051,12 @@ export function createSampleMetrics(range: DateRange): DashboardMetrics {
       sampleBreakdown("Social Media", 98, 56, 18),
     ],
     agents: [
-      sampleAgent("a1", "Ravi Sharma", 268, 48, 62, 141, 65, 178, 78, 12),
-      sampleAgent("a2", "Priya Nair", 232, 42, 54, 122, 56, 158, 64, 16),
-      sampleAgent("a3", "Amit Verma", 210, 38, 48, 110, 52, 142, 58, 18),
-      sampleAgent("a4", "Sneha Kapoor", 196, 34, 44, 104, 48, 132, 46, 20),
-      sampleAgent("a5", "Vikram Singh", 182, 30, 40, 96, 46, 122, 38, 22),
-      sampleAgent("a6", "Neha Gupta", 160, 26, 34, 84, 42, 110, 28, 24),
+      sampleAgent("a1", "Ravi Sharma", 268, 48, 90, 18, 178, 78, 12),
+      sampleAgent("a2", "Priya Nair", 232, 42, 82, 16, 158, 64, 16),
+      sampleAgent("a3", "Amit Verma", 210, 38, 74, 14, 142, 58, 18),
+      sampleAgent("a4", "Sneha Kapoor", 196, 34, 68, 12, 132, 46, 20),
+      sampleAgent("a5", "Vikram Singh", 182, 30, 64, 10, 122, 38, 22),
+      sampleAgent("a6", "Neha Gupta", 160, 26, 58, 8, 110, 28, 24),
     ],
     totals: { leads: 1248, consultations: 842, surgeries: 312, lost: 112, agents: 48 },
   };
@@ -1067,9 +1067,8 @@ function sampleAgent(
   name: string,
   leads: number,
   newLeads: number,
-  hot: number,
-  warm: number,
-  cold: number,
+  followUp: number,
+  dnp: number,
   consultations: number,
   surgeries: number,
   lost: number,
@@ -1080,9 +1079,9 @@ function sampleAgent(
     role: "employee",
     leads,
     newLeads,
-    hot,
-    warm,
-    cold,
+    fresh: newLeads,
+    followUp,
+    dnp,
     consultations,
     surgeries,
     lost,

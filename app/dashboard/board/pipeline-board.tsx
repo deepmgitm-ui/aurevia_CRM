@@ -18,7 +18,6 @@ import {
   type PipelineBoardData,
   type ViewerRole,
 } from "@/app/actions/leads";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
 
 import { EMPTY_LEAD_FILTERS, leadsHref, relativeLeadAge } from "../lead-filters";
@@ -33,13 +32,6 @@ const COLUMN_ACCENTS: Record<string, string> = {
   surgery: "#10b981",
   lost: "#ef4444",
 };
-
-function temperatureTone(temperature: string): string {
-  const value = (temperature ?? "").toLowerCase();
-  if (value.includes("hot")) return "border-red-200 bg-red-50 text-red-700";
-  if (value.includes("cold")) return "border-sky-200 bg-sky-50 text-sky-700";
-  return "border-amber-200 bg-amber-50 text-amber-700";
-}
 
 // One patient card: who it is, which treatment, how fresh, who owns it.
 function BoardCard({
@@ -93,9 +85,6 @@ function BoardCard({
         >
           Treatment recorded
         </span>
-        <Badge variant="outline" className={`text-[11px] ${temperatureTone(lead.temperature)}`}>
-          {lead.temperature || "Warm"}
-        </Badge>
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
         {lead.city && lead.city !== "-" && <span>{lead.city}</span>}
@@ -295,7 +284,7 @@ export function PipelineBoard({ initialData, role }: { initialData: PipelineBoar
     );
 
     setBusyId(lead.id);
-    const response = await updateLeadStatus({ id: lead.id, status: target.status, temperature: lead.temperature });
+    const response = await updateLeadStatus({ id: lead.id, status: target.status });
     setBusyId(null);
 
     if (!response.success) {

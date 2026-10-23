@@ -36,7 +36,6 @@ function lead(overrides: Partial<LeadLite> & { id: string }): LeadLite {
     name: `Patient ${overrides.id}`,
     phone: "9999999999",
     status: "New",
-    temperature: "Cold",
     assigned_to: null,
     follow_up_date: "",
     updated_at: "2026-09-29T00:00:00+00:00",
@@ -58,33 +57,33 @@ assert.equal(toFollowUpDate("garbage"), "");
 assert.equal(isStaleFollowUp("28/09/2026", TODAY), true);
 assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
 
-// 2. welcome: only New + not-hot, and only when the follow-up is missing or overdue.
+// 2. welcome schedules tomorrow for new leads with missing/overdue follow-ups.
 {
   const result = matchChanges(
     "welcome",
     [
-      lead({ id: "a", status: "New", temperature: "Warm", follow_up_date: "" }),
-      lead({ id: "b", status: "New", temperature: "Hot" }), // already hot → skip
-      lead({ id: "c", status: "Contacted", temperature: "Cold" }), // not New → skip
-      lead({ id: "d", status: "New", temperature: "Cold", follow_up_date: "2026-09-25" }), // overdue → include
-      lead({ id: "e", status: "New", temperature: "Cold", follow_up_date: "2026-10-05" }), // future → skip
+      lead({ id: "a", status: "New", follow_up_date: "" }),
+      lead({ id: "b", status: "New", follow_up_date: "2026-10-05" }), // future callback → skip
+      lead({ id: "c", status: "Contacted" }), // not New → skip
+      lead({ id: "d", status: "New", follow_up_date: "2026-09-25" }), // overdue → include
+      lead({ id: "e", status: "New", follow_up_date: "2026-10-08" }), // future → skip
     ],
     [],
     NOW,
   );
   assert.deepEqual(result.changes.map((change) => change.leadId), ["a", "d"]);
   assert.equal(result.scanned, 5);
-  assert.deepEqual(result.changes[0].patch, { temperature: "Warm", followUpDate: TOMORROW });
+  assert.deepEqual(result.changes[0].patch, { followUpDate: TOMORROW });
 }
 
-// 3. nudge: warm leads inactive 7+ days get tomorrow's callback + a note.
+// 3. nudge: active leads inactive 7+ days get tomorrow's callback + a note.
 {
   const result = matchChanges(
     "nudge",
     [
-      lead({ id: "a", temperature: "Warm", updated_at: "2026-09-22T00:00:00+00:00" }), // 7 days → include
-      lead({ id: "b", temperature: "Warm", updated_at: "2026-09-26T00:00:00+00:00" }), // 3 days → skip
-      lead({ id: "c", temperature: "Hot", updated_at: "2026-09-01T00:00:00+00:00" }), // not warm → skip
+      lead({ id: "a", status: "Follow-Up", updated_at: "2026-09-22T00:00:00+00:00" }), // 7 days → include
+      lead({ id: "b", status: "Follow-Up", updated_at: "2026-09-26T00:00:00+00:00" }), // 3 days → skip
+      lead({ id: "c", status: "OPD Booked", updated_at: "2026-09-01T00:00:00+00:00" }), // not warm → skip
     ],
     [],
     NOW,
@@ -94,14 +93,14 @@ assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
   assert.match(String(result.changes[0].patch.note), /7\+ days/);
 }
 
-// 4. overdue: hot leads whose follow-up day has passed are escalated, not future ones.
+// 4. overdue active leads are rescheduled; due-today and closed records are skipped.
 {
   const result = matchChanges(
     "overdue",
     [
-      lead({ id: "a", temperature: "Hot", follow_up_date: "20/09/2026" }),
-      lead({ id: "b", temperature: "Hot", follow_up_date: "2026-09-29" }), // today → on time
-      lead({ id: "c", temperature: "Warm", follow_up_date: "2026-09-01" }), // not hot → skip
+      lead({ id: "a", status: "New", follow_up_date: "20/09/2026" }),
+      lead({ id: "b", status: "New", follow_up_date: "2026-09-29" }), // today → on time
+      lead({ id: "c", status: "Lost", follow_up_date: "2026-09-01" }), // closed → skip
     ],
     [],
     NOW,
@@ -137,7 +136,7 @@ assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
   assert.equal(empty.changes[0].patch.assignedTo, "-");
 }
 
-// 6. celebrate: only surgery completions, and they turn Hot with a win note.
+// 6. celebrate: completed surgeries get a timeline note.
 {
   const result = matchChanges(
     "celebrate",
@@ -150,7 +149,6 @@ assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
   );
   assert.deepEqual(result.changes.map((change) => change.leadId), ["a"]);
   assert.deepEqual(result.changes[0].patch, {
-    temperature: "Hot",
     note: "Automation: surgery completed — marked as a win.",
   });
 }
@@ -170,7 +168,7 @@ assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
 {
   const result = matchChanges(
     "overdue",
-    [lead({ id: "a", temperature: "Hot", follow_up_date: "01/09/2026", assigned_to: "Sana" })],
+    [lead({ id: "a", status: "New", follow_up_date: "01/09/2026", assigned_to: "Sana" })],
     [],
     NOW,
   );

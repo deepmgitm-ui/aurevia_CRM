@@ -42,7 +42,6 @@ function lead(id: string, treatment: string, status: string): AnalyticsLead {
     treatment,
     source: "Meta Ads",
     status,
-    temperature: "Hot",
     assigned_to: "Ravi Sharma",
     lead_date: "15/08/2026",
   };

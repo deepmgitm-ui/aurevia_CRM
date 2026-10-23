@@ -5,8 +5,7 @@
 // without a database. app/actions/automation.ts is the thin I/O shell around
 // it: read rules → scan leads → matchChanges → apply patch → write receipt.
 //
-// Rules only ever change status, temperature, assigned_to and follow-up/note
-// data, and NEVER delete.
+// Rules only schedule follow-ups, assign leads, and add timeline notes; they never delete.
 
 export type AutomationRuleKey = "welcome" | "nudge" | "overdue" | "balance" | "celebrate";
 
@@ -15,7 +14,7 @@ export interface AutomationChange {
   name: string;
   phone: string | null;
   assignedTo: string | null;
-  patch: { status?: string; temperature?: string; assignedTo?: string; followUpDate?: string; note?: string };
+  patch: { status?: string; assignedTo?: string; followUpDate?: string; note?: string };
   reason: string;
 }
 
@@ -25,7 +24,6 @@ export interface LeadLite {
   name: string;
   phone: string | null;
   status: string;
-  temperature: string;
   assigned_to: string | null;
   follow_up_date: string;
   updated_at: string;
@@ -43,9 +41,9 @@ export const AUTOMATION_CAP = 200;
 export const AUTOMATION_SCAN = 1000;
 
 export const ALL_RULES: AutomationRuleSeed[] = [
-  { key: "welcome", label: "Welcome new leads (New + Warm + follow-up tomorrow)", stage: "new" },
-  { key: "nudge", label: "Nudge cooling leads (Warm, inactive 7+ days)", stage: "contacted" },
-  { key: "overdue", label: "Escalate overdue follow-ups (Hot temperature)", stage: "contacted" },
+  { key: "welcome", label: "Schedule next-day follow-up for new leads", stage: "new" },
+  { key: "nudge", label: "Nudge inactive active leads (7+ days)", stage: "contacted" },
+  { key: "overdue", label: "Reschedule overdue follow-ups", stage: "contacted" },
   { key: "balance", label: "Balance workload (auto-assign unassigned)", stage: "new" },
   { key: "celebrate", label: "Celebrate surgery wins (Surgery Completed)", stage: "surgery" },
 ];
@@ -105,29 +103,29 @@ export function matchChanges(
   const changes: AutomationChange[] = [];
 
   if (ruleKey === "welcome") {
-    // Fresh arrivals nobody warmed up yet: warmth + a next-day callback.
+    // New leads without a future follow-up get a callback scheduled for tomorrow.
     for (const lead of leads) {
       if (changes.length >= AUTOMATION_CAP) break;
       if (String(lead.status ?? "").trim().toLowerCase() !== "new") continue;
-      if (String(lead.temperature ?? "").trim().toLowerCase() === "hot") continue;
       if (String(lead.follow_up_date ?? "").trim() && !isStaleFollowUp(lead.follow_up_date, todayKey)) continue;
       changes.push({
         leadId: lead.id,
         name: lead.name,
         phone: lead.phone,
         assignedTo: lead.assigned_to,
-        patch: { temperature: "Warm", followUpDate: addDaysKey(todayKey, 1) },
-        reason: "New lead — warming up + tomorrow's follow-up booked",
+        patch: { followUpDate: addDaysKey(todayKey, 1) },
+        reason: "New lead — follow-up booked for tomorrow",
       });
     }
     return { changes, scanned: leads.length };
   }
 
   if (ruleKey === "nudge") {
-    // Warm leads untouched for 7+ days: keep warm, book tomorrow, log a note.
+    // Active leads untouched for 7+ days: book tomorrow and log a note.
     for (const lead of leads) {
       if (changes.length >= AUTOMATION_CAP) break;
-      if (String(lead.temperature ?? "").trim().toLowerCase() !== "warm") continue;
+      const status = String(lead.status ?? "").trim().toLowerCase();
+      if (!["new", "follow-up", "follow up", "contacted", "dnp", "dnp2", "dnp 2", "dnp3", "dnp 3", "rnr", "callback", "call back"].includes(status)) continue;
       const inactive = daysSinceIso(lead.updated_at, todayKey);
       if (inactive === null || inactive < 7) continue;
       changes.push({
@@ -147,10 +145,11 @@ export function matchChanges(
 
 
   if (ruleKey === "overdue") {
-    // Missed follow-ups on hot leads: re-book tomorrow + log the escalation.
+    // Missed follow-ups on active leads: re-book tomorrow + log the escalation.
     for (const lead of leads) {
       if (changes.length >= AUTOMATION_CAP) break;
-      if (String(lead.temperature ?? "").trim().toLowerCase() !== "hot") continue;
+      const status = String(lead.status ?? "").trim().toLowerCase();
+      if (["dropped", "lost", "not interested", "didn't enquired", "didn’t enquired", "invalid number", "wrong number", "non surgical", "ipd done", "surgery completed", "won"].includes(status)) continue;
       if (!isStaleFollowUp(lead.follow_up_date, todayKey)) continue;
       changes.push({
         leadId: lead.id,
@@ -161,7 +160,7 @@ export function matchChanges(
           followUpDate: addDaysKey(todayKey, 1),
           note: "Automation: overdue follow-up escalated + re-booked for tomorrow.",
         },
-        reason: "Overdue follow-up on a hot lead — escalated + re-booked",
+        reason: "Overdue follow-up — re-booked for tomorrow",
       });
     }
     return { changes, scanned: leads.length };
@@ -191,7 +190,7 @@ export function matchChanges(
     return { changes, scanned: leads.length };
   }
 
-  // celebrate: surgery completions get warmth + a win note on the timeline.
+  // Celebrate completed surgeries with a timeline note.
   for (const lead of leads) {
     if (changes.length >= AUTOMATION_CAP) break;
     if (String(lead.status ?? "").trim().toLowerCase() !== "surgery completed") continue;
@@ -200,7 +199,7 @@ export function matchChanges(
       name: lead.name,
       phone: lead.phone,
       assignedTo: lead.assigned_to,
-      patch: { temperature: "Hot", note: "Automation: surgery completed — marked as a win." },
+      patch: { note: "Automation: surgery completed — marked as a win." },
       reason: "Surgery completed — celebrated",
     });
   }

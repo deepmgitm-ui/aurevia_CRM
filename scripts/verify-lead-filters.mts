@@ -315,7 +315,6 @@ function tallyRow(partial: Partial<AnalyticsLead> & { id: string }): AnalyticsLe
     treatment: "",
     source: "",
     status: "New",
-    temperature: "",
     assigned_to: "",
     lead_date: "28/09/2026",
     ...partial,

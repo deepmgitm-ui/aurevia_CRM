@@ -148,7 +148,7 @@ function treatmentTableRows(pipeline: PipelineRow[]): StatTableRow[] {
 const AGENT_COLUMNS: StatTableColumn[] = [
   { key: "name", label: "Agent" },
   { key: "leads", label: "Leads", align: "right" },
-  { key: "hot", label: "Hot", align: "right" },
+  { key: "followUp", label: "Follow-Up", align: "right" },
   { key: "consultations", label: "Consultations", align: "right" },
   { key: "surgeries", label: "Surgeries", align: "right" },
   { key: "conversion", label: "Conversion", align: "right" },
@@ -167,7 +167,7 @@ function agentTableRows(metrics: DashboardMetrics): StatTableRow[] {
         </Link>
       ),
       leads: formatNumber(agent.leads),
-      hot: formatNumber(agent.hot),
+      followUp: formatNumber(agent.followUp),
       consultations: formatNumber(agent.consultations),
       surgeries: formatNumber(agent.surgeries),
       conversion: formatRate(agent.conversion),

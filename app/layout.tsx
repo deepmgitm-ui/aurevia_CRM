@@ -4,9 +4,28 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
-  title: "Aurevia CRM — Patient Relationship Management",
+  metadataBase: new URL("https://aureviacrm.vercel.app"),
+  title: {
+    default: "Aurevia CRM | Clinic Lead Management",
+    template: "%s | Aurevia CRM",
+  },
   description:
-    "Aurevia HealthCare's CRM — leads, pipeline, consultations, surgeries, patients and attendance in one system.",
+    "Manage clinic enquiries, patient follow-ups, appointments, team assignments and reports in one focused CRM workspace.",
+  applicationName: "Aurevia CRM",
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: "Aurevia CRM | Clinic Lead Management",
+    description: "A clear workspace for clinic leads, follow-ups, appointments and team activity.",
+    url: "/",
+    siteName: "Aurevia CRM",
+    locale: "en_IN",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Aurevia CRM | Clinic Lead Management",
+    description: "Manage clinic enquiries, follow-ups, appointments and team activity in one workspace.",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

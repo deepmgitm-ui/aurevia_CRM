@@ -30,8 +30,6 @@ import { toast } from "@/components/ui/toast";
 
 import { CALL_OUTCOMES } from "@/lib/calls";
 import { relativeLeadAge } from "./lead-filters";
-import { getMasterData } from "@/app/actions/master-data";
-import { seedMasterData, withCurrentValue } from "@/lib/master-data";
 import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
 
 export type LeadDetailTab = "info" | "activity" | "call";
@@ -85,7 +83,6 @@ export function LeadDetailDrawer({
     city: "",
     insurance: "",
     status: "",
-    temperature: "",
     treatment: "",
     followUpDate: "",
   });
@@ -93,9 +90,6 @@ export function LeadDetailDrawer({
   // them for employees), so the UI asks who is looking instead of letting an
   // employee type into a field that would silently not save.
   const [canEditCore, setCanEditCore] = useState(false);
-  const [masterTemperatures, setMasterTemperatures] = useState<string[]>(
-    () => seedMasterData().lists.temperatures,
-  );
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [callDraft, setCallDraft] = useState(emptyCallDraft());
@@ -125,7 +119,6 @@ export function LeadDetailDrawer({
         city: fresh.city && fresh.city !== "-" ? fresh.city : "",
         insurance: fresh.insurance_status && fresh.insurance_status !== "-" ? fresh.insurance_status : "",
         status: canonicalLeadStatus(fresh.status),
-        temperature: fresh.temperature && fresh.temperature !== "-" ? fresh.temperature : "",
         treatment: fresh.disease && fresh.disease !== "-" ? fresh.disease : "",
         followUpDate: toDateInput(fresh.follow_up_date),
       });
@@ -147,13 +140,7 @@ export function LeadDetailDrawer({
     return () => clearTimeout(handle);
   }, [open, leadId, load]);
 
-  // Temperatures remain editable in Master Data; lead statuses use a fixed clinic list.
   useEffect(() => {
-    void getMasterData().then((result) => {
-      if (result.success && result.data) {
-        setMasterTemperatures(result.data.lists.temperatures);
-      }
-    });
     void getViewer().then((result) => {
       if (result.success && result.data) {
         setCanEditCore(result.data.role === "admin" || result.data.role === "manager");
@@ -203,9 +190,6 @@ export function LeadDetailDrawer({
         name: edits.name.trim() || lead.name,
         phone: edits.phone.trim(),
         status: edits.status,
-        // Stage + temperature are the two fields employees may change, so they
-        // go out for everyone.
-        temperature: edits.temperature,
         disease: edits.treatment.trim() || "-",
         follow_up_date: edits.followUpDate || "-",
         // Core fields are ignored server-side for employees — send them only
@@ -232,7 +216,8 @@ export function LeadDetailDrawer({
       toast.add({ title: "Could not save note", description: response.error, type: "error" });
       return;
     }
-    setActivities((current) => [response.data, ...current]);
+    const refreshed = await getLeadActivities(lead.id);
+    if (refreshed.success) setActivities(refreshed.data);
     setNote("");
     toast.add({ title: "Note added" });
   }
@@ -444,31 +429,6 @@ export function LeadDetailDrawer({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    {/* Temperature is one of the fields employees may change. */}
-                    <Label htmlFor="drawer-detail-temp">Temperature</Label>
-                    <Select
-                      value={edits.temperature || "unset"}
-                      onValueChange={(value) =>
-                        setEdits((current) => ({
-                          ...current,
-                          temperature: value === "unset" ? "" : (value ?? ""),
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="drawer-detail-temp">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72 overflow-y-auto">
-                        <SelectItem value="unset">Not set</SelectItem>
-                        {withCurrentValue(masterTemperatures, edits.temperature).map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div className="col-span-2">
                     <Label htmlFor="drawer-detail-treatment">Treatment / Disease</Label>
                     <Textarea
@@ -492,7 +452,7 @@ export function LeadDetailDrawer({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  {/* City / temperature are editable inputs above, so only the
+                  {/* City is an editable input above, so only the
                       read-only facts are repeated here. */}
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Source: {lead.source}</p>
                   <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-slate-600">Agent: {lead.assigned_to}</p>

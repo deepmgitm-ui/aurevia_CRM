@@ -13,7 +13,6 @@
 create index if not exists leads_created_at_idx on public.leads (created_at desc);
 create index if not exists leads_status_idx on public.leads (status);
 create index if not exists leads_assigned_to_idx on public.leads (assigned_to);
-create index if not exists leads_temperature_idx on public.leads (temperature);
 create index if not exists leads_source_idx on public.leads (source);
 create index if not exists leads_city_idx on public.leads (city);
 create index if not exists leads_disease_idx on public.leads (disease);

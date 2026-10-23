@@ -63,10 +63,10 @@ returns trigger language plpgsql security invoker set search_path = public, pg_t
 as $$
 begin
   if public.current_user_role() = 'employee' and (
-    (to_jsonb(new) - array['status','temperature','remarks','follow_up_date',
+    (to_jsonb(new) - array['status','remarks','follow_up_date',
       'opd_booked_date','opd_done_date','ipd_done_date','updated_at'])
     is distinct from
-    (to_jsonb(old) - array['status','temperature','remarks','follow_up_date',
+    (to_jsonb(old) - array['status','remarks','follow_up_date',
       'opd_booked_date','opd_done_date','ipd_done_date','updated_at'])
   ) then
     raise exception 'Employees cannot change patient identity, lead assignment or source.' using errcode = '42501';

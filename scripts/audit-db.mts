@@ -87,7 +87,7 @@ async function main() {
   console.log("\n=== 4. Data quality (what breaks charts) ===");
   const { data: leads } = await supabase
     .from("leads")
-    .select("id, name, phone, city, disease, source, status, temperature, assigned_to, lead_date, created_at");
+    .select("id, name, phone, city, disease, source, status, assigned_to, lead_date, created_at");
   const rows = (leads ?? []) as Record<string, string | null>[];
   const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const count = (pick: (row: Record<string, string | null>) => string) => {
@@ -171,18 +171,8 @@ async function main() {
   ok("no treatment is spelled two different ways", splits.length === 0);
   for (const group of splits) console.log(`    ${group.join("  +  ")}`);
 
-  // The automation rules match on temperature literals ("hot" / "warm"), so a
-  // value outside that vocabulary silently makes rules skip the lead.
-  console.log("\n=== 8. Values the automation rules match on ===");
-  const temps = count((r) => text(r.temperature));
-  console.log("  temperatures:");
-  for (const [value, n] of temps) console.log(`    ${String(n).padStart(3)} × ${value || "(blank)"}`);
-  const known = new Set(["hot", "warm", "cold"]);
-  const oddTemps = temps.filter(([value]) => value && !known.has(value.toLowerCase()));
-  ok("every temperature is hot / warm / cold", oddTemps.length === 0, oddTemps.map(([v]) => v).join(", "));
-
   // Duplicate numbers break the Meta dedupe and double-count a person.
-  console.log("\n=== 9. Duplicate phone numbers ===");
+  console.log("\n=== 8. Duplicate phone numbers ===");
   const phones = new Map<string, number>();
   for (const row of rows) {
     const phone = text(row.phone);

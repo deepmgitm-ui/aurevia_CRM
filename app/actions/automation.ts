@@ -3,7 +3,7 @@
 // The app itself is the rule engine: `previewAutomation` shows EXACTLY what a
 // run would change (no writes), `runAutomation` applies them in bounded chunks
 // and writes a receipt to `crm_automation_runs` — so the robot stays auditable.
-// Rules only ever touch status, temperature, assigned_to and follow-up/activity
+// Rules only schedule follow-ups, assign leads and add timeline activity
 // rows, and NEVER delete.
 "use server";
 
@@ -116,7 +116,7 @@ async function readRules(supabase: AutomationSupabase): Promise<AutomationRule[]
       String(row.key ?? ""),
       {
         key: String(row.key ?? "") as AutomationRuleKey,
-        label: String(row.label ?? ""),
+        label: ALL_RULES.find((rule) => rule.key === String(row.key ?? ""))?.label ?? String(row.label ?? ""),
         stage: String(row.stage ?? ""),
         enabled: Boolean(row.enabled ?? true),
         lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
@@ -132,7 +132,7 @@ async function readRules(supabase: AutomationSupabase): Promise<AutomationRule[]
 async function scanLeads(supabase: AutomationSupabase): Promise<LeadLite[]> {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, name, phone, status, temperature, assigned_to, follow_up_date, updated_at")
+    .select("id, name, phone, status, assigned_to, follow_up_date, updated_at")
     .order("updated_at", { ascending: false })
     .limit(AUTOMATION_SCAN);
   if (error) throw new Error(error.message);
@@ -239,7 +239,6 @@ export async function runAutomation(ruleKey: AutomationRuleKey): Promise<Automat
     let affected = 0;
     for (const change of changes) {
       const payload: Record<string, string> = {};
-      if (change.patch.temperature) payload.temperature = change.patch.temperature;
       if (change.patch.assignedTo) payload.assigned_to = change.patch.assignedTo;
       if (change.patch.followUpDate) payload.follow_up_date = change.patch.followUpDate;
       if (Object.keys(payload).length > 0) {

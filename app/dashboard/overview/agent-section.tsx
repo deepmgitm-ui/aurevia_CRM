@@ -498,11 +498,11 @@ export function AgentSection({
               <div className="space-y-2">
                 <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Performance stats</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <PerformanceChip label="DNP" value={selected.stats.cold} tone="bg-slate-100 text-slate-700" />
-                  <PerformanceChip label="New Leads" value={selected.stats.newLeads} tone="bg-blue-50 text-blue-700" />
+                  <PerformanceChip label="DNP" value={selected.stats.dnp} tone="bg-slate-100 text-slate-700" />
+                  <PerformanceChip label="Follow-Up" value={selected.stats.followUp} tone="bg-blue-50 text-blue-700" />
                   <PerformanceChip
                     label="Fresh Leads"
-                    value={selected.stats.hot + selected.stats.warm}
+                    value={selected.stats.fresh}
                     tone="bg-amber-50 text-amber-700"
                   />
                   <PerformanceChip

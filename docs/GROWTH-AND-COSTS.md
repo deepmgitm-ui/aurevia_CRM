@@ -88,7 +88,7 @@ App → `https://<vercel-domain>/api/meta-webhook`
 3. Subscribe to **`leadgen`** field. Token ke liye System User + `leads_retrieval`
    permission (page access token, long-lived) → Vercel env `META_ACCESS_TOKEN`.
 4. **Test**: Webhooks page se "Test" bhejo ya ek real test lead bharo → lead
-   "Meta Ads" source, status New, temperature Hot ke saath aana chahiye, aur
+   "Meta Ads" source, status New ke saath aana chahiye, aur
    remarks me `[Campaign Name]` dikhna chahiye.
 5. Duplicate aaye? Logs me "Duplicate lead skipped" dikhega — 24h window me
    same number wali entry link hoti hai, nayi row nahi banti.

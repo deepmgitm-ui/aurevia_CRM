@@ -51,12 +51,11 @@ insert into public.crm_option_lists (key, options) values
     'Meta Ads', 'Online Enquiry', 'Agent Referral', 'Doctor Referral',
     'Walk-in', 'Corporate Tie-up', 'Social Media', 'Manual', 'Excel/CSV'
   ]),
-  ('cities', array['Mumbai', 'Pune', 'Delhi', 'Nagpur', 'Thane', 'Nashik']),
-  ('temperatures', array['Hot', 'Warm', 'Cold'])
+  ('cities', array['Mumbai', 'Pune', 'Delhi', 'Nagpur', 'Thane', 'Nashik'])
 on conflict (key) do nothing;
 
 comment on table public.crm_option_lists is
-  'Admin-editable dropdown options (statuses, treatments, sources, cities, temperatures).';
+  'Admin-editable dropdown options (statuses, treatments, sources and cities).';
 
 -- ---------------------------------------------------------------------------
 -- OPD / IPD appointment dates.

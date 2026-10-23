@@ -1,6 +1,6 @@
 // Aurevia CRM — master data (picklist) defaults.
 //
-// Editable dropdown lists (treatments, sources, cities, temperatures) live in
+// Editable dropdown lists (treatments, sources, cities) live in
 // `crm_option_lists`. Lead statuses use the fixed clinic workflow below and
 // cannot be extended from Settings.
 //
@@ -8,7 +8,7 @@
 // app/dashboard/overview/analytics.ts uses the canonical stage statuses below.
 import { LEAD_STATUS_OPTIONS } from "./lead-status.ts";
 
-export const MASTER_DATA_LISTS = ["statuses", "treatments", "sources", "cities", "temperatures"] as const;
+export const MASTER_DATA_LISTS = ["statuses", "treatments", "sources", "cities"] as const;
 
 export type MasterDataListKey = (typeof MASTER_DATA_LISTS)[number];
 
@@ -18,7 +18,6 @@ export const MASTER_DATA_SEED: Record<MasterDataListKey, string[]> = {
   treatments: ["LASIK", "Cataract", "ICL", "Retina", "Spectacles", "Other"],
   sources: ["Meta Ads", "Online Enquiry", "Agent Referral", "Doctor Referral", "Walk-in", "Corporate Tie-up", "Social Media", "Manual", "Excel/CSV"],
   cities: ["Mumbai", "Pune", "Delhi", "Nagpur", "Thane", "Nashik"],
-  temperatures: ["Hot", "Warm", "Cold"],
 };
 
 /**
@@ -54,7 +53,7 @@ export interface MasterDataSaveResponse {
 }
 
 export const EMPTY_MASTER_DATA: MasterDataSnapshot = {
-  lists: { statuses: [], treatments: [], sources: [], cities: [], temperatures: [] },
+  lists: { statuses: [], treatments: [], sources: [], cities: [] },
   fromDatabase: false,
 };
 
@@ -66,7 +65,6 @@ export function seedMasterData(): MasterDataSnapshot {
       treatments: [...MASTER_DATA_SEED.treatments],
       sources: [...MASTER_DATA_SEED.sources],
       cities: [...MASTER_DATA_SEED.cities],
-      temperatures: [...MASTER_DATA_SEED.temperatures],
     },
     fromDatabase: false,
   };

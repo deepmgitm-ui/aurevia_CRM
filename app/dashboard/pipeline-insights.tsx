@@ -48,7 +48,7 @@ export function PipelineInsights({ insights }: { insights: PipelineInsights }) {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card className="border-0 shadow-sm">
           <CardHeader><CardTitle className="text-base">Lead Sources</CardTitle></CardHeader>
           <CardContent><BarList items={insights.bySource} /></CardContent>
@@ -56,10 +56,6 @@ export function PipelineInsights({ insights }: { insights: PipelineInsights }) {
         <Card className="border-0 shadow-sm">
           <CardHeader><CardTitle className="text-base">Pipeline Status</CardTitle></CardHeader>
           <CardContent><BarList items={insights.byStatus} /></CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardHeader><CardTitle className="text-base">Temperature</CardTitle></CardHeader>
-          <CardContent><BarList items={insights.byTemperature} /></CardContent>
         </Card>
       </div>
     </section>

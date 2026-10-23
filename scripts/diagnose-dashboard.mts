@@ -56,7 +56,6 @@ function printTally(label: string, values: string[], limit = 8) {
 }
 
 printTally("status", rows.map((row) => row.status));
-printTally("temperature", rows.map((row) => row.temperature));
 printTally("assigned_to", rows.map((row) => row.assigned_to));
 printTally("source", rows.map((row) => row.source));
 printTally("city", rows.map((row) => row.city), 6);

@@ -139,7 +139,7 @@ export default async function LeadsPage({
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const counts: LeadCounts = countsResult.success
     ? countsResult.data
-    : { total: 0, new: 0, hot: 0, won: 0, lost: 0 };
+    : { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
   const months: LeadMonthTally[] = monthsResult.success ? monthsResult.data : [];
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";

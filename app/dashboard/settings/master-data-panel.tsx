@@ -1,7 +1,7 @@
 // Aurevia CRM — Settings → Master Data.
 //
-// Admins edit the picklist options (statuses, treatments, sources, cities,
-// temperatures) as plain one-value-per-line text. Until
+// Admins edit the picklist options (treatments, sources, cities) as plain
+// one-value-per-line text. Until
 // `supabase-master-data-migration.sql` has been applied the reads fall back to
 // the seed, so the panel is clearly marked read-only instead of pretending a
 // save worked.
@@ -38,10 +38,6 @@ const LIST_META: Record<MasterDataListKey, { title: string; hint: string }> = {
   cities: {
     title: "Cities",
     hint: "Common service areas; the current value of a lead is always kept.",
-  },
-  temperatures: {
-    title: "Temperatures",
-    hint: "Hot / Warm / Cold labels used for lead heat.",
   },
 };
 

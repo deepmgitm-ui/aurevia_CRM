@@ -31,7 +31,7 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE
 async function main() {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, name, city, disease, source, status, temperature, assigned_to, lead_date, created_at");
+    .select("id, name, city, disease, source, status, assigned_to, lead_date, created_at");
   if (error) throw new Error(error.message);
 
 const allRows = (data ?? []).map(toAnalyticsLead);

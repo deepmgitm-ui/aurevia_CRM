@@ -265,7 +265,6 @@ export async function POST(request: NextRequest) {
           source_batch_label: `Meta Ads${campaignName !== "-" ? ` — ${campaignName}` : ""}${formId !== "-" ? ` · Form ${formId}` : ""}`.slice(0, 240),
           source_batch_created_at: new Date().toISOString(),
           status: "New",
-          temperature: "Hot",
           assigned_to: "-",
         })
         .select("id")

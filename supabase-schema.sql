@@ -19,14 +19,6 @@ exception
 end
 $$;
 
-do $$
-begin
-  create type public.lead_temp as enum ('Hot', 'Warm', 'Cold');
-exception
-  when duplicate_object then null;
-end
-$$;
-
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null default '',
@@ -48,7 +40,6 @@ create table if not exists public.leads (
   follow_up_date text not null default '-',
   source text not null default 'Meta Ads',
   status text not null default 'New',
-  temperature text not null default 'Warm',
   assigned_to text not null default '-',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -83,11 +74,6 @@ alter table public.leads
   add column if not exists remarks text not null default '-',
   add column if not exists lead_date text not null default '-',
   add column if not exists follow_up_date text not null default '-';
-
-alter table public.leads
-  alter column temperature drop default,
-  alter column temperature type text using temperature::text,
-  alter column temperature set default 'Warm';
 
 alter table public.leads
   drop constraint if exists leads_assigned_to_fkey;
@@ -261,8 +247,8 @@ end $$;
 -- REPLICA IDENTITY FULL. Safe to run repeatedly.
 alter table public.leads replica identity full;
 
--- Backend security (defense in depth): employees may only change Status,
--- Temperature and Remarks on their own leads. Core fields (patient name,
+-- Backend security (defense in depth): employees may update patient details,
+-- status and remarks on their own leads. Core fields (patient name,
 -- contact, email, city, treatment, insurance, source, lead date, assignment)
 -- are rejected at the DATABASE level even if an API request is tampered with.
 -- errcode 42501 (insufficient_privilege) makes PostgREST return HTTP 403.
@@ -282,7 +268,7 @@ begin
       or new.source is distinct from old.source
       or new.lead_date is distinct from old.lead_date
       or new.assigned_to is distinct from old.assigned_to then
-      raise exception 'Employees can only update status, temperature and remarks.'
+      raise exception 'Employees cannot change lead assignment or source.'
         using errcode = '42501';
     end if;
   end if;
