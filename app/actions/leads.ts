@@ -11,7 +11,6 @@ import {
   ageBucketWindow,
   EMPTY_LEAD_FILTERS,
   escapeLikePattern,
-  monthFilterLabel,
   monthWindow,
   inListExpression,
   isLeadBucketKey,
@@ -300,10 +299,9 @@ export const getDashboardWindow = cache(async () => {
  * All leads (RLS-scoped) for the dashboard, projected to the analytics columns only.
  *
  * Wrapped in React's `cache()` so that everything ONE page render asks for is
- * fetched once. The Leads page, for example, calls this from getTreatmentTally()
- * AND getLeadMonthTally() — and both need the whole table. Without this wrapper
- * the browser downloaded every lead row twice on every visit; with it, the
- * second caller reuses the first call's result. The scope is a single request
+ * fetched once. Without this wrapper, pages that request multiple analytics
+ * summaries could read every lead row more than once; subsequent callers reuse
+ * the first call's result. The scope is a single request
  * (never shared between users), so RLS stays exactly as strict as before.
  */
 export const getAnalyticsLeads=cache(async(from?:string,to?:string):Promise<ActionResult<Lead[]>>=>{
@@ -860,25 +858,6 @@ export async function getTreatmentTally(filters?:Partial<LeadListFilters>):Promi
  const rows:Lead[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_treatment_groups",{p}).range(offset,offset+499);if(error)return {success:false,error:"Treatment counts could not be loaded."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<500)break;}
  return {success:true,data:tallyTreatments(rows.map(toAnalyticsLead))};}catch(error){return {success:false,error:getErrorMessage(error,"Treatment counts unavailable.")};}
 }
-
-export interface LeadMonthTally {
-  /** "2026-03" — the `?month=` value. */
-  key: string;
-  /** "Mar 2026" — what the dropdown shows. */
-  label: string;
-  count: number;
-}
-
-/**
- * Which calendar months actually hold leads, newest first.
- *
- * The month picker is built from THIS rather than from a rolling "last 12 months"
- * guess: the dropdown then only ever offers months that return rows, so a
- * selection can never land on an empty result. The month filter itself is
- * ignored while building the list (otherwise selecting March would hide every
- * other month from the dropdown and trap the user with no way back).
- */
-export async function getLeadMonthTally():Promise<ActionResult<LeadMonthTally[]>>{const supabase=await createClient();const {data,error}=await supabase.rpc("crm_lead_months");if(error)return {success:false,error:"Lead months could not be loaded."};return {success:true,data:(data??[]).map((row:{key:string;count:number})=>({key:row.key,label:monthFilterLabel(row.key),count:Number(row.count)}))};}
 
 export async function getDailyWorkCounts(day=clinicDate()):Promise<ActionResult<Record<DailyWorkKind,number>>>{if(!isWorkDate(day))return {success:false,error:"Invalid work date."};const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to see daily work."};const supabase=await createClient();const {data,error}=await supabase.rpc("crm_daily_work_counts",{p_day:day});return error?{success:false,error:"Daily work could not be loaded."}:{success:true,data:data as Record<DailyWorkKind,number>};}
 

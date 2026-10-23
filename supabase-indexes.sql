@@ -33,13 +33,26 @@ create index if not exists leads_phone_idx on public.leads (phone);
 -- pg_trgm turns the leading-wildcard ILIKE pattern into an index scan instead
 -- of a full table scan. The extension ships with Supabase (no cost).
 -- ---------------------------------------------------------------------------
-create extension if not exists pg_trgm;
+create schema if not exists extensions;
+create extension if not exists pg_trgm with schema extensions;
+do $$
+begin
+  if exists (
+    select 1
+    from pg_extension e
+    join pg_namespace n on n.oid = e.extnamespace
+    where e.extname = 'pg_trgm' and n.nspname <> 'extensions'
+  ) then
+    execute 'alter extension pg_trgm set schema extensions';
+  end if;
+end
+$$;
 
-create index if not exists leads_name_trgm_idx on public.leads using gin (name gin_trgm_ops);
-create index if not exists leads_phone_trgm_idx on public.leads using gin (phone gin_trgm_ops);
-create index if not exists leads_disease_trgm_idx on public.leads using gin (disease gin_trgm_ops);
-create index if not exists leads_remarks_trgm_idx on public.leads using gin (remarks gin_trgm_ops);
-create index if not exists leads_city_trgm_idx on public.leads using gin (city gin_trgm_ops);
+create index if not exists leads_name_trgm_idx on public.leads using gin (name extensions.gin_trgm_ops);
+create index if not exists leads_phone_trgm_idx on public.leads using gin (phone extensions.gin_trgm_ops);
+create index if not exists leads_disease_trgm_idx on public.leads using gin (disease extensions.gin_trgm_ops);
+create index if not exists leads_remarks_trgm_idx on public.leads using gin (remarks extensions.gin_trgm_ops);
+create index if not exists leads_city_trgm_idx on public.leads using gin (city extensions.gin_trgm_ops);
 
 -- Lead activities timeline (lead detail page) — newest first per lead.
 create index if not exists lead_activities_lead_id_idx on public.lead_activities (lead_id, created_at desc);
