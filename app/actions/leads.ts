@@ -1659,6 +1659,9 @@ export async function bulkInsertLeads(
   }
 
   // ---- Duplicate prevention (phone-number based) ----
+  // The database phone guard uses the final 10 digits as a phone identity.
+  // Match that rule here so country-code/format variants cannot make an
+  // otherwise valid multi-row insert fail as one transaction.
   // 1) Dedupe within the uploaded file itself: the first row with a given
   //    phone wins, later rows with the same number are ignored.
   const seenFilePhones = new Set<string>();
@@ -1675,24 +1678,27 @@ export async function bulkInsertLeads(
   });
 
   // 2) Skip leads whose phone number ALREADY EXISTS in the database.
-  //    Existing phones are fetched in bounded chunks so the query URL never
-  //    exceeds PostgREST limits, even for uploads with thousands of rows.
+  //    Existing phones are checked in bounded chunks so large imports stay
+  //    within PostgREST request limits.
   let skippedDuplicates = duplicateRows;
   const filePhones = [...seenFilePhones];
   const existingPhoneSet = new Set<string>();
   const phoneChunkSize = 500;
   for (let index = 0; index < filePhones.length; index += phoneChunkSize) {
-    const chunk = filePhones.slice(index, index + phoneChunkSize);
-    const { data: existingPhones, error: existingError } = await supabase
-      .from("leads")
-      .select("phone")
-      .in("phone", chunk);
+    const { data: existingPhoneIdentities, error: existingError } = await supabase.rpc(
+      "crm_existing_phone_identities",
+      { p_phone_identities: filePhones.slice(index, index + phoneChunkSize) },
+    );
     if (existingError) {
-      return { success: false, error: existingError.message };
+      return {
+        success: false,
+        error: /crm_existing_phone_identities/i.test(existingError.message)
+          ? "Phone duplicate protection needs the latest database update. Contact your administrator before retrying this import."
+          : existingError.message,
+      };
     }
-    for (const row of existingPhones ?? []) {
-      const digits = normalizePhoneDigits(String(row.phone ?? ""));
-      if (digits) existingPhoneSet.add(digits);
+    for (const identity of existingPhoneIdentities ?? []) {
+      existingPhoneSet.add(String(identity));
     }
   }
 
@@ -3096,6 +3102,7 @@ export async function assignLeadsToEmployees(input: {
     }
 
     let matchingIds = leadIds;
+    const assignmentByFilter = matchingIds.length === 0 && criteria !== null;
     if (matchingIds.length === 0 && criteria) {
       const countQuery = applyAssignmentCriteria(
         supabase.from("leads").select("id", { count: "exact", head: true }),
@@ -3145,17 +3152,39 @@ export async function assignLeadsToEmployees(input: {
 
     let assigned = 0;
     for (const entry of perEmployee) {
+      let employeeAssigned = 0;
       for (let offset = 0; offset < entry.leadIds.length; offset += 500) {
         const ids = entry.leadIds.slice(offset, offset + 500);
         if (ids.length === 0) continue;
-        const { error } = await supabase
+        let updateQuery = supabase
           .from("leads")
           .update({ assigned_to: entry.name, assignment_batch_id: assignmentBatchId })
           .in("id", ids);
+        if (assignmentByFilter && criteria) {
+          const assignmentFilter = assignmentOrExpression(criteria.includeAssigned === true, criteria.excludeBatchId);
+          if (assignmentFilter) updateQuery = updateQuery.or(assignmentFilter);
+        }
+        const { data: updatedRows, error } = await updateQuery.select("id");
         if (error) {
           return { success: false, error: `Assigned ${assigned} leads before failing: ${error.message}` };
         }
-        assigned += ids.length;
+        const updatedCount = updatedRows?.length ?? 0;
+        assigned += updatedCount;
+        employeeAssigned += updatedCount;
+      }
+      entry.count = employeeAssigned;
+    }
+
+    if (assigned !== matchingIds.length) {
+      const actualTargets = perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name);
+      const { error: countError } = assigned === 0
+        ? await supabase.from("crm_assignment_batches").delete().eq("id", assignmentBatchId)
+        : await supabase
+            .from("crm_assignment_batches")
+            .update({ lead_count: assigned, target_names: actualTargets })
+            .eq("id", assignmentBatchId);
+      if (countError) {
+        console.error("[assignLeadsToEmployees] Could not reconcile batch count", countError.message);
       }
     }
 

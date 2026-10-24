@@ -43,6 +43,8 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
   }
   const hardened = (await db.query(`select
     has_function_privilege('anon','public.handle_new_user()','execute') as anon_handle,
+    has_function_privilege('anon','public.crm_existing_phone_identities(text[])','execute') as anon_phone_lookup,
+    has_function_privilege('authenticated','public.crm_existing_phone_identities(text[])','execute') as auth_phone_lookup,
     has_function_privilege('authenticated','public.handle_new_user()','execute') as auth_handle,
     has_function_privilege('anon','public.rls_auto_enable()','execute') as anon_rls,
     has_function_privilege('authenticated','public.rls_auto_enable()','execute') as auth_rls,
@@ -54,6 +56,8 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
   `)).rows[0];
   assert.deepEqual(hardened, {
     anon_handle: false,
+    anon_phone_lookup: false,
+    auth_phone_lookup: true,
     auth_handle: false,
     anon_rls: false,
     auth_rls: false,
@@ -86,6 +90,17 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     "employee can update their own private fields through the guarded RPC");
   await assert.rejects(db.query(`select admin_update_employee_profile('00000000-0000-4000-8000-000000000003','Agent B',null,null,null,null,null,null,null)`),
     "employees cannot use the administrative profile update RPC");
+  await db.exec(`set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';`);
+  assert.deepEqual(
+    (await db.query("select * from public.crm_existing_phone_identities(array['9876543210']::text[])" )).rows,
+    [{ phone_identity: "9876543210" }],
+    "admin can find an existing phone using the import-normalized identity",
+  );
+  await db.exec(`set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
+  await assert.rejects(
+    db.query("select * from public.crm_existing_phone_identities(array['9876543210']::text[])"),
+    "employees cannot use the administrative import duplicate lookup",
+  );
   await db.exec(`set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';`);
   assert.equal((await db.query("select count(*)::int n from employee_private_profiles")).rows[0].n, 3,
     "admin can read the authorized staff directory");

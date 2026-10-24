@@ -484,6 +484,7 @@ export function LeadsTable({
   });
   const [assignmentSuggestions, setAssignmentSuggestions] = useState<LeadAssignmentSuggestion[]>([]);
   const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
+  const [selectAllAssignmentMatches, setSelectAllAssignmentMatches] = useState(false);
   const [assignmentSuggestionTotal, setAssignmentSuggestionTotal] = useState(0);
   const [hasMoreAssignmentSuggestions, setHasMoreAssignmentSuggestions] = useState(false);
   const [isLoadingAssignmentSuggestions, setIsLoadingAssignmentSuggestions] = useState(false);
@@ -796,15 +797,11 @@ export function LeadsTable({
       // Mark imported rows as self-mutations so realtime notifications don't
       // toast the admin about their own bulk import.
       trackLeadMutations(importedLeads.map((lead) => lead.id));
-      setLeads((previousLeads) => [...importedLeads, ...previousLeads]);
       setServerTotal((current) => current + importedLeads.length);
 
-      // The toast used to be the only proof the upload worked. When a filter (or
-      // an unassigned sheet) hid the rows, it looked like the import had
-      // vanished — so now the server itself is asked what it holds, and any
-      // reason the rows might not be visible is spelled out.
-      const proof = await getLeadsPage(1, 1, "", "", "", {});
-      const serverTotal = proof.success ? proof.data.total : null;
+      // Avoid rendering hundreds of newly imported table rows locally or
+      // making a second count request just to confirm the import. Revalidation
+      // refreshes the current server-paginated view.
       const filtersAreActive = Boolean(hasLeadFilters(filters) || activeSearch.trim() || activeStatusFilter.trim());
       const assignedCount = Math.max(0, importedLeads.length - unassigned);
       const importSummary = [
@@ -821,7 +818,7 @@ export function LeadsTable({
         description:
           importedLeads.length === 0
             ? `No new leads were added — all ${skippedDuplicates} phone numbers already exist in the database.${skippedRows > 0 ? ` ${skippedRows} invalid rows were also skipped.` : ""}`
-            : `${importSummary}.${serverTotal !== null ? ` Database total: ${serverTotal.toLocaleString()}.` : ""}`,
+            : `${importSummary}.`,
         type: "success",
       });
 
@@ -1121,6 +1118,7 @@ export function LeadsTable({
     setAssignmentCriteria({ search: "", treatment: "", city: "", status: "", includeAssigned: false, excludeBatchId: mode === "add-to-batch" ? batch?.id : undefined });
     setAssignmentSuggestions([]);
     setSelectedAssignmentLeads([]);
+    setSelectAllAssignmentMatches(false);
     setAssignmentSuggestionTotal(0);
     setHasMoreAssignmentSuggestions(false);
     setIsLoadingAssignmentSuggestions(false);
@@ -1136,6 +1134,8 @@ export function LeadsTable({
 
   function updateAssignmentCriteria(patch: Partial<LeadAssignmentCriteria>) {
     setAssignmentCriteria((current) => ({ ...current, ...patch }));
+    setSelectAllAssignmentMatches(false);
+    setSelectedAssignmentLeads([]);
     setIsLoadingAssignmentSuggestions(false);
     assignmentSuggestionSequenceRef.current += 1;
     setAssignmentSuggestions([]);
@@ -1209,13 +1209,14 @@ export function LeadsTable({
   ]);
 
   async function handleAssignAmongSelectedEmployees() {
+    const assignAllMatches = assignmentMode === "filters" && selectAllAssignmentMatches;
     const leadIdsToAssign = assignmentMode === "selected"
       ? selectedLeads
-      : selectedAssignmentLeads.map((lead) => lead.id);
-    if ((assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) || leadIdsToAssign.length === 0 || isBulkActionPending) return;
+      : assignAllMatches ? [] : selectedAssignmentLeads.map((lead) => lead.id);
+    if ((assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) || (!assignAllMatches && leadIdsToAssign.length === 0) || isBulkActionPending) return;
     setIsBulkActionPending(true);
     try {
-      trackLeadMutations(leadIdsToAssign);
+      if (leadIdsToAssign.length > 0) trackLeadMutations(leadIdsToAssign);
       if (assignmentMode === "add-to-batch" && assignmentBatchTarget) {
         const response = await addLeadsToAssignmentBatch({ batchId: assignmentBatchTarget.id, leadIds: leadIdsToAssign });
         if (!response.success) {
@@ -1223,6 +1224,7 @@ export function LeadsTable({
         } else {
           setIsAssignmentOpen(false);
           setSelectedAssignmentLeads([]);
+          setSelectAllAssignmentMatches(false);
           router.refresh();
           const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
           queueSuccessSummary("assigned", response.data.added, perEmployee);
@@ -1231,7 +1233,7 @@ export function LeadsTable({
         return;
       }
       const response = await assignLeadsToEmployees({
-        leadIds: leadIdsToAssign,
+        ...(assignAllMatches ? { criteria: assignmentCriteria } : { leadIds: leadIdsToAssign }),
         employeeNames: assignmentEmployeeNames,
       });
       if (!response.success) {
@@ -1242,6 +1244,7 @@ export function LeadsTable({
           setIsSelectAllChecked(false);
         } else {
           setSelectedAssignmentLeads([]);
+          setSelectAllAssignmentMatches(false);
         }
         setIsAssignmentOpen(false);
         router.refresh();
@@ -2418,12 +2421,33 @@ export function LeadsTable({
                       {assignmentCriteria.includeAssigned ? "Matching leads" : "Matching unassigned leads"}
                       {assignmentSuggestionTotal > 0 && ` (${assignmentSuggestionTotal.toLocaleString()})`}
                     </Label>
-                    {isLoadingAssignmentSuggestions && (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500" role="status">
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                        Searching…
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {assignmentMode === "filters" && assignmentSuggestionTotal > 0 && Boolean(
+                        assignmentCriteria.search.trim() || assignmentCriteria.treatment.trim() ||
+                        assignmentCriteria.city.trim() || assignmentCriteria.status?.trim(),
+                      ) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isBulkActionPending || isLoadingAssignmentSuggestions}
+                          onClick={() => {
+                            setSelectedAssignmentLeads([]);
+                            setSelectAllAssignmentMatches((current) => !current);
+                          }}
+                        >
+                          {selectAllAssignmentMatches
+                            ? "Clear all matching"
+                            : `Select all ${assignmentSuggestionTotal.toLocaleString()}`}
+                        </Button>
+                      )}
+                      {isLoadingAssignmentSuggestions && (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500" role="status">
+                          <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                          Searching…
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {assignmentSuggestionError ? (
                     <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
@@ -2442,15 +2466,16 @@ export function LeadsTable({
                               className="mt-1"
                               checked={selectedAssignmentLeads.some((selected) => selected.id === lead.id)}
                               disabled={isBulkActionPending}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setSelectAllAssignmentMatches(false);
                                 setSelectedAssignmentLeads((current) =>
                                   event.target.checked
                                     ? current.some((selected) => selected.id === lead.id)
                                       ? current
                                       : [...current, lead]
                                     : current.filter((selected) => selected.id !== lead.id),
-                                )
-                              }
+                                );
+                              }}
                             />
                             <span className="min-w-0 flex-1">
                               <span className="block font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
@@ -2494,10 +2519,12 @@ export function LeadsTable({
                       Start typing or choose a status to find matching leads. Names match from the first letter.
                     </p>
                   )}
-                  {selectedAssignmentLeads.length > 0 && (
+                  {(selectedAssignmentLeads.length > 0 || selectAllAssignmentMatches) && (
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
                       <p className="mb-1.5 text-xs font-semibold text-blue-900">
-                        {selectedAssignmentLeads.length} lead{selectedAssignmentLeads.length === 1 ? "" : "s"} selected
+                        {selectAllAssignmentMatches
+                          ? `All ${assignmentSuggestionTotal.toLocaleString()} matching leads selected`
+                          : `${selectedAssignmentLeads.length} lead${selectedAssignmentLeads.length === 1 ? "" : "s"} selected`}
                       </p>
                       <div className="max-h-24 space-y-1 overflow-y-auto">
                         {selectedAssignmentLeads.map((lead) => (
@@ -2583,12 +2610,18 @@ export function LeadsTable({
                 (assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) ||
                 (assignmentMode === "selected"
                   ? selectedLeads.length === 0
-                  : selectedAssignmentLeads.length === 0)
+                  : assignmentMode === "add-to-batch"
+                    ? selectedAssignmentLeads.length === 0
+                    : selectedAssignmentLeads.length === 0 && !selectAllAssignmentMatches)
               }
               onClick={() => void handleAssignAmongSelectedEmployees()}
             >
               {isBulkActionPending && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {assignmentMode === "add-to-batch" ? "Add selected leads to batch" : "Create assignment batch"}
+              {assignmentMode === "add-to-batch"
+                ? "Add selected leads to batch"
+                : selectAllAssignmentMatches
+                  ? `Assign ${assignmentSuggestionTotal.toLocaleString()} matching leads`
+                  : "Assign selected leads"}
             </Button>
           </DialogFooter>
         </DialogContent>
