@@ -48,6 +48,9 @@ const STATUS_ALIASES: Record<string, string> = {
 const STATUS_STORAGE_VALUES: Partial<Record<(typeof LEAD_STATUS_OPTIONS)[number], readonly string[]>> = {
   New: ["New Lead", "-", "--"],
   "Follow-Up": ["Follow Up", "Contacted"],
+  DNP2: ["DNP 2"],
+  DNP3: ["DNP 3"],
+  RNR: ["Not Reachable"],
   "Didn’t Enquired": ["Didn't Enquired"],
   CallBack: ["Call Back", "Call Back Later"],
   "OPD Booked": ["Consultation Booked"],

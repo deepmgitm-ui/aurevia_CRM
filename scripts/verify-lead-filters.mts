@@ -35,7 +35,7 @@ import {
 } from "../app/dashboard/lead-filters.ts";
 import type { AnalyticsLead, StageKey } from "../app/dashboard/overview/analytics.ts";
 import { assignmentOrExpression } from "../lib/lead-assignment-filter.ts";
-import { leadStatusStorageValues } from "../lib/lead-status.ts";
+import { LEAD_STATUS_OPTIONS, leadStatusStorageValues } from "../lib/lead-status.ts";
 import { STAGE_TARGET_STATUS, stageForStatus } from "../app/dashboard/overview/analytics.ts";
 
 // ---------------------------------------------------------------------------
@@ -75,15 +75,19 @@ const newLeadsFilters = parseLeadFilters(Object.fromEntries(new URL(`http://loca
 assert.equal(newLeadsFilters.work, "assigned");
 assert.equal(newLeadsFilters.day, "2026-10-23");
 
-// Pipeline cards intentionally open an all-time status list, scoped to the
-// selected agent when one is supplied.
-for (const status of ["New", "OPD Booked", "OPD Done", "IPD Done"]) {
+// Every current-status card opens that exact all-time status list, scoped to
+// the selected agent when one is supplied.
+for (const status of LEAD_STATUS_OPTIONS) {
   const cardHref = leadsHref({ assigned: "Atul Pandey", status, age: "", month: "", allMonths: true });
   const cardFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${cardHref}`).searchParams));
   assert.equal(cardFilters.assigned, "Atul Pandey");
   assert.equal(cardFilters.status, status);
   assert.equal(cardFilters.allMonths, true);
+  assert.ok(leadStatusStorageValues(status).includes(status), `${status} drill-down includes the current stored value`);
 }
+assert.ok(leadStatusStorageValues("DNP2").includes("DNP 2"), "DNP2 drill-down includes the legacy spaced spelling");
+assert.ok(leadStatusStorageValues("DNP3").includes("DNP 3"), "DNP3 drill-down includes the legacy spaced spelling");
+assert.ok(leadStatusStorageValues("RNR").includes("Not Reachable"), "RNR drill-down includes its legacy label");
 const workflowHref = leadsHref({ assigned: "Atul Pandey", bucket: "followup", allMonths: true });
 const workflowFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${workflowHref}`).searchParams));
 assert.equal(workflowFilters.bucket, "followup", "workflow card links preserve their exact bucket");

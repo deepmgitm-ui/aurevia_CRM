@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { ArrowLeft, ListTodo, UserPlus, Users, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
+import { ArrowLeft, UserPlus, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
 
 import {
   getAnalyticsLeads,
   getEmployeeDirectory,
-  getLeadCounts,
   getLeadsPage,
   getPipelineInsights,
   getTeamStats,
@@ -13,7 +12,6 @@ import {
   getDailyAssignmentStatuses,
   getLeadPipelineSummary,
 } from "@/app/actions/leads";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { TeamActivityPanel } from "./team-activity-panel";
 import { LeadsTable } from "./leads-table";
@@ -25,63 +23,10 @@ import { LeadAssignmentTabs } from "./lead-assignment-tabs";
 import { ClinicDayRefresh } from "@/components/dashboard/clinic-day-refresh";
 import { clinicDate } from "@/lib/attendance";
 import { isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
-import { EMPTY_LEAD_FILTERS, leadsHref } from "./lead-filters";
-
-const statCards = [
-  {
-    label: "Total Leads",
-    icon: Users,
-    iconClassName: "bg-slate-100 text-slate-600",
-  },
-  {
-    label: "New Leads",
-    icon: UserPlus,
-    iconClassName: "bg-blue-50 text-blue-600",
-  },
-  {
-    label: "Follow-Up Leads",
-    icon: ListTodo,
-    iconClassName: "bg-amber-50 text-amber-700",
-  },
-  {
-    label: "Lost Leads",
-    icon: ListTodo,
-    iconClassName: "bg-rose-50 text-rose-700",
-  },
-] as const;
+import { EMPTY_LEAD_FILTERS } from "./lead-filters";
+import { DashboardStats } from "./dashboard-stats";
 
 const emptyTeam = { employees: [], unassigned: 0, total: 0 };
-
-function StatCardSection({ values, assignedTo }: { values: [number, number, number, number]; assignedTo: string }) {
-  return (
-    <section
-      aria-label="Lead statistics"
-      className="grid grid-cols-2 gap-4 md:grid-cols-4"
-    >
-      {statCards.map(({ label, icon: Icon, iconClassName }, index) => (
-        <Link key={label} href={leadsHref({ assigned: assignedTo, ...(index === 3 ? { bucket: "lost" as const } : index === 2 ? { bucket: "followup" as const } : index === 1 ? { status: "New" } : {}) })}>
-        <Card className="h-full border-0 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">
-              {label}
-            </CardTitle>
-            <span
-              className={`flex size-10 items-center justify-center rounded-lg ${iconClassName}`}
-            >
-              <Icon className="size-5" aria-hidden="true" />
-            </span>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold tracking-tight text-slate-950">
-              {values[index].toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        </Link>
-      ))}
-    </section>
-  );
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -102,14 +47,14 @@ export default async function DashboardPage({
 
     if (employeeStats) {
       // Server-side pagination scoped to this employee (assigned_to filter).
-      const [leadsResult, countsResult] = await Promise.all([
+      const [leadsResult, summaryResult] = await Promise.all([
         getLeadsPage(1, 50, "", selectedEmployee),
-        getLeadCounts(selectedEmployee),
+        getLeadPipelineSummary(selectedEmployee),
       ]);
       const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
-      const counts = countsResult.success
-        ? countsResult.data
-        : { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
+      const summary = summaryResult.success
+        ? summaryResult.data
+        : { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
 
       return (
         <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -130,7 +75,7 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <StatCardSection values={[counts.total, counts.new, counts.followUp, counts.lost]} assignedTo={employeeStats.name} />
+          <DashboardStats summary={summary} assignedTo={employeeStats.name} />
 
           <LeadsTable
             leads={leadsPage.leads}
@@ -147,11 +92,12 @@ export default async function DashboardPage({
 
   // ---- Admin/Manager default view: the analytics Overview dashboard ----
   if (isTeamLead) {
-    const [leadsResult, directoryResult, teamResult] = await Promise.all([
+    const [leadsResult, directoryResult, teamResult, pipelineSummaryResult] = await Promise.all([
       // Light projection (no `select('*')`) — only the columns the cards read.
       getAnalyticsLeads(query.from, query.to),
       getEmployeeDirectory(),
       getTeamStats(),
+      getLeadPipelineSummary(),
     ]);
     if(!leadsResult.success) throw new Error(leadsResult.error);
     const leads = leadsResult.data;
@@ -174,6 +120,8 @@ export default async function DashboardPage({
           rangeNote={rangeNote}
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
+
+        {pipelineSummaryResult.success && <DashboardStats summary={pipelineSummaryResult.data} />}
 
         {teamResult.success ? <LeadAssignmentTabs team={team} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
@@ -240,28 +188,9 @@ export default async function DashboardPage({
       <section aria-label="My lead pipeline" className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">My lead pipeline</h2>
-          <p className="mt-1 text-sm text-slate-500">Tap a count to open the matching leads in your table.</p>
+          <p className="mt-1 text-sm text-slate-500">New assignments and current status counts are scoped to your leads.</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {([
-            { label: "New Leads", detail: "Untouched assignments from today", value: dailyResult.success ? dailyResult.data.assigned : null, bucket: "", tone: "border-indigo-200 bg-indigo-50 text-indigo-800" },
-            { label: "Fresh leads", detail: "Untouched assignments from earlier days", value: summaryResult.success ? summaryResult.data.fresh : null, bucket: "fresh", tone: "border-blue-200 bg-blue-50 text-blue-800" },
-            { label: "Follow-up", detail: "Touched leads that need continued follow-up", value: summaryResult.success ? summaryResult.data.followUp : null, bucket: "followup", tone: "border-sky-200 bg-sky-50 text-sky-800" },
-            { label: "OPD booked", detail: "Leads with an OPD booking", value: summaryResult.success ? summaryResult.data.opdBooked : null, bucket: "opdBooked", tone: "border-amber-200 bg-amber-50 text-amber-800" },
-            { label: "OPD done", detail: "Leads whose OPD is complete", value: summaryResult.success ? summaryResult.data.opdDone : null, bucket: "opdDone", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-            { label: "IPD booked", detail: "Leads with an IPD booking", value: summaryResult.success ? summaryResult.data.ipdBooked : null, bucket: "ipdBooked", tone: "border-violet-200 bg-violet-50 text-violet-800" },
-            { label: "IPD done", detail: "Leads whose IPD is complete", value: summaryResult.success ? summaryResult.data.ipdDone : null, bucket: "ipdDone", tone: "border-purple-200 bg-purple-50 text-purple-800" },
-            { label: "Lost leads", detail: "Closed or lost outcomes", value: summaryResult.success ? summaryResult.data.lost : null, bucket: "lost", tone: "border-rose-200 bg-rose-50 text-rose-800" },
-          ] as const).map((card) => (
-            <Link key={card.label} href={card.label === "New Leads" ? `/dashboard?work=assigned&day=${day}#today-leads` : `${leadsHref({ bucket: card.bucket, allMonths: true })}#lead-list`} aria-current={card.label === "New Leads" && work === "assigned" ? "page" : undefined} className={`rounded-xl border px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone} ${card.label === "New Leads" && work === "assigned" ? "ring-2 ring-current ring-offset-2" : ""}`}>
-              <p className="text-xs font-semibold">{card.label}</p>
-              <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
-              <p className="mt-1 min-h-8 text-xs leading-4 opacity-80">{card.detail}</p>
-              <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium">View leads <ArrowRight className="size-3" aria-hidden="true" /></span>
-            </Link>
-          ))}
-        </div>
-        {!summaryResult.success && <p role="alert" className="text-sm text-amber-700">Lead summary could not be loaded. Refresh to try again.</p>}
+        {summaryResult.success ? <DashboardStats summary={summaryResult.data} assignedTo={viewer?.name} dailyNewLeads={{ count: dailyResult.success ? dailyResult.data.assigned : null, day }} /> : <p role="alert" className="text-sm text-amber-700">Lead summary could not be loaded. Refresh to try again.</p>}
       </section>
 
       <section aria-label="Daily appointments and completions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -966,11 +966,12 @@ export interface EmployeeLeadSummary {
   opdDone: number;
   ipdBooked: number;
   ipdDone: number;
+  statuses: Record<string, number>;
 }
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
 export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
-  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 };
+  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -991,6 +992,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     const { count: dnpCount, error: dnpError } = await dnpQuery;
     if (dnpError) return { success: false, error: "Your DNP lead count could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
+    const statusCounts = row.statuses && typeof row.statuses === "object" ? row.statuses : {};
     return { success: true, data: {
       total: Number(row.total ?? 0),
       fresh: Number(row.fresh ?? 0),
@@ -1001,6 +1003,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       opdDone: Number(row.opdDone ?? 0),
       ipdBooked: Number(row.ipdBooked ?? 0),
       ipdDone: Number(row.ipdDone ?? 0),
+      statuses: Object.fromEntries(Object.entries(statusCounts).map(([status, count]) => [status, Number(count) || 0])),
     } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Your lead summary could not be loaded.") };
