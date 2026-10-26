@@ -51,11 +51,11 @@ export function DashboardStats({
       href={`${card.href}#lead-list`}
       style={{ animationDelay: `${index * 30}ms` }}
       aria-label={`${card.label}: ${card.value === null ? "unavailable" : card.value.toLocaleString()}. View matching leads`}
-      className={`crm-motion-in crm-card-interactive rounded-xl border px-4 py-4 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}
+      className={`crm-motion-in crm-card-interactive rounded-lg border px-3 py-3 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}
     >
-      <p className="text-xs font-semibold">{card.label}</p>
-      <p className="mt-2 text-3xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
-      <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium">
+      <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
+      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium">
         View leads <ArrowRight className="size-3" aria-hidden="true" />
       </span>
     </Link>
@@ -65,11 +65,11 @@ export function DashboardStats({
     <div className="space-y-5">
       <section aria-label="Lead workflow summary" className="space-y-2">
         <h2 className="text-sm font-semibold text-slate-800">Workflow overview</h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{workflowCards.map(renderCard)}</div>
+        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">{workflowCards.map(renderCard)}</div>
       </section>
       <section aria-label="Lead counts by current status" className="space-y-2">
         <div><h2 className="text-sm font-semibold text-slate-800">Leads by current status</h2><p className="mt-1 text-xs text-slate-500">Each status count opens only leads with that status.</p></div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">{statusCards.map(renderCard)}</div>
+        <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">{statusCards.map(renderCard)}</div>
       </section>
     </div>
   );
