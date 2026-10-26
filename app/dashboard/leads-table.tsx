@@ -6,7 +6,7 @@ import { voiceBotTreatment } from "@/lib/lead-treatment";
 import { PhonePreview } from "./phone-preview";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, Pencil, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
+import { ArrowRightLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, Pencil, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
 import {
   findLeadImportHeaderRow,
   getRecognizedLeadImportFields,
@@ -476,7 +476,7 @@ export function LeadsTable({
   const [isBulkActionPending, setIsBulkActionPending] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
-  const [assignmentMode, setAssignmentMode] = useState<"selected" | "filters" | "add-to-batch">("filters");
+  const [assignmentMode, setAssignmentMode] = useState<"selected" | "transfer-selected" | "filters" | "add-to-batch">("filters");
   const [assignmentBatchTarget, setAssignmentBatchTarget] = useState<LeadAssignmentBatch | null>(null);
   const [assignmentEmployeeNames, setAssignmentEmployeeNames] = useState<string[]>([]);
   const [assignmentCriteria, setAssignmentCriteria] = useState<LeadAssignmentCriteria>({
@@ -1113,7 +1113,7 @@ export function LeadsTable({
     setIsBulkActionPending(false);
   }
 
-  function openAssignment(mode: "selected" | "filters" | "add-to-batch", batch: LeadAssignmentBatch | null = null) {
+  function openAssignment(mode: "selected" | "transfer-selected" | "filters" | "add-to-batch", batch: LeadAssignmentBatch | null = null) {
     assignmentSuggestionSequenceRef.current += 1;
     setAssignmentMode(mode);
     setAssignmentBatchTarget(batch);
@@ -1183,7 +1183,7 @@ export function LeadsTable({
   );
 
   useEffect(() => {
-    if (!isAssignmentOpen || assignmentMode === "selected") return;
+    if (!isAssignmentOpen || assignmentMode === "selected" || assignmentMode === "transfer-selected") return;
     const criteria = {
       search: assignmentCriteria.search.trim(),
       treatment: assignmentCriteria.treatment.trim(),
@@ -1213,7 +1213,7 @@ export function LeadsTable({
 
   async function handleAssignAmongSelectedEmployees() {
     const assignAllMatches = assignmentMode === "filters" && selectAllAssignmentMatches;
-    const leadIdsToAssign = assignmentMode === "selected"
+    const leadIdsToAssign = assignmentMode === "selected" || assignmentMode === "transfer-selected"
       ? selectedLeads
       : assignAllMatches ? [] : selectedAssignmentLeads.map((lead) => lead.id);
     if ((assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) || (!assignAllMatches && leadIdsToAssign.length === 0) || isBulkActionPending) return;
@@ -1240,9 +1240,9 @@ export function LeadsTable({
         employeeNames: assignmentEmployeeNames,
       });
       if (!response.success) {
-        toast.add({ title: "Assignment failed", description: response.error, type: "error" });
+        toast.add({ title: assignmentMode === "transfer-selected" ? "Transfer failed" : "Assignment failed", description: response.error, type: "error" });
       } else {
-        if (assignmentMode === "selected") {
+        if (assignmentMode === "selected" || assignmentMode === "transfer-selected") {
           setSelectedLeads([]);
           setIsSelectAllChecked(false);
         } else {
@@ -1252,11 +1252,15 @@ export function LeadsTable({
         setIsAssignmentOpen(false);
         router.refresh();
         const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
-        queueSuccessSummary("assigned", response.data.assigned, perEmployee);
+        if (assignmentMode === "transfer-selected") {
+          toast.add({ title: "Leads transferred", description: `${response.data.assigned.toLocaleString()} leads moved${perEmployee ? ` — ${perEmployee}` : ""}.`, type: "success" });
+        } else {
+          queueSuccessSummary("assigned", response.data.assigned, perEmployee);
+        }
       }
     } catch (error) {
       toast.add({
-        title: "Assignment failed",
+        title: assignmentMode === "transfer-selected" ? "Transfer failed" : "Assignment failed",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
         type: "error",
       });
@@ -2047,6 +2051,9 @@ export function LeadsTable({
               <SelectTrigger size="sm" className="w-40"><SelectValue placeholder="Assign Selected" /></SelectTrigger>
               <SelectContent>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
             </Select>
+            <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("transfer-selected")}>
+              <ArrowRightLeft aria-hidden="true" />Transfer Selected
+            </Button>
             <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("selected")}>
               <UserRoundPlus aria-hidden="true" />Split among employees
             </Button>
@@ -2349,12 +2356,14 @@ export function LeadsTable({
             <DialogTitle>
               {assignmentMode === "add-to-batch"
                 ? `Add leads to ${assignmentBatchTarget?.label ?? "assignment batch"}`
-                : assignmentMode === "selected" ? "Assign selected leads" : "Find leads to assign"}
+                : assignmentMode === "transfer-selected" ? "Transfer selected leads" : assignmentMode === "selected" ? "Assign selected leads" : "Find leads to assign"}
             </DialogTitle>
             <DialogDescription>
               {assignmentMode === "add-to-batch"
                 ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}.`
-                : assignmentMode === "selected"
+                : assignmentMode === "transfer-selected"
+                  ? `${selectedLeads.length.toLocaleString()} selected leads will move to the team member or members you choose. Their phone numbers and lead details will stay unchanged.`
+                  : assignmentMode === "selected"
                   ? `${selectedLeads.length.toLocaleString()} selected leads will be split equally among the employees you choose and saved as one batch.`
                   : assignmentCriteria.includeAssigned
                     ? "Find matching leads by optional filters. Current owners are shown; select only leads you intend to transfer."
@@ -2363,7 +2372,7 @@ export function LeadsTable({
           </DialogHeader>
 
           <div className="space-y-4">
-            {assignmentMode !== "selected" && (
+            {assignmentMode !== "selected" && assignmentMode !== "transfer-selected" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="assign-lead-search">Lead name <span className="font-normal text-slate-400">(optional)</span></Label>
@@ -2554,9 +2563,15 @@ export function LeadsTable({
               </div>
             )}
 
+            {(assignmentMode === "selected" || assignmentMode === "transfer-selected") && (
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                {assignmentMode === "transfer-selected" ? "Choose the new owner. Selected leads will be reassigned without changing patient details or phone numbers." : "Choose one or more employees. Selected leads will be split evenly among them."}
+              </p>
+            )}
+
             {assignmentMode !== "add-to-batch" && <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Assign to team members</Label>
+                <Label>{assignmentMode === "transfer-selected" ? "Transfer to team members" : "Assign to team members"}</Label>
                 <button
                   type="button"
                   className="text-xs font-medium text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
@@ -2624,7 +2639,9 @@ export function LeadsTable({
               {isBulkActionPending && <Loader2 className="animate-spin" aria-hidden="true" />}
               {assignmentMode === "add-to-batch"
                 ? "Add selected leads to batch"
-                : selectAllAssignmentMatches
+                : assignmentMode === "transfer-selected"
+                  ? "Transfer selected leads"
+                  : selectAllAssignmentMatches
                   ? `Assign ${assignmentSuggestionTotal.toLocaleString()} matching leads`
                   : "Assign selected leads"}
             </Button>
