@@ -2406,6 +2406,38 @@ export async function getLeadDeletionBackups(): Promise<ActionResult<LeadDeletio
   }
 }
 
+/** Returns the saved lead rows so an admin can download an automatic-deletion backup. */
+export async function getLeadDeletionBackupForExport(backupId: string): Promise<ActionResult<Lead[]>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(backupId ?? "")) {
+    return { success: false, error: "Select a valid deletion backup." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can download deletion backups (403 Forbidden)." };
+    }
+
+    const { data, error } = await supabase
+      .from("lead_deletion_backups")
+      .select("lead_rows")
+      .eq("id", backupId)
+      .single();
+    if (error) {
+      return {
+        success: false,
+        error: isMissingBackupTableError(error) ? LEAD_DELETION_BACKUP_SETUP_HINT : error.message,
+      };
+    }
+    const rows = Array.isArray(data.lead_rows) ? data.lead_rows : [];
+    if (!rows.length) return { success: false, error: "This deletion backup has no lead rows to export." };
+    return { success: true, data: rows as Lead[] };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to prepare the deletion backup.") };
+  }
+}
+
 /** Permanently removes one saved deletion snapshot without touching active leads. */
 export async function permanentlyDeleteLeadDeletionBackup(
   backupId: string,

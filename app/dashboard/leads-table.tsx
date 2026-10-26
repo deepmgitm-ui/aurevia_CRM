@@ -22,6 +22,7 @@ import {
   deleteLeadSourceBatches,
   getEmployees,
   getLeadActivities,
+  getLeadDeletionBackupForExport,
   getLeadDeletionBackups,
   getUnassignedLeadAssignmentSuggestions,
   getLeadSourceBatches,
@@ -410,6 +411,7 @@ export function LeadsTable({
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
   const [backupErrorText, setBackupErrorText] = useState("");
   const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
+  const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
   const [backupPendingDeletion, setBackupPendingDeletion] = useState<LeadDeletionBackup | null>(null);
   const [deletingBackupId, setDeletingBackupId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -1543,6 +1545,26 @@ export function LeadsTable({
       });
     }
     setRestoringBackupId(null);
+  }
+
+  async function handleDownloadDeletionBackup(backup: LeadDeletionBackup) {
+    if (downloadingBackupId) return;
+    setDownloadingBackupId(backup.id);
+    try {
+      const response = await getLeadDeletionBackupForExport(backup.id);
+      if (!response.success) {
+        toast.add({ title: "Backup download failed", description: response.error, type: "error" });
+        return;
+      }
+      const label = backup.scope.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "leads";
+      const date = new Date(backup.created_at).toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      await downloadLeadsExcel(response.data, `${label}-deletion-backup-${date}.xlsx`);
+      toast.add({ title: "Excel backup ready", description: `${response.data.length.toLocaleString()} leads downloaded.`, type: "success" });
+    } catch (error) {
+      toast.add({ title: "Backup download failed", description: error instanceof Error ? error.message : "The Excel file could not be created.", type: "error" });
+    } finally {
+      setDownloadingBackupId(null);
+    }
   }
 
   async function handleDeleteBackup() {
@@ -2795,7 +2817,7 @@ export function LeadsTable({
           <DialogHeader>
             <DialogTitle>Recent Deletions</DialogTitle>
             <DialogDescription>
-              Every lead deletion, including a single lead, stores a snapshot of the lead and its activities. Restore one to put the rows back —
+              Lead details and activities are saved before deletion. Download an Excel copy or restore the snapshot —
               leads that already exist are skipped, so restoring twice is safe.
             </DialogDescription>
           </DialogHeader>
@@ -2813,7 +2835,7 @@ export function LeadsTable({
             </div>
           ) : deletionBackups.length === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
-              No stored deletions yet. Snapshots appear here after the next bulk delete.
+              No stored deletions yet. Snapshots appear here after a lead or batch is deleted.
             </p>
           ) : (
             <ul className="max-h-80 space-y-2 overflow-y-auto">
@@ -2836,7 +2858,17 @@ export function LeadsTable({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={Boolean(backup.restored_at) || restoringBackupId === backup.id || deletingBackupId === backup.id}
+                      disabled={downloadingBackupId !== null || restoringBackupId === backup.id || deletingBackupId === backup.id}
+                      onClick={() => void handleDownloadDeletionBackup(backup)}
+                    >
+                      {downloadingBackupId === backup.id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                      Download Excel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={Boolean(backup.restored_at) || restoringBackupId === backup.id || deletingBackupId === backup.id || downloadingBackupId === backup.id}
                       onClick={() => void handleRestoreBackup(backup.id)}
                     >
                       {restoringBackupId === backup.id ? (
@@ -2852,7 +2884,7 @@ export function LeadsTable({
                       size="icon"
                       aria-label={`Permanently delete snapshot from ${new Date(backup.created_at).toLocaleString()}`}
                       title="Permanently delete this recovery snapshot"
-                      disabled={restoringBackupId === backup.id || deletingBackupId === backup.id}
+                      disabled={restoringBackupId === backup.id || deletingBackupId === backup.id || downloadingBackupId === backup.id}
                       onClick={() => setBackupPendingDeletion(backup)}
                     >
                       {deletingBackupId === backup.id ? (
