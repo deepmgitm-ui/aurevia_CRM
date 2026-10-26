@@ -42,6 +42,7 @@ import {
   deleteLeadAssignmentBatch,
   getLeadAssignmentBatches,
   getLeadsForAssignmentBatch,
+  getEmployeeLeadsForTransfer,
   transferLeadAssignmentBatch,
   type LeadAssignmentCriteria,
   type LeadAssignmentBatch,
@@ -486,6 +487,14 @@ export function LeadsTable({
     status: "",
   });
   const [assignmentSuggestions, setAssignmentSuggestions] = useState<LeadAssignmentSuggestion[]>([]);
+  const [transferLeadIds, setTransferLeadIds] = useState<string[]>([]);
+  const [transferSourceEmployee, setTransferSourceEmployee] = useState("");
+  const [transferLeads, setTransferLeads] = useState<LeadAssignmentSuggestion[]>([]);
+  const [transferLeadTotal, setTransferLeadTotal] = useState(0);
+  const [transferLeadPage, setTransferLeadPage] = useState(0);
+  const [isLoadingTransferLeads, setIsLoadingTransferLeads] = useState(false);
+  const [isSelectingAllTransferLeads, setIsSelectingAllTransferLeads] = useState(false);
+  const [transferLeadError, setTransferLeadError] = useState("");
   const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
   const [selectAllAssignmentMatches, setSelectAllAssignmentMatches] = useState(false);
   const [assignmentSuggestionTotal, setAssignmentSuggestionTotal] = useState(0);
@@ -532,6 +541,7 @@ export function LeadsTable({
   // only the most recently issued fetch is allowed to update the table.
   const fetchSequenceRef = useRef(0);
   const assignmentSuggestionSequenceRef = useRef(0);
+  const transferLeadSequenceRef = useRef(0);
 
   function queueSuccessSummary(kind: "added" | "assigned" | "updated" | "notes", count = 1, detail?: string) {
     const summary = successSummaryRef.current;
@@ -1126,7 +1136,58 @@ export function LeadsTable({
     setHasMoreAssignmentSuggestions(false);
     setIsLoadingAssignmentSuggestions(false);
     setAssignmentSuggestionError("");
+    setTransferLeadIds(mode === "transfer-selected" ? selectedLeads : []);
+    setTransferSourceEmployee("");
+    setTransferLeads([]);
+    setTransferLeadTotal(0);
+    setTransferLeadPage(0);
+    setTransferLeadError("");
+    setIsLoadingTransferLeads(false);
+    setIsSelectingAllTransferLeads(false);
     setIsAssignmentOpen(true);
+  }
+
+  async function loadEmployeeTransferPage(employeeName: string, page: number) {
+    const requestId = ++transferLeadSequenceRef.current;
+    setIsLoadingTransferLeads(true);
+    setTransferLeadError("");
+    try {
+      const response = await getEmployeeLeadsForTransfer(employeeName, page * 25);
+      if (requestId !== transferLeadSequenceRef.current) return;
+      if (!response.success) {
+        setTransferLeadError(response.error);
+        setTransferLeads([]);
+        setTransferLeadTotal(0);
+        return;
+      }
+      setTransferLeads(response.data.leads);
+      setTransferLeadTotal(response.data.total);
+    } catch (error) {
+      if (requestId !== transferLeadSequenceRef.current) return;
+      setTransferLeadError(error instanceof Error ? error.message : "Unable to load employee leads.");
+      setTransferLeads([]);
+      setTransferLeadTotal(0);
+    } finally {
+      if (requestId === transferLeadSequenceRef.current) setIsLoadingTransferLeads(false);
+    }
+  }
+
+  async function selectAllEmployeeTransferLeads() {
+    if (!transferSourceEmployee || isSelectingAllTransferLeads) return;
+    setIsSelectingAllTransferLeads(true);
+    setTransferLeadError("");
+    try {
+      const response = await getEmployeeLeadsForTransfer(transferSourceEmployee, 0, true);
+      if (!response.success) {
+        setTransferLeadError(response.error);
+        return;
+      }
+      setTransferLeadIds((current) => [...new Set([...current, ...response.data.leadIds])]);
+    } catch (error) {
+      setTransferLeadError(error instanceof Error ? error.message : "Unable to select all employee leads.");
+    } finally {
+      setIsSelectingAllTransferLeads(false);
+    }
   }
 
   function toggleAssignmentEmployee(name: string, checked: boolean) {
@@ -1213,8 +1274,10 @@ export function LeadsTable({
 
   async function handleAssignAmongSelectedEmployees() {
     const assignAllMatches = assignmentMode === "filters" && selectAllAssignmentMatches;
-    const leadIdsToAssign = assignmentMode === "selected" || assignmentMode === "transfer-selected"
-      ? selectedLeads
+    const leadIdsToAssign = assignmentMode === "transfer-selected"
+      ? transferLeadIds
+      : assignmentMode === "selected"
+        ? selectedLeads
       : assignAllMatches ? [] : selectedAssignmentLeads.map((lead) => lead.id);
     if ((assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) || (!assignAllMatches && leadIdsToAssign.length === 0) || isBulkActionPending) return;
     setIsBulkActionPending(true);
@@ -1245,6 +1308,7 @@ export function LeadsTable({
         if (assignmentMode === "selected" || assignmentMode === "transfer-selected") {
           setSelectedLeads([]);
           setIsSelectAllChecked(false);
+          setTransferLeadIds([]);
         } else {
           setSelectedAssignmentLeads([]);
           setSelectAllAssignmentMatches(false);
@@ -1832,6 +1896,12 @@ export function LeadsTable({
               </Button>
             )}
             {canDelete && (
+              <Button type="button" variant="outline" onClick={() => openAssignment("transfer-selected")}>
+                <ArrowRightLeft aria-hidden="true" />
+                Transfer Leads
+              </Button>
+            )}
+            {canDelete && (
               <Button type="button" variant="outline" onClick={() => openAssignment("filters")}>
                 <UserRoundPlus aria-hidden="true" />
                 Assign by Filters
@@ -2372,6 +2442,80 @@ export function LeadsTable({
           </DialogHeader>
 
           <div className="space-y-4">
+            {assignmentMode === "transfer-selected" && (
+              <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="transfer-source-employee">Choose the employee whose leads you want to move</Label>
+                  <Select
+                    value={transferSourceEmployee || "choose-employee"}
+                    disabled={isBulkActionPending}
+                    onValueChange={(value) => {
+                      const employeeName = value === "choose-employee" ? "" : String(value ?? "");
+                      setTransferSourceEmployee(employeeName);
+                      setTransferLeadPage(0);
+                      setTransferLeads([]);
+                      setTransferLeadTotal(0);
+                      setTransferLeadError("");
+                      if (employeeName) void loadEmployeeTransferPage(employeeName, 0);
+                      else transferLeadSequenceRef.current += 1;
+                    }}
+                  >
+                    <SelectTrigger id="transfer-source-employee" className="w-full"><SelectValue placeholder="Choose an employee" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="choose-employee">Choose an employee</SelectItem>
+                      {employees.filter((employee) => employee.role === "employee").map((employee) => (
+                        <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-emerald-950">{transferLeadIds.length.toLocaleString()} leads selected to transfer</p>
+                  <div className="flex flex-wrap gap-2">
+                    {transferLeadIds.length > 0 && <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => setTransferLeadIds([])}>Clear selection</Button>}
+                    <Button type="button" variant="outline" size="sm" disabled={!transferSourceEmployee || transferLeadTotal === 0 || isSelectingAllTransferLeads || isLoadingTransferLeads || isBulkActionPending} onClick={() => void selectAllEmployeeTransferLeads()}>
+                      {isSelectingAllTransferLeads && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+                      {isSelectingAllTransferLeads ? "Selecting…" : transferSourceEmployee ? `Select all ${transferLeadTotal.toLocaleString()} for ${transferSourceEmployee}` : "Select all employee leads"}
+                    </Button>
+                  </div>
+                </div>
+                {transferLeadError && <p role="alert" className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm text-rose-800">{transferLeadError}</p>}
+                {transferSourceEmployee && (
+                  <>
+                    <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
+                      {isLoadingTransferLeads ? (
+                        <p className="flex items-center gap-2 px-2 py-5 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading this employee’s leads…</p>
+                      ) : transferLeads.length > 0 ? transferLeads.map((lead) => (
+                        <label key={lead.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-emerald-50">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={transferLeadIds.includes(lead.id)}
+                            disabled={isBulkActionPending}
+                            onChange={(event) => setTransferLeadIds((current) => event.target.checked ? [...new Set([...current, lead.id])] : current.filter((id) => id !== lead.id))}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
+                            <span className="block truncate text-xs text-slate-500">{[lead.status, lead.disease, lead.city].filter(Boolean).join(" · ")}</span>
+                          </span>
+                          {lead.phone ? <PhonePreview value={lead.phone} className="shrink-0 text-xs text-slate-500" /> : null}
+                        </label>
+                      )) : <p className="px-2 py-5 text-sm text-slate-500">No leads are currently assigned to this employee.</p>}
+                    </div>
+                    {transferLeadTotal > 25 && (
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-slate-600">Showing {transferLeadPage * 25 + 1}–{Math.min((transferLeadPage + 1) * 25, transferLeadTotal)} of {transferLeadTotal.toLocaleString()}</p>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="outline" size="sm" disabled={transferLeadPage === 0 || isLoadingTransferLeads} onClick={() => { const page = transferLeadPage - 1; setTransferLeadPage(page); void loadEmployeeTransferPage(transferSourceEmployee, page); }}>Previous</Button>
+                          <Button type="button" variant="outline" size="sm" disabled={(transferLeadPage + 1) * 25 >= transferLeadTotal || isLoadingTransferLeads} onClick={() => { const page = transferLeadPage + 1; setTransferLeadPage(page); void loadEmployeeTransferPage(transferSourceEmployee, page); }}>Next</Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+
             {assignmentMode !== "selected" && assignmentMode !== "transfer-selected" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
@@ -2628,7 +2772,9 @@ export function LeadsTable({
               disabled={
                 isBulkActionPending ||
                 (assignmentMode !== "add-to-batch" && assignmentEmployeeNames.length === 0) ||
-                (assignmentMode === "selected"
+                (assignmentMode === "transfer-selected"
+                  ? transferLeadIds.length === 0
+                  : assignmentMode === "selected"
                   ? selectedLeads.length === 0
                   : assignmentMode === "add-to-batch"
                     ? selectedAssignmentLeads.length === 0

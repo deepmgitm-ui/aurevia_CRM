@@ -2624,6 +2624,79 @@ export interface LeadAssignmentSuggestion {
 const ASSIGNMENT_SUGGESTION_PAGE_SIZE = 25;
 const BULK_ASSIGNMENT_LIMIT = 10000;
 
+/** Lists one employee's leads for the admin transfer picker; optionally returns all IDs. */
+export async function getEmployeeLeadsForTransfer(
+  employeeName: string,
+  offset = 0,
+  selectAll = false,
+): Promise<ActionResult<{ leads: LeadAssignmentSuggestion[]; leadIds: string[]; total: number; hasMore: boolean }>> {
+  const name = typeof employeeName === "string" ? employeeName.trim() : "";
+  if (!name) return { success: false, error: "Choose an employee first." };
+  const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can select leads for transfer (403 Forbidden)." };
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("name", name)
+      .maybeSingle();
+    if (profileError) return { success: false, error: profileError.message };
+    if (!profile || (viewerRole !== "admin" && profile.role !== "employee")) {
+      return { success: false, error: "That employee is unavailable for transfer." };
+    }
+
+    if (selectAll) {
+      const { count, error: countError } = await supabase
+        .from("leads")
+        .select("id", { count: "exact", head: true })
+        .eq("assigned_to", profile.name);
+      if (countError) return { success: false, error: countError.message };
+      const total = count ?? 0;
+      if (total > BULK_ASSIGNMENT_LIMIT) {
+        return { success: false, error: `This employee has ${total.toLocaleString()} leads. Select a smaller group (up to ${BULK_ASSIGNMENT_LIMIT.toLocaleString()}) for one transfer.` };
+      }
+      const leadIds: string[] = [];
+      for (let from = 0; from < total; from += 500) {
+        const { data, error } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("assigned_to", profile.name)
+          .range(from, Math.min(from + 499, total - 1));
+        if (error) return { success: false, error: error.message };
+        leadIds.push(...(data ?? []).map((lead) => lead.id));
+      }
+      return { success: true, data: { leads: [], leadIds, total, hasMore: false } };
+    }
+
+    const { data, count, error } = await supabase
+      .from("leads")
+      .select("id, name, phone, city, disease, source, status, assigned_to", { count: "exact" })
+      .eq("assigned_to", profile.name)
+      .order("name", { ascending: true })
+      .order("created_at", { ascending: false })
+      .range(safeOffset, safeOffset + ASSIGNMENT_SUGGESTION_PAGE_SIZE - 1);
+    if (error) return { success: false, error: error.message };
+    const leads = (data ?? []).map((lead) => ({
+      id: lead.id,
+      name: lead.name ?? "",
+      phone: lead.phone,
+      city: lead.city ?? "",
+      disease: lead.disease ?? "",
+      source: lead.source ?? "",
+      status: lead.status ?? "",
+      assigned_to: lead.assigned_to ?? null,
+    }));
+    const total = count ?? 0;
+    return { success: true, data: { leads, leadIds: [], total, hasMore: safeOffset + leads.length < total } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to load this employee's leads for transfer.") };
+  }
+}
+
 export interface LeadAssignmentBatch {
   id: string;
   label: string;
