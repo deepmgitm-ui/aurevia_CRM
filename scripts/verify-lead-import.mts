@@ -16,6 +16,7 @@ import {
   normalizeImportedLeadStatus,
 } from "../lib/lead-import.ts";
 import { canonicalLeadStatus, leadStatusStorageValues } from "../lib/lead-status.ts";
+import { maskPhoneForList } from "../lib/phone-display.ts";
 
 const googleExport = {
   "Full Name": "Test Google Lead",
@@ -58,6 +59,9 @@ assert.equal(normalizeImportedLeadStatus("Didn’t Enquired"), "Didn’t Enquire
 assert.equal(isDuplicatePhoneImportError({ message: "Phone already exists. Search the existing lead" }), true);
 assert.equal(isDuplicatePhoneImportError({ message: "new row violates row-level security policy" }), false);
 assert.equal(isDuplicatePhoneImportError(null), false);
+assert.equal(maskPhoneForList("+91 98765 43210"), "*******210");
+assert.equal(maskPhoneForList("123"), "123");
+assert.equal(maskPhoneForList("-"), "-");
 assert.equal(findLeadImportValue(googleExport, "status"), "New Lead");
 assert.equal(findLeadImportValue({ "First Name": "Asha", Surname: "Sharma" }, "name"), "Asha Sharma");
 assert.equal(

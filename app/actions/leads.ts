@@ -1694,7 +1694,7 @@ export async function bulkInsertLeads(
       return {
         success: false,
         error: /crm_existing_phone_identities/i.test(existingError.message)
-          ? "Phone duplicate protection needs the latest database update. Contact your administrator before retrying this import."
+          ? "Phone duplicate protection is temporarily unavailable. Please retry the import shortly."
           : existingError.message,
       };
     }
@@ -3511,7 +3511,7 @@ export async function updateLeadDetails(
         .limit(1);
       if (duplicateError) return { success: false, error: duplicateError.message };
       if (duplicate && duplicate.length > 0) {
-        return { success: false, error: "Another lead already has this phone number." };
+        return { success: false, error: "Phone already exists." };
       }
     }
 

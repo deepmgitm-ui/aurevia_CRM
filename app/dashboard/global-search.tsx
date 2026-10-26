@@ -8,6 +8,7 @@ import { searchLeadsForGlobalSearch, type GlobalLeadSearchResult } from "@/app/a
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { maskPhoneForList } from "@/lib/phone-display";
 
 const destinations = [
   { label: "Dashboard", href: "/dashboard", roles: ["admin", "manager", "employee"] },
@@ -143,7 +144,7 @@ export function GlobalSearch({ role }: { role: string }) {
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>
-                      <span className="block truncate text-xs text-slate-500">{[lead.phone, lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
+                      <span className="block truncate text-xs text-slate-500">{[maskPhoneForList(lead.phone), lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
                     </span>
                     <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{lead.status}</span>
                     <ArrowRight className="size-4 text-slate-300 group-hover:text-emerald-700" aria-hidden="true" />

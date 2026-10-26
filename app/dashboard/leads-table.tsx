@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CallingWorkspace } from "./calling-workspace";
 import { voiceBotTreatment } from "@/lib/lead-treatment";
+import { maskPhoneForList } from "@/lib/phone-display";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, MessageCircle, Pencil, Phone, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, Pencil, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
 import {
   findLeadImportHeaderRow,
   getRecognizedLeadImportFields,
@@ -2039,7 +2040,7 @@ export function LeadsTable({
               <TableHead className="w-[150px]">Contact</TableHead>
               <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[140px]">City</TableHead>
-              <TableHead className="w-[150px]">Treatment</TableHead>
+              <TableHead className="w-[150px]">Surgery / Treatment</TableHead>
               <SortableTableHead className="w-[180px]" label="Status" sortKey="status" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[180px]">Temp</TableHead>
               <SortableTableHead className="w-[180px]" label="Assigned To" sortKey="assigned_to" sortConfig={sortConfig} onSort={toggleSort} />
@@ -2135,29 +2136,9 @@ export function LeadsTable({
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
-                    <div className="flex flex-col items-start gap-1.5">
-                      <span className="font-medium">{lead.phone}</span>
-                      <div className="flex items-center gap-1">
-                        <a
-                          href={`tel:${(lead.phone ?? "").replace(/\D/g, "")}`}
-                          aria-label={`Call ${lead.name}`}
-                          title="Call"
-                          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-1.5 py-1 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                        >
-                          <Phone className="size-3" aria-hidden="true" />
-                        </a>
-                        <a
-                          href={`https://wa.me/91${(lead.phone ?? "").replace(/\D/g, "")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`WhatsApp ${lead.name}`}
-                          title="WhatsApp"
-                          className="inline-flex items-center rounded-md border border-green-300 bg-green-50 px-1.5 py-1 text-green-700 transition-colors hover:bg-green-100"
-                        >
-                          <MessageCircle className="size-3" aria-hidden="true" />
-                        </a>
-                      </div>
-                    </div>
+                    <span className="font-medium tabular-nums" aria-label="Phone masked; open patient details to view the full number" title="Open patient details to view the full number">
+                      {maskPhoneForList(lead.phone)}
+                    </span>
                   </TableCell>
                   <TableCell className="w-[130px] max-w-[130px] py-3">
                     <div className="space-y-0.5">
