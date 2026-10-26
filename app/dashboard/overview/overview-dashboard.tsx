@@ -104,7 +104,7 @@ export function OverviewDashboard({
   /** Set when the opening window was widened to match the data (never silent). */
   rangeNote?: string;
   /** Signed-in admin/manager — powers the personalised greeting banner. */
-  viewer?: { name: string; role: string };
+  viewer?: { name: string; role: string; gender?: string | null };
 }) {
   const [filters, setFilters] = useState<DashboardFilters>(() => emptyFilters(range));
   const [granularity, setGranularity] = useState<Granularity>("monthly");
@@ -173,7 +173,7 @@ export function OverviewDashboard({
     <div className="space-y-4">
       <h1 className="sr-only">Admin overview dashboard</h1>
 
-      <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <DashboardGreeting name={viewer?.name} role={viewer?.role} gender={viewer?.gender} />
 
       <KpiCards kpis={metrics.kpis} />
 

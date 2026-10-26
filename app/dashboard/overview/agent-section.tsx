@@ -32,6 +32,7 @@ import {
   type AgentCard,
   type AgentStat,
 } from "./analytics";
+import { normalizeGreetingGender } from "./greeting-copy";
 
 function initials(name: string): string {
   return name
@@ -75,7 +76,7 @@ function EmployeeProfileEditor({
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [email, setEmail] = useState(profile.email ?? "");
-  const [gender, setGender] = useState(profile.gender ?? "");
+  const [gender, setGender] = useState(() => normalizeGreetingGender(profile.gender));
   const [bloodGroup, setBloodGroup] = useState(profile.blood_group ?? "");
   const [emergencyContact, setEmergencyContact] = useState(profile.emergency_contact ?? "");
   const [managerName, setManagerName] = useState(profile.manager_name ?? "");
@@ -158,7 +159,7 @@ function EmployeeProfileEditor({
       setName(response.profile.name);
       setPhone(response.profile.phone ?? "");
       setEmail(response.profile.email ?? "");
-      setGender(response.profile.gender ?? "");
+      setGender(normalizeGreetingGender(response.profile.gender));
       setBloodGroup(response.profile.blood_group ?? "");
       setEmergencyContact(response.profile.emergency_contact ?? "");
       setManagerName(response.profile.manager_name ?? "");
@@ -236,7 +237,15 @@ function EmployeeProfileEditor({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="agent-profile-gender">Gender</Label>
-          <Input id="agent-profile-gender" value={gender} onChange={(event) => setGender(event.target.value)} maxLength={40} disabled={isSaving} />
+          <Select value={gender || "not-set"} onValueChange={(value) => setGender(value === "not-set" ? "" : normalizeGreetingGender(value))} disabled={isSaving}>
+            <SelectTrigger id="agent-profile-gender"><SelectValue placeholder="Choose a preference" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Male">Male</SelectItem>
+              <SelectItem value="Female">Female</SelectItem>
+              <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
+              <SelectItem value="not-set">Not set</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="agent-profile-blood-group">Blood group</Label>

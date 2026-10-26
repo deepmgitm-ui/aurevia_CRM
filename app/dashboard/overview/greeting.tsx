@@ -20,7 +20,7 @@ import {
   type PartOfDay,
 } from "./greeting-copy";
 
-export function DashboardGreeting({ name, role }: { name?: string; role?: string }) {
+export function DashboardGreeting({ name, role, gender }: { name?: string; role?: string; gender?: string | null }) {
   const [part, setPart] = useState<PartOfDay | null>(null);
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export function DashboardGreeting({ name, role }: { name?: string; role?: string
         </span>
         <div>
           <p className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
-            {greetingHeadline(part, name)}{" "}
+            {greetingHeadline(part, name, gender)}{" "}
             <Sparkles className="inline size-4 text-amber-500" aria-hidden="true" />
           </p>
           <p className="text-sm text-slate-600">{cheerFor(role, part)}</p>

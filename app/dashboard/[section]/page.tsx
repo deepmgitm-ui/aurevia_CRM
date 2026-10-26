@@ -520,7 +520,7 @@ export default async function SectionPage({
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-4">
-      <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <DashboardGreeting name={viewer?.name} role={viewer?.role} gender={viewer?.gender} />
       <RangeNote note={rangeNote} />
       {renderSection(
         section,

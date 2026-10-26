@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 export type PartOfDay = "morning" | "afternoon" | "evening";
+export type GreetingGender = "Male" | "Female" | "Prefer not to say" | "";
 
 export interface GreetingTheme {
   label: string;
@@ -57,8 +58,23 @@ export function cheerFor(role: string | undefined, part: PartOfDay): string {
   return part === "evening" ? "Great day of work — let's finish strong! ✨" : "Let's close some deals today! 🚀";
 }
 
-/** Full first line, e.g. "Good Morning, Admin!". */
-export function greetingHeadline(part: PartOfDay, name: string | undefined): string {
+/** Keep legacy profile values safe while using only the explicit title choices. */
+export function normalizeGreetingGender(value: string | null | undefined): GreetingGender {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (["male", "m", "man"].includes(normalized)) return "Male";
+  if (["female", "f", "woman"].includes(normalized)) return "Female";
+  if (normalized === "prefer not to say") return "Prefer not to say";
+  return "";
+}
+
+/** Full first line, e.g. "Good Morning, Mr. Deep!". */
+export function greetingHeadline(
+  part: PartOfDay,
+  name: string | undefined,
+  gender?: string | null,
+): string {
   const displayName = (name ?? "").trim() || "there";
-  return `${GREETING_THEMES[part].label}, ${displayName}!`;
+  const preference = normalizeGreetingGender(gender);
+  const salutation = preference === "Male" ? "Mr. " : preference === "Female" ? "Ms. " : "";
+  return `${GREETING_THEMES[part].label}, ${salutation}${displayName}!`;
 }

@@ -1247,6 +1247,7 @@ export interface Viewer {
   id: string;
   name: string;
   role: ViewerRole;
+  gender: string | null;
 }
 
 // Returns the signed-in user's profile (or null when signed out) so the
@@ -1263,14 +1264,19 @@ export async function getViewer(): Promise<ActionResult<Viewer | null>> {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, name, role")
+      .select("id, name, role, employee_private_profiles(gender)")
       .eq("id", user.id)
       .single();
     if (profileError || !profile) return { success: true, data: null };
 
+    const privateProfile = Array.isArray(profile.employee_private_profiles)
+      ? profile.employee_private_profiles[0]
+      : profile.employee_private_profiles;
+    const gender = typeof privateProfile?.gender === "string" ? privateProfile.gender : null;
+
     return {
       success: true,
-      data: { id: profile.id, name: profile.name ?? "", role: profile.role as ViewerRole },
+      data: { id: profile.id, name: profile.name ?? "", role: profile.role as ViewerRole, gender },
     };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load your profile.") };

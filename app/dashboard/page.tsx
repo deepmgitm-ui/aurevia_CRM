@@ -165,7 +165,7 @@ export default async function DashboardPage({
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8">
       {!query.day && <ClinicDayRefresh />}
-      <DashboardGreeting name={viewer?.name} role={viewer?.role} />
+      <DashboardGreeting name={viewer?.name} role={viewer?.role} gender={viewer?.gender} />
       <TeamActivityPanel key={day} day={day} own />
 
       <div>
