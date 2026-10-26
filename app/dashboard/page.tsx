@@ -92,12 +92,13 @@ export default async function DashboardPage({
 
   // ---- Admin/Manager default view: the analytics Overview dashboard ----
   if (isTeamLead) {
-    const [leadsResult, directoryResult, teamResult, pipelineSummaryResult] = await Promise.all([
+    const [leadsResult, directoryResult, teamResult, pipelineSummaryResult, insightsResult] = await Promise.all([
       // Light projection (no `select('*')`) — only the columns the cards read.
       getAnalyticsLeads(query.from, query.to),
       getEmployeeDirectory(),
       getTeamStats(),
       getLeadPipelineSummary(),
+      getPipelineInsights(),
     ]);
     if(!leadsResult.success) throw new Error(leadsResult.error);
     const leads = leadsResult.data;
@@ -108,7 +109,6 @@ export default async function DashboardPage({
     // import from an older month) would otherwise render every card as zero.
     // Shared with every analysis tab so the two can never disagree.
     const { range, note: rangeNote } = resolveDashboardWindow(query, rows);
-    const insightsResult = await getPipelineInsights();
     const insights = insightsResult.success ? insightsResult.data : null;
 
     return (

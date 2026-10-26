@@ -62,20 +62,16 @@ async function DashboardShellData({
   children: ReactNode;
 }) {
   const supabase = await createClient();
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("name, role")
-    .eq("id", userId)
-    .single();
+  const [profileResult, privateProfileResult] = await Promise.all([
+    supabase.from("profiles").select("name, role").eq("id", userId).single(),
+    supabase.from("employee_private_profiles").select("photo_url").eq("id", userId).maybeSingle(),
+  ]);
+  const { data: profile, error: profileError } = profileResult;
   const profileNameValue = profile?.name;
   const profileRoleValue = profile?.role;
   if (profileError) console.error("[dashboard] Unable to load the signed-in profile:", profileError.message);
 
-  const { data: privateProfile, error: privateProfileError } = await supabase
-    .from("employee_private_profiles")
-    .select("photo_url")
-    .eq("id", userId)
-    .maybeSingle();
+  const { data: privateProfile, error: privateProfileError } = privateProfileResult;
   let photoUrl = typeof privateProfile?.photo_url === "string" ? privateProfile.photo_url : null;
   if (privateProfileError && /employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateProfileError.message)) {
     // Compatibility while the additive privacy migration is being rolled out.
