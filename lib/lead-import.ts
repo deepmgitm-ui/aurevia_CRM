@@ -190,6 +190,11 @@ export const LEAD_IMPORT_ALIASES = {
 
 export type LeadImportField = keyof typeof LEAD_IMPORT_ALIASES;
 
+/** The database phone guard reports duplicates with this stable message. */
+export function isDuplicatePhoneImportError(error: { message?: string | null } | null | undefined): boolean {
+  return /phone already exists/i.test(error?.message ?? "");
+}
+
 export const LEAD_IMPORT_PREVIEW_FIELDS: {
   field: LeadImportField;
   label: string;

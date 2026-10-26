@@ -11,6 +11,7 @@ import {
   findLeadImportValue,
   getUnmappedLeadImportValues,
   getRecognizedLeadImportFields,
+  isDuplicatePhoneImportError,
   leadImportGridToRecords,
   normalizeImportedLeadStatus,
 } from "../lib/lead-import.ts";
@@ -54,6 +55,9 @@ assert.deepEqual(leadStatusStorageValues("IPD Done"), ["IPD Done", "Won", "Surge
 assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow-Up");
 assert.equal(normalizeImportedLeadStatus("Didn't Enquired"), "Didn’t Enquired");
 assert.equal(normalizeImportedLeadStatus("Didn’t Enquired"), "Didn’t Enquired");
+assert.equal(isDuplicatePhoneImportError({ message: "Phone already exists. Search the existing lead" }), true);
+assert.equal(isDuplicatePhoneImportError({ message: "new row violates row-level security policy" }), false);
+assert.equal(isDuplicatePhoneImportError(null), false);
 assert.equal(findLeadImportValue(googleExport, "status"), "New Lead");
 assert.equal(findLeadImportValue({ "First Name": "Asha", Surname: "Sharma" }, "name"), "Asha Sharma");
 assert.equal(

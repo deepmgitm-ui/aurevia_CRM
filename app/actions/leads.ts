@@ -44,6 +44,7 @@ import { canonicalLeadStatus, isLeadStatusOption, leadStatusStorageValues } from
 import {
   cleanImportedLeadRemarks,
   findLeadImportValue,
+  isDuplicatePhoneImportError,
   normalizeImportedLeadStatus,
 } from "@/lib/lead-import";
 
@@ -1751,6 +1752,36 @@ export async function bulkInsertLeads(
         .select();
 
       if (error) {
+        // The database trigger is the final authority on duplicate phones. A
+        // phone can become duplicate after the preflight lookup, and one such
+        // row rolls back the whole PostgREST batch. Retry that exceptional
+        // batch row-by-row so valid leads still import and existing leads are
+        // never overwritten.
+        if (isDuplicatePhoneImportError(error)) {
+          for (let rowOffset = 0; rowOffset < chunk.length; rowOffset += 1) {
+            const { data: rowData, error: rowError } = await supabase
+              .from("leads")
+              .insert(chunk[rowOffset])
+              .select()
+              .maybeSingle();
+
+            if (isDuplicatePhoneImportError(rowError)) {
+              skippedDuplicates += 1;
+              continue;
+            }
+            if (rowError) {
+              const rowNumber = index + rowOffset + 1;
+              const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved; ` : "";
+              return {
+                success: false,
+                error: `${saved}${skippedDuplicates} duplicate rows were skipped. Row ${rowNumber} failed: ${sourceBatchMigrationError(rowError)}`,
+              };
+            }
+            if (rowData) insertedLeads.push(rowData as Lead);
+          }
+          continue;
+        }
+
         const from = index + 1;
         const to = Math.min(index + chunkSize, freshRecords.length);
         const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved before the failure. ` : "";
