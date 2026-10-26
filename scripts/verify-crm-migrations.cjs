@@ -398,6 +398,23 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.ok(bucketSummary.lost >= 1, "closed outcomes are included in role-scoped lead summaries");
   assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
 
+  // Calling outcomes keep their own status cards and do not leak into the
+  // Follow-up Work continuation queue.
+  const callOutcomeIds = [];
+  for (const [index, status] of ["DNP", "RNR", "CallBack", "Follow-Up"].entries()) {
+    callOutcomeIds.push((await db.query(
+      "insert into leads(name,phone,assigned_to,status,first_agent_touch_at) values($1,$2,'Agent A',$3,now()) returning id",
+      [`Bucket ${status}`, String(9100000200 + index), status],
+    )).rows[0].id);
+  }
+  const isolatedSummary = (await db.query("select crm_lead_bucket_summary('Agent A') x")).rows[0].x;
+  assert.equal(isolatedSummary.followUp, 3, "only touched New and explicit Follow-Up work enters Follow-up Work");
+  assert.equal(isolatedSummary.statuses.DNP, 1);
+  assert.equal(isolatedSummary.statuses.RNR, 1);
+  assert.equal(isolatedSummary.statuses.CallBack, 1);
+  const isolatedGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
+  assert.equal(Number(isolatedGroups.find((row) => row.bucket === "followup").lead_count), 3);
+
   // Appointment RLS follows the current employee assignment and changes on reassignment.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   const otherAppointmentLead = (await db.query(
@@ -424,14 +441,14 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 1, "reassignment grants the new employee access");
   await db.exec("reset role;");
 
-  // Closed statuses wait seven days before review. Agent notes are private to
-  // that assigned employee; only an administrator can Keep or Delete.
+  // Reviews appear during the seven-day window; admin Keep prevents cleanup.
   await db.exec("reset role;");
   const keepLead = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','Not Interested',now()-interval '8 days') returning id",
+    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','Not Interested',now()-interval '2 days') returning id",
   )).rows[0].id;
   await db.query("select crm_private.daily_lost_lead_reviews()");
   const keepReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [keepLead])).rows[0].id;
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [keepLead])).rows[0].n, 1, "leads younger than seven closed days are retained");
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   await db.query("select crm_submit_deletion_review_note($1,'Patient requested a callback')", [keepReview]);
   assert.equal((await db.query("select agent_note from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].agent_note, "Patient requested a callback");
@@ -443,8 +460,8 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.query("select crm_admin_resolve_deletion_review($1,'keep',null)", [keepReview]);
   assert.equal((await db.query("select decision from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].decision, "kept");
 
-  // When the review remains unanswered through its seven-day deadline, lead,
-  // activity, appointments, assignment history and JSON recovery copies purge.
+  // After seven closed days, linked data is removed only after a complete
+  // Recent Deletions snapshot is saved. Older duplicate snapshots are scrubbed.
   await db.exec("reset role;");
   const purgeLead = (await db.query(
     "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Purge','9190000002','Agent A','Wrong Number',now()-interval '8 days') returning id",
@@ -453,14 +470,14 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   const purgeAppointment = (await db.query("insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id", [purgeLead, today])).rows[0].id;
   await db.query("insert into lead_deletion_backups(scope,search,row_count,activity_count,lead_rows,activity_rows) values('selected','',1,1,jsonb_build_array(jsonb_build_object('id',$1::text,'name','Review Purge')),jsonb_build_array(jsonb_build_object('lead_id',$1::text,'description','Private patient note')))", [purgeLead]);
   await db.query("select crm_private.daily_lost_lead_reviews()");
-  const purgeReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [purgeLead])).rows[0].id;
-  await db.query("update crm_lead_deletion_reviews set delete_after=now()-interval '1 minute' where id=$1", [purgeReview]);
-  await db.query("select crm_private.daily_lost_lead_reviews()");
   assert.equal((await db.query("select count(*)::int n from leads where id=$1", [purgeLead])).rows[0].n, 0, "unanswered due review removes lead");
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [purgeLead])).rows[0].n, 0);
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [purgeAppointment])).rows[0].n, 0);
   assert.equal((await db.query("select count(*)::int n from crm_assignment_events where lead_id=$1", [purgeLead])).rows[0].n, 0);
-  assert.equal((await db.query("select count(*)::int n from lead_deletion_backups where lead_rows @> jsonb_build_array(jsonb_build_object('id',$1::text))", [purgeLead])).rows[0].n, 0, "recovery copy is scrubbed");
+  const savedBackup = (await db.query("select scope,lead_rows from lead_deletion_backups where lead_rows @> jsonb_build_array(jsonb_build_object('id',$1::text))", [purgeLead])).rows;
+  assert.equal(savedBackup.length, 1, "the newest recoverable snapshot survives lead deletion");
+  assert.equal(savedBackup[0].scope, "Lost leads — 7-day auto-cleanup");
+  assert.equal(savedBackup[0].lead_rows[0].name, "Review Purge");
 
   await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');

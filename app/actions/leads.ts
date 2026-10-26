@@ -545,6 +545,14 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
   } else if (resolved.bucket) {
     filtered = filtered.eq("workflow_bucket", resolved.bucket === "lost" ? "closed" : resolved.bucket);
+    if (resolved.bucket === "followup") {
+      // Follow-up Work is the continuation queue: touched New leads and
+      // explicit Follow-Up statuses belong here, while DNP/RNR/CallBack and
+      // closed outcomes are shown by their own status cards.
+      filtered = filtered.or(
+        'status.is.null,status.in.(New,"New Lead","-","--",Follow-Up,"Follow Up",Contacted)',
+      );
+    }
   }
   if (resolved.bucket === "fresh") {
     filtered = filtered.lt("assigned_fresh_since", assignmentDayWindow(clinicDate()).from);
