@@ -2,13 +2,11 @@ import Link from "next/link";
 import { X } from "lucide-react";
 
 import {
-  getLeadCounts,
   getLeadsPage,
   getLeadPipelineSummary,
   getDailyWorkCounts,
   getTeamStats,
   getViewer,
-  type LeadCounts,
 } from "@/app/actions/leads";
 
 import { DashboardStats } from "../dashboard-stats";
@@ -39,9 +37,8 @@ export default async function LeadsPage({
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, countsResult, viewerResult, teamResult, employeeSummaryResult] = await Promise.all([
+  const [leadsResult, viewerResult, teamResult, employeeSummaryResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
-    getLeadCounts(),
     getViewer(),
     getTeamStats(),
     getLeadPipelineSummary(filters.assigned),
@@ -49,9 +46,6 @@ export default async function LeadsPage({
   const viewer = viewerResult.success ? viewerResult.data : null;
   const dailyNewLeadsResult = viewer?.role === "employee" ? await getDailyWorkCounts(today) : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
-  const counts: LeadCounts = countsResult.success
-    ? countsResult.data
-    : { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
   const pipelineSummary = employeeSummaryResult.success
@@ -63,7 +57,8 @@ export default async function LeadsPage({
   // filtered result — the difference is what the filters are hiding. When that is
   // the whole pipeline (e.g. 892 leads, 0 shown) the page says so instead of
   // looking like an empty database.
-  const hiddenByFilters = Math.max(counts.total - leadsPage.total, 0);
+  const totalInScope = pipelineSummary.total;
+  const hiddenByFilters = Math.max(totalInScope - leadsPage.total, 0);
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
@@ -104,7 +99,7 @@ export default async function LeadsPage({
           <div>
             <p className="text-sm font-semibold text-amber-900">
               {hiddenByFilters > 0
-                ? `${hiddenByFilters.toLocaleString()} of your ${counts.total.toLocaleString()} leads are hidden by these filters.`
+                ? `${hiddenByFilters.toLocaleString()} of ${totalInScope.toLocaleString()} leads in this selection are hidden by these filters.`
                 : "Filters are active on this list."}
             </p>
             <p className="mt-1 text-xs text-amber-800">
@@ -117,7 +112,7 @@ export default async function LeadsPage({
             className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 shadow-sm transition-colors hover:bg-amber-100"
           >
             <X className="size-4" aria-hidden="true" />
-            Show all {counts.total.toLocaleString()} leads
+            Show all {totalInScope.toLocaleString()} leads
           </Link>
         </div>
       )}

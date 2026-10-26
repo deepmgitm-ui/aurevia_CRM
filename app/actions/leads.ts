@@ -316,13 +316,6 @@ export const getAnalyticsLeads=cache(async(from?:string,to?:string):Promise<Acti
 // the dashboard stays fast with 1k+ leads instead of loading the entire table.
 const LEADS_PAGE_SIZE = 50;
 
-export interface LeadCounts {
-  total: number;
-  new: number;
-  followUp: number;
-  won: number;
-  lost: number;
-}
 export interface LeadsPageData {
   leads: Lead[];
   total: number;
@@ -887,73 +880,6 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
     return { success: true, data: [...counts].map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count) };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to load assignment statuses.") };
-  }
-}
-
-export async function getLeadCounts(assignedTo = ""): Promise<ActionResult<LeadCounts>> {
-  const emptyCounts: LeadCounts = { total: 0, new: 0, followUp: 0, won: 0, lost: 0 };
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return { success: true, data: emptyCounts };
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("name, role")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return { success: true, data: emptyCounts };
-    }
-
-    if (profile.role === "employee" && !profile.name?.trim()) {
-      return { success: true, data: emptyCounts };
-    }
-
-    const totalQuery = buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo);
-    const statusCountQuery = (status: string) =>
-      applyStatusChoice(
-        buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo),
-        status,
-      );
-    const statusValuesCountQuery = (statuses: string[]) =>
-      buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).in("status", statuses);
-  const followUpQuery = applyStatusChoice(buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo), "Follow-Up");
-
-    const [totalRes, newRes, followUpRes, wonRes, lostRes] = await Promise.all([
-      totalQuery,
-      statusCountQuery("New"),
-      followUpQuery,
-      statusValuesCountQuery(["OPD Done", "Consultation Attended", "IPD Done", "Won", "Surgery Completed"]),
-      buildScopedLeadsQuery(supabase, profile.role, profile.name, true, assignedTo).eq("workflow_bucket", "closed"),
-    ]);
-
-    for (const result of [totalRes, newRes, followUpRes, wonRes, lostRes]) {
-      if (result.error) {
-        return { success: false, error: result.error.message };
-      }
-    }
-
-    return {
-      success: true,
-      data: {
-        total: totalRes.count ?? 0,
-        new: newRes.count ?? 0,
-        followUp: followUpRes.count ?? 0,
-        won: wonRes.count ?? 0,
-        lost: lostRes.count ?? 0,
-      },
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: getErrorMessage(error, "Unable to fetch lead counts."),
-    };
   }
 }
 
