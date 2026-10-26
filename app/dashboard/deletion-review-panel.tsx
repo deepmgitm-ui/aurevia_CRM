@@ -2,6 +2,7 @@ import { AlertTriangle, Clock3 } from "lucide-react";
 
 import { getDeletionReviews, resolveDeletionReview } from "@/app/actions/deletion-reviews";
 import { DeletionReviewDeleteButton } from "./deletion-review-delete-button";
+import { PhonePreview } from "./phone-preview";
 
 function displayDate(value: string): string {
   return new Date(value).toLocaleString("en-IN", {
@@ -43,7 +44,7 @@ export async function DeletionReviewPanel({ role }: { role: string }) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-slate-950">{review.leadName}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{review.phone || "No phone recorded"} · {review.status}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600"><PhonePreview value={review.phone} /> <span>· {review.status}</span></p>
                   <p className="mt-1 text-xs text-slate-500">Assigned to {review.assignedTo}</p>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-slate-600">

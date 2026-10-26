@@ -15,6 +15,7 @@ import { getLeadsPage, type Lead } from "@/app/actions/leads";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { LeadDetailDrawer } from "../lead-detail-drawer";
+import { PhonePreview } from "../phone-preview";
 import { leadsHref, type LeadListFilters } from "../lead-filters";
 import type { PipelineRow, TreatmentSeries } from "./analytics";
 import { PipelineChart } from "./charts";
@@ -108,20 +109,21 @@ export function PipelineDetail({
           {!loadingPatients && patients.length > 0 && (
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
               {patients.map((patient) => (
-                <li key={patient.id}>
+                <li key={patient.id} className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50">
                   <button
                     type="button"
                     onClick={() => openPatient(patient.id)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                    className="min-w-0 flex-1 text-left"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-slate-900">{patient.name}</span>
                       <span className="block text-xs text-slate-500">
-                        {patient.phone} · {patient.city} · {patient.status}
+                        {patient.city} · {patient.status}
                       </span>
                     </span>
-                    <ArrowUpRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
                   </button>
+                  <PhonePreview value={patient.phone} className="text-xs text-slate-500" />
+                  <ArrowUpRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
                 </li>
               ))}
             </ul>

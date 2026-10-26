@@ -19,6 +19,7 @@ import {
   type ViewerRole,
 } from "@/app/actions/leads";
 import { toast } from "@/components/ui/toast";
+import { PhonePreview } from "../phone-preview";
 
 import { EMPTY_LEAD_FILTERS, leadsHref, relativeLeadAge } from "../lead-filters";
 import { LeadDetailDrawer } from "../lead-detail-drawer";
@@ -100,6 +101,7 @@ function BoardCard({
         </span>
       </div>
       <div className="mt-2.5 flex items-center gap-2">
+        {lead.phone && lead.phone !== "-" && <PhonePreview value={lead.phone} className="text-[11px] text-slate-600" />}
         {lead.phone && lead.phone !== "-" && (
           <a
             href={`tel:${lead.phone}`}

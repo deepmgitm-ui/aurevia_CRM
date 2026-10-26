@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CALENDAR_ENTRY_TYPES, shouldSyncLeadStatus, type CalendarEntryKind } from "@/lib/calendar-entry";
 import { getCalendarEditorLead, saveCalendarEntry, searchCalendarLeads, type CalendarEditorLead } from "./entry-actions";
+import { PhonePreview } from "../phone-preview";
 
 interface EditorProps {
   defaultDate: string; agents: string[]; leadId?: string; defaultKind?: CalendarEntryKind; label?: string;
@@ -101,7 +102,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
           <Button type="submit" variant="outline" disabled={loading}>Search</Button>
         </form>
         {searched && results.length === 0 && <p className="text-sm text-slate-500">No patients found. Search another name or add a new patient.</p>}
-        <ul className="max-h-48 space-y-2 overflow-y-auto">{results.map((patient) => <li key={patient.id}><button type="button" onClick={() => { setSelected(patient); setError(""); }} className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50"><span className="block text-sm font-semibold">{patient.name}</span><span className="text-xs text-slate-500">{displayValue(patient.phone) || "No phone"} · {patient.status} · {patient.assigned_to || "Unassigned"}</span></button></li>)}</ul>
+        <ul className="max-h-48 space-y-2 overflow-y-auto">{results.map((patient) => <li key={patient.id}><div className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50"><button type="button" onClick={() => { setSelected(patient); setError(""); }} className="block w-full text-left"><span className="block text-sm font-semibold">{patient.name}</span><span className="text-xs text-slate-500">{patient.status} · {patient.assigned_to || "Unassigned"}</span></button><PhonePreview value={displayValue(patient.phone)} className="mt-1 text-xs text-slate-600" /></div></li>)}</ul>
         {results.length === 20 && <p className="text-xs text-slate-500">Showing the first 20 matches. Search a more specific name or phone.</p>}
       </>}
       {(mode === "new" || selected) && !loading && <form key={mode === "new" ? "new" : selected?.id} onSubmit={save} className="space-y-4">

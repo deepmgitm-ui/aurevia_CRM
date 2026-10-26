@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { PhonePreview } from "../phone-preview";
 interface Capacity {
   databaseBytes: number;
   storageBytes: number | null;
@@ -299,7 +300,7 @@ function DuplicateReview({
   return (
     <div className="rounded-lg border p-3">
       <p className="font-medium">
-        {group.phone} · {group.count} records
+        <PhonePreview value={group.phone} /> · {group.count} records
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {[
@@ -361,7 +362,7 @@ function DuplicateReview({
               saving. The duplicate active row is removed.
             </p>
             <label className="text-sm">
-              Type {group.phone} to confirm
+              Type the full phone number to confirm
               <input
                 className="mt-1 w-full rounded-lg border p-2"
                 value={confirmation}

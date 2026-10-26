@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CallingWorkspace } from "./calling-workspace";
 import { voiceBotTreatment } from "@/lib/lead-treatment";
-import { maskPhoneForList } from "@/lib/phone-display";
+import { PhonePreview } from "./phone-preview";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardPaste, Dices, Download, FileUp, Loader2, Pencil, Plus, RotateCcw, Search, SearchX, Trash2, UserRound, UserRoundPlus, Users, X } from "lucide-react";
@@ -2158,8 +2158,8 @@ export function LeadsTable({
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
-                    <span className="font-medium tabular-nums" aria-label="Phone masked; open patient details to view the full number" title="Open patient details to view the full number">
-                      {maskPhoneForList(lead.phone)}
+                    <span className="font-medium tabular-nums">
+                      <PhonePreview value={lead.phone} className="text-sm text-slate-700" />
                     </span>
                   </TableCell>
                   <TableCell className="w-[130px] max-w-[130px] py-3">
@@ -2460,12 +2460,13 @@ export function LeadsTable({
                     <>
                       <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
                         {assignmentSuggestions.map((lead) => (
-                          <label
+                          <div
                             key={lead.id}
-                            className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-slate-50"
+                            className="flex items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-slate-50"
                           >
                             <input
                               type="checkbox"
+                              aria-label={`Select ${lead.name || "lead"}`}
                               className="mt-1"
                               checked={selectedAssignmentLeads.some((selected) => selected.id === lead.id)}
                               disabled={isBulkActionPending}
@@ -2486,14 +2487,14 @@ export function LeadsTable({
                                 {[
                                   lead.status || "New",
                                   lead.assigned_to && lead.assigned_to !== "-" ? `Assigned: ${lead.assigned_to}` : "Unassigned",
-                                  lead.phone,
                                   lead.disease,
                                   lead.city,
                                   lead.source,
                                 ].filter(Boolean).join(" · ") || "No extra details"}
                               </span>
                             </span>
-                          </label>
+                            {lead.phone ? <PhonePreview value={lead.phone} className="text-xs text-slate-500" /> : null}
+                          </div>
                         ))}
                       </div>
                       {hasMoreAssignmentSuggestions && (
@@ -2531,9 +2532,10 @@ export function LeadsTable({
                       </p>
                       <div className="max-h-24 space-y-1 overflow-y-auto">
                         {selectedAssignmentLeads.map((lead) => (
-                          <label key={lead.id} className="flex items-center gap-2 text-xs text-blue-900">
+                          <div key={lead.id} className="flex items-center gap-2 text-xs text-blue-900">
                             <input
                               type="checkbox"
+                              aria-label={`Remove ${lead.name || "lead"} from selection`}
                               checked
                               disabled={isBulkActionPending}
                               onChange={() =>
@@ -2542,8 +2544,8 @@ export function LeadsTable({
                                 )
                               }
                             />
-                            <span className="truncate">{lead.name}{lead.phone ? ` · ${lead.phone}` : ""}</span>
-                          </label>
+                            <span className="min-w-0 truncate">{lead.name}</span>{lead.phone ? <PhonePreview value={lead.phone} className="text-xs text-blue-900" /> : null}
+                          </div>
                         ))}
                       </div>
                     </div>

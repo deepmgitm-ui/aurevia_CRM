@@ -8,7 +8,7 @@ import { searchLeadsForGlobalSearch, type GlobalLeadSearchResult } from "@/app/a
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { maskPhoneForList } from "@/lib/phone-display";
+import { PhonePreview } from "./phone-preview";
 
 const destinations = [
   { label: "Dashboard", href: "/dashboard", roles: ["admin", "manager", "employee"] },
@@ -140,15 +140,18 @@ export function GlobalSearch({ role }: { role: string }) {
                 ) : searchError ? (
                   <p role="status" className="px-3 py-5 text-sm text-rose-600">{searchError}</p>
                 ) : resultsFor === term && leads.length > 0 ? leads.map((lead) => (
-                  <Link key={lead.id} href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="crm-interactive-row group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50 focus-visible:bg-emerald-50 focus-visible:outline-none">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>
-                      <span className="block truncate text-xs text-slate-500">{[maskPhoneForList(lead.phone), lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
-                    </span>
-                    <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{lead.status}</span>
-                    <ArrowRight className="size-4 text-slate-300 group-hover:text-emerald-700" aria-hidden="true" />
-                  </Link>
+                  <div key={lead.id} className="crm-interactive-row group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50">
+                    <Link href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="flex min-w-0 flex-1 items-center gap-3 focus-visible:outline-none">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>
+                        <span className="block truncate text-xs text-slate-500">{[lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
+                      </span>
+                      <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{lead.status}</span>
+                      <ArrowRight className="size-4 text-slate-300 group-hover:text-emerald-700" aria-hidden="true" />
+                    </Link>
+                    <PhonePreview value={lead.phone} className="text-xs text-slate-500" />
+                  </div>
                 )) : (
                   <p className="px-3 py-4 text-sm text-slate-500">{term.length < 2 ? "Type at least 2 characters to search leads." : "No matching leads found."}</p>
                 )}

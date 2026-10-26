@@ -6,6 +6,7 @@ import { CalendarCheck, Phone, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppointmentStatusActions } from "./appointment-status-actions";
 import { AppointmentEditor } from "./appointment-editor";
+import { PhonePreview } from "../phone-preview";
 import type { CalendarAppointment } from "./actions";
 
 export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, showAttribution, agents, initialView = "upcoming" }: { items: CalendarAppointment[]; pastItems: CalendarAppointment[]; todayIso: string; canEdit: boolean; showAttribution: boolean; agents: string[]; initialView?: "upcoming" | "past" }) {
@@ -66,7 +67,7 @@ export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, show
               <p className="mt-1 truncate text-xs text-slate-500">Agent: {item.agent === "-" ? "Unassigned" : item.agent}</p>
               {showAttribution && item.bookedBy && <p className="mt-1 truncate text-xs text-slate-500">Booked by: {item.bookedBy}</p>}
               {showAttribution && item.completedBy && <p className="mt-1 truncate text-xs text-slate-500">Completed by: {item.completedBy}</p>}
-              {item.phone !== "-" && <a href={`tel:${item.phone.replace(/[^+\d]/g, "")}`} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Phone aria-hidden="true" className="size-3.5" />{item.phone}</a>}
+              {item.phone !== "-" && <div className="mt-3 flex flex-wrap items-center gap-2"><PhonePreview value={item.phone} className="text-xs text-slate-600" /><a href={`tel:${item.phone.replace(/[^+\d]/g, "")}`} className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"><Phone aria-hidden="true" className="size-3.5" />Call</a></div>}
               <AppointmentStatusActions id={item.appointmentId} status={item.appointmentStatus}/>
               {canEdit && <div className="mt-3"><AppointmentEditor agents={agents} defaultDate={item.date} leadId={item.leadId} defaultKind={item.kind} appointmentId={item.appointmentId} updatedAt={item.updatedAt} status={item.appointmentStatus} time={item.time} notes={item.notes} label="Edit appointment" /></div>}
             </li>)}

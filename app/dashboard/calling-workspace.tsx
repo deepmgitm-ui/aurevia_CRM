@@ -100,7 +100,7 @@ export function CallingWorkspace({ leads }: { leads: Lead[] }) {
               className="rounded-lg bg-blue-50 p-3 font-semibold text-blue-700"
               href={`tel:${lead.phone}`}
             >
-              Call {lead.phone}
+              Call patient
             </a>
           )}
           <fieldset disabled={pending} className="space-y-3">

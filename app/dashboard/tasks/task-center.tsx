@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { PhonePreview } from "../phone-preview";
 
 export type TaskLead = {
   id: string;
@@ -235,6 +236,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                       <div className="font-medium text-slate-950">{lead.name}</div>
                       <div className="mt-0.5 text-xs text-slate-500">{lead.disease || "No treatment"} · {lead.source || "Unknown source"}</div>
                       <div className="mt-1 flex flex-wrap gap-2">
+                        {lead.phone && lead.phone !== "-" && <PhonePreview value={lead.phone} className="text-xs text-slate-600" />}
                         {lead.phone && lead.phone !== "-" && (
                           <>
                             <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
