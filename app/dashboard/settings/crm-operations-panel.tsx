@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getCapacity,
   getDuplicates,
@@ -82,7 +82,7 @@ export function CrmOperationsPanel({
       setPending(false);
     }
   }
-  async function refreshCapacity() {
+  const refreshCapacity = useCallback(async () => {
     if (refreshingCapacity) return;
     setRefreshingCapacity(true);
     setCapacityError("");
@@ -95,7 +95,19 @@ export function CrmOperationsPanel({
     } finally {
       setRefreshingCapacity(false);
     }
-  }
+  }, [refreshingCapacity]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshCapacity();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshCapacity]);
   const databaseLimit = 500 * 1024 * 1024;
   const storageLimit = 1024 * 1024 * 1024;
   const databaseBytes = currentCapacity?.databaseBytes ?? 0;
@@ -140,7 +152,7 @@ export function CrmOperationsPanel({
             </p>
           )}
           <p className="text-xs text-slate-500">
-            Usage was checked {new Date(currentCapacity.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST. Database and file storage show the Free plan allowances (500 MB and 1 GB); bandwidth and billing usage are separate.
+            Usage checked {new Date(currentCapacity.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST · Auto-refreshes every minute and when you return to this tab. Database and file storage show the Free plan allowances (500 MB and 1 GB); bandwidth and billing usage are separate.
           </p>
           {capacityError && <p role="alert" className="text-sm text-rose-700">{capacityError}</p>}
         </>
