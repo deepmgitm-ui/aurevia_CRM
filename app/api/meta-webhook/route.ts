@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
-    const results: { leadId?: string; duplicate?: boolean }[] = [];
+    const results: { leadId?: string; duplicate?: boolean; reviewQueued?: boolean }[] = [];
     for (const { leadgenId } of events) {
       // `campaign_name` / `form_id` give every lead a traceable origin without
       // another API call.
@@ -242,7 +242,12 @@ export async function POST(request: NextRequest) {
           .gte("created_at", since)
           .limit(1);
         if (existing?.length) {
-          results.push({ leadId: existing[0].id, duplicate: true });
+          const phoneIdentity = leadData.phone.replace(/\D/g, "").slice(-10);
+          await supabase.rpc("crm_capture_duplicate_review_candidates", {
+            p_candidates: [{ phone_identity: phoneIdentity, name: leadData.name }],
+            p_source: "Meta Ads",
+          });
+          results.push({ leadId: existing[0].id, duplicate: true, reviewQueued: true });
           continue;
         }
       }
@@ -271,7 +276,12 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (leadError?.code === "23505") {
-        results.push({ duplicate: true });
+        const phoneIdentity = leadData.phone.replace(/\D/g, "").slice(-10);
+        await supabase.rpc("crm_capture_duplicate_review_candidates", {
+          p_candidates: [{ phone_identity: phoneIdentity, name: leadData.name }],
+          p_source: "Meta Ads",
+        });
+        results.push({ duplicate: true, reviewQueued: true });
         continue;
       }
       if (leadError || !lead) {

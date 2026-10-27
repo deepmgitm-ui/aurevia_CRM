@@ -43,6 +43,9 @@ import {
   getLeadAssignmentBatches,
   getLeadsForAssignmentBatch,
   getEmployeeLeadsForTransfer,
+  getDuplicateLeadReviewQueue,
+  getDuplicateReviewLeadsForExport,
+  resolveDuplicateLeadReviews,
   transferLeadAssignmentBatch,
   type LeadAssignmentCriteria,
   type LeadAssignmentBatch,
@@ -50,6 +53,7 @@ import {
   type LeadSourceBatch,
   type Lead,
   type LeadActivity,
+  type DuplicateLeadReviewItem,
   type Employee,
   type ViewerRole,
 } from "@/app/actions/leads";
@@ -475,6 +479,13 @@ export function LeadsTable({
   const [isSavingQuickNote, setIsSavingQuickNote] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [isBulkActionPending, setIsBulkActionPending] = useState(false);
+  const [duplicateReviewItems, setDuplicateReviewItems] = useState<DuplicateLeadReviewItem[]>([]);
+  const [isDuplicateReviewOpen, setIsDuplicateReviewOpen] = useState(false);
+  const [isLoadingDuplicateReviews, setIsLoadingDuplicateReviews] = useState(false);
+  const [isResolvingDuplicateReviews, setIsResolvingDuplicateReviews] = useState(false);
+  const [duplicateReviewError, setDuplicateReviewError] = useState("");
+  const [selectedDuplicateReviewIds, setSelectedDuplicateReviewIds] = useState<string[]>([]);
+  const [duplicateReviewTarget, setDuplicateReviewTarget] = useState("");
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
   const [assignmentMode, setAssignmentMode] = useState<"selected" | "transfer-selected" | "filters" | "add-to-batch">("filters");
@@ -797,6 +808,87 @@ export function LeadsTable({
     });
   }, []);
 
+  const refreshDuplicateReviews = useCallback(async (openDialog = false) => {
+    if (!canDelete) return;
+    setIsLoadingDuplicateReviews(true);
+    setDuplicateReviewError("");
+    try {
+      const result = await getDuplicateLeadReviewQueue();
+      if (!result.success) {
+        setDuplicateReviewError(result.error);
+        return;
+      }
+      setDuplicateReviewItems(result.data);
+      setSelectedDuplicateReviewIds((current) => current.filter((id) => result.data.some((item) => item.id === id)));
+      if (openDialog) setIsDuplicateReviewOpen(true);
+    } catch {
+      setDuplicateReviewError("Duplicate reviews could not be loaded. Please retry.");
+    } finally {
+      setIsLoadingDuplicateReviews(false);
+    }
+  }, [canDelete]);
+
+  async function openDuplicateReviews() {
+    setIsDuplicateReviewOpen(true);
+    await refreshDuplicateReviews();
+  }
+
+  async function resolveSelectedDuplicateReviews(action: "assign" | "keep" | "delete") {
+    if (selectedDuplicateReviewIds.length === 0 || isResolvingDuplicateReviews) return;
+    if (action === "assign" && !duplicateReviewTarget) {
+      setDuplicateReviewError("Choose an employee before assigning these leads.");
+      return;
+    }
+    setIsResolvingDuplicateReviews(true);
+    setDuplicateReviewError("");
+    try {
+      if (action === "delete") {
+        const exportResult = await getDuplicateReviewLeadsForExport(selectedDuplicateReviewIds);
+        if (!exportResult.success) {
+          setDuplicateReviewError(`${exportResult.error} Nothing was deleted.`);
+          return;
+        }
+        await downloadLeadsExcel(exportResult.data, `duplicate-leads-backup-before-delete-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      }
+      const result = await resolveDuplicateLeadReviews({
+        reviewIds: selectedDuplicateReviewIds,
+        action,
+        targetName: action === "assign" ? duplicateReviewTarget : undefined,
+      });
+      if (!result.success) {
+        setDuplicateReviewError(result.error);
+        return;
+      }
+      const noun = result.data.affected === 1 ? "lead" : "leads";
+      toast.add({
+        title: action === "delete" ? "Duplicate leads deleted" : action === "keep" ? "Reviews completed" : "Duplicate leads assigned",
+        description: action === "delete"
+          ? `${result.data.affected} ${noun} deleted. An Excel copy was downloaded and a recovery snapshot was saved in Recent Deletions.`
+          : action === "keep"
+            ? `${result.data.affected} assigned ${noun} marked reviewed.`
+            : `${result.data.affected} ${noun} assigned to ${duplicateReviewTarget}.`,
+        type: "success",
+      });
+      setSelectedDuplicateReviewIds([]);
+      await refreshDuplicateReviews();
+      router.refresh();
+    } catch {
+      setDuplicateReviewError("The review action could not be completed. Refresh the list and try again.");
+    } finally {
+      setIsResolvingDuplicateReviews(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!canDelete) return;
+    const initialLoad = window.setTimeout(() => void refreshDuplicateReviews(), 0);
+    const timer = window.setInterval(() => void refreshDuplicateReviews(), 60_000);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(timer);
+    };
+  }, [canDelete, refreshDuplicateReviews]);
+
   async function processImportedRows(parsedData: ImportRow[], fileName: string) {
     try {
       const plainData = JSON.parse(JSON.stringify(parsedData));
@@ -806,7 +898,7 @@ export function LeadsTable({
         return;
       }
 
-      const { leads: importedLeads, skippedDuplicates, skippedRows, unassigned } = response.data;
+      const { leads: importedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError } = response.data;
       // Mark imported rows as self-mutations so realtime notifications don't
       // toast the admin about their own bulk import.
       trackLeadMutations(importedLeads.map((lead) => lead.id));
@@ -820,7 +912,11 @@ export function LeadsTable({
       const importSummary = [
         `${importedLeads.length.toLocaleString()} added`,
         assignedCount ? `${assignedCount.toLocaleString()} assigned` : "",
-        skippedDuplicates ? `${skippedDuplicates.toLocaleString()} duplicates skipped` : "",
+        skippedDuplicates
+          ? duplicateReviewCaptureError
+            ? `${skippedDuplicates.toLocaleString()} duplicates skipped; review capture failed`
+            : `${skippedDuplicates.toLocaleString()} duplicates sent for review`
+          : "",
         skippedRows ? `${skippedRows.toLocaleString()} invalid rows skipped` : "",
         unassigned ? `${unassigned.toLocaleString()} need assignment` : "",
         importedLeads.length > 0 && filtersAreActive ? "some new leads may be hidden by current filters" : "",
@@ -834,6 +930,11 @@ export function LeadsTable({
             : `${importSummary}.`,
         type: "success",
       });
+
+      if (skippedDuplicates > 0 && !duplicateReviewCaptureError) await refreshDuplicateReviews(true);
+      if (duplicateReviewCaptureError) {
+        toast.add({ title: "Duplicate review could not be saved", description: duplicateReviewCaptureError, type: "error" });
+      }
 
       router.refresh();
     } catch {
@@ -981,6 +1082,10 @@ export function LeadsTable({
     });
     if (!response.success) {
       toast.add({ title: "Unable to add lead", description: response.error, type: "error" });
+      if (response.code === "duplicate-phone") {
+        setIsAddLeadOpen(false);
+        await refreshDuplicateReviews(true);
+      }
     } else {
       trackLeadMutations(response.data.id);
       setLeads((currentLeads) => [response.data, ...currentLeads]);
@@ -1893,6 +1998,15 @@ export function LeadsTable({
               <Button type="button" variant="outline" onClick={() => void openRestoreDialog()}>
                 <RotateCcw aria-hidden="true" />
                 Recent Deletions
+              </Button>
+            )}
+            {canDelete && (
+              <Button type="button" variant={duplicateReviewItems.length > 0 ? "secondary" : "outline"} onClick={() => void openDuplicateReviews()}>
+                {isLoadingDuplicateReviews ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <UserRoundPlus aria-hidden="true" />}
+                Duplicate Reviews
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${duplicateReviewItems.length > 0 ? "bg-emerald-700 text-white" : "bg-slate-100 text-slate-600"}`}>
+                  {duplicateReviewItems.length.toLocaleString()}
+                </span>
               </Button>
             )}
             {canDelete && (
@@ -2976,6 +3090,97 @@ export function LeadsTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={isDuplicateReviewOpen} onOpenChange={(open) => {
+        setIsDuplicateReviewOpen(open);
+        if (!open && duplicateReviewItems.length > 0) {
+          toast.add({ title: "Duplicate review saved", description: `${duplicateReviewItems.length} review${duplicateReviewItems.length === 1 ? "" : "s"} remain pending. Reopen them with the Duplicate Reviews button.` });
+        }
+      }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Duplicate lead review · {duplicateReviewItems.length.toLocaleString()} pending</DialogTitle>
+            <DialogDescription>
+              New duplicate rows are blocked. Review the existing lead and its current owner. Closing this window keeps the review here so you can reopen it from the Duplicate Reviews button.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p>Unassigned matches are automatically deleted after 24 hours if they remain unresolved. A recovery copy is saved in Recent Deletions. Assigning or transferring a lead stops the timer.</p>
+          </div>
+          {duplicateReviewError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{duplicateReviewError}</p>}
+          {isLoadingDuplicateReviews ? (
+            <p className="flex items-center gap-2 py-6 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading duplicate reviews…</p>
+          ) : duplicateReviewItems.length === 0 ? (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-5 text-sm text-slate-600">No duplicate reviews are pending.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-sm font-medium text-slate-800" aria-live="polite">{selectedDuplicateReviewIds.length} selected</p>
+                <Button type="button" size="sm" variant="outline" disabled={isResolvingDuplicateReviews} onClick={() => setSelectedDuplicateReviewIds(selectedDuplicateReviewIds.length === duplicateReviewItems.length ? [] : duplicateReviewItems.map((item) => item.id))}>
+                  {selectedDuplicateReviewIds.length === duplicateReviewItems.length ? "Clear selection" : `Select all ${duplicateReviewItems.length.toLocaleString()}`}
+                </Button>
+              </div>
+              <div className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1">
+                {duplicateReviewItems.map((item) => {
+                  const assigned = Boolean(item.lead.assigned_to?.trim() && !["-", "unassigned"].includes(item.lead.assigned_to.trim().toLowerCase()));
+                  const remainingMs = new Date(item.expires_at).getTime() - Date.now();
+                  const remainingHours = Math.max(0, Math.ceil(remainingMs / (60 * 60 * 1000)));
+                  return (
+                    <label key={item.id} className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-emerald-700"
+                        checked={selectedDuplicateReviewIds.includes(item.id)}
+                        disabled={isResolvingDuplicateReviews}
+                        onChange={(event) => setSelectedDuplicateReviewIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-900">{item.lead.name || "Unnamed existing lead"}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${assigned ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-900"}`}>
+                            {assigned ? `Assigned · ${item.lead.assigned_to}` : "Unassigned"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">{item.lead.status || "No status"}</span>
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                          {item.lead.phone && <PhonePreview value={item.lead.phone} />}
+                          {item.lead.disease && item.lead.disease !== "-" && <span>{item.lead.disease}</span>}
+                          {item.lead.city && item.lead.city !== "-" && <span>{item.lead.city}</span>}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          Incoming: {item.incoming_name || "Name not provided"} · {item.source} · {item.attempt_count} duplicate attempt{item.attempt_count === 1 ? "" : "s"}
+                        </span>
+                        <span className={`mt-1 block text-xs ${!assigned ? "font-medium text-amber-800" : "text-slate-500"}`}>
+                          {!assigned ? (remainingMs > 0 ? `Auto-delete in about ${remainingHours} hour${remainingHours === 1 ? "" : "s"} unless assigned.` : "Past 24 hours — awaiting the hourly cleanup.") : "No automatic deletion while assigned. Keep, transfer, or delete this lead."}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+                <Select value={duplicateReviewTarget || "choose-target"} onValueChange={(value) => setDuplicateReviewTarget(value === "choose-target" ? "" : String(value ?? ""))} disabled={isResolvingDuplicateReviews}>
+                  <SelectTrigger aria-label="Assign or transfer selected duplicate leads to" className="w-full"><SelectValue placeholder="Choose an employee" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="choose-target">Choose an employee</SelectItem>
+                    {assignableEmployees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}{employee.role !== "employee" ? ` · ${employee.role}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button type="button" disabled={!selectedDuplicateReviewIds.length || !duplicateReviewTarget || isResolvingDuplicateReviews} onClick={() => void resolveSelectedDuplicateReviews("assign")}>
+                  {isResolvingDuplicateReviews && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}Assign / Transfer
+                </Button>
+                <Button type="button" variant="outline" disabled={!selectedDuplicateReviewIds.length || isResolvingDuplicateReviews || selectedDuplicateReviewIds.some((id) => {
+                  const item = duplicateReviewItems.find((candidate) => candidate.id === id);
+                  return !item?.lead.assigned_to?.trim() || ["-", "unassigned"].includes(item.lead.assigned_to.trim().toLowerCase());
+                })} onClick={() => void resolveSelectedDuplicateReviews("keep")}>Keep assigned</Button>
+                <Button type="button" variant="destructive" disabled={!selectedDuplicateReviewIds.length || isResolvingDuplicateReviews} onClick={() => void resolveSelectedDuplicateReviews("delete")}>
+                  {isResolvingDuplicateReviews && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}Delete selected
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isRestoreOpen} onOpenChange={setIsRestoreOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

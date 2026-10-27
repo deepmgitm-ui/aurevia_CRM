@@ -150,7 +150,7 @@ export interface AddLeadActivityInput {
 
 export type ActionResult<T> =
   | { success: true; data: T }
-  | { success: false; error: string };
+  | { success: false; error: string; code?: string };
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -1457,6 +1457,19 @@ export async function createLead(
       .single();
 
     if (error) {
+      if (isDuplicatePhoneImportError(error)) {
+        const phoneIdentity = normalizePhoneDigits(sanitizePhone(input.phone));
+        const reviewError = phoneIdentity.length === 10
+          ? await captureDuplicateReviewCandidates(supabase, [{ phone_identity: phoneIdentity, name: input.name }], "Manual entry")
+          : null;
+        return {
+          success: false,
+          code: "duplicate-phone",
+          error: reviewError
+            ? `This phone number already exists. No duplicate lead was added, but the review could not be saved: ${reviewError}`
+            : "This phone number already exists. No duplicate lead was added; it has been sent to Duplicate Reviews for the admin.",
+        };
+      }
       return { success: false, error: sourceBatchMigrationError(error) };
     }
 
@@ -1480,6 +1493,122 @@ export interface ImportResult {
   // They are stored with assigned_to = "-", so they are invisible to every
   // employee until an admin/manager assigns them — the UI must say so.
   unassigned: number;
+  duplicateReviewCaptureError?: string;
+}
+
+export interface DuplicateLeadReviewItem {
+  id: string;
+  lead_id: string;
+  phone_identity: string;
+  incoming_name: string;
+  source: string;
+  attempt_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "city" | "disease">;
+}
+
+type DuplicateReviewCandidate = { phone_identity: string; name: string };
+
+async function captureDuplicateReviewCandidates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  candidates: DuplicateReviewCandidate[],
+  source: string,
+): Promise<string | null> {
+  if (!candidates.length) return null;
+  const normalized = candidates
+    .map((candidate) => ({
+      phone_identity: normalizePhoneDigits(candidate.phone_identity),
+      name: candidate.name.trim().slice(0, 160),
+    }))
+    .filter((candidate) => candidate.phone_identity.length === 10);
+  if (!normalized.length) return null;
+  const { error } = await supabase.rpc("crm_capture_duplicate_review_candidates", {
+    p_candidates: normalized,
+    p_source: source.slice(0, 80),
+  });
+  return error?.message ?? null;
+}
+
+/** Resolve selected duplicate reviews atomically, with the database taking a deletion backup first. */
+export async function resolveDuplicateLeadReviews(input: {
+  reviewIds: string[];
+  action: "assign" | "keep" | "delete";
+  targetName?: string;
+}): Promise<ActionResult<{ action: "assign" | "keep" | "delete"; affected: number; backupId: string | null }>> {
+  const reviewIds = [...new Set((input.reviewIds ?? []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!reviewIds.length || reviewIds.length > 500) return { success: false, error: "Select between 1 and 500 duplicate leads." };
+  if (!["assign", "keep", "delete"].includes(input.action)) return { success: false, error: "Choose an available review action." };
+  if (input.action === "assign" && !input.targetName?.trim()) return { success: false, error: "Choose an employee to assign these leads to." };
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can resolve duplicate reviews (403 Forbidden)." };
+    const { data, error } = await supabase.rpc("crm_resolve_duplicate_review_items", {
+      p_review_ids: reviewIds,
+      p_action: input.action,
+      p_target_name: input.targetName?.trim() ?? null,
+    });
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard", "layout");
+    const result = data as { action: "assign" | "keep" | "delete"; affected: number; backup_id: string | null };
+    return { success: true, data: { action: result.action, affected: Number(result.affected ?? 0), backupId: result.backup_id ?? null } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Duplicate review could not be saved.") };
+  }
+}
+
+/** Exact selected duplicate rows for the pre-delete Excel safety copy. */
+export async function getDuplicateReviewLeadsForExport(reviewIds: string[]): Promise<ActionResult<Lead[]>> {
+  const ids = [...new Set((reviewIds ?? []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!ids.length || ids.length > 500) return { success: false, error: "Select between 1 and 500 duplicate leads to export." };
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can export duplicate reviews (403 Forbidden)." };
+    const { data, error } = await supabase
+      .from("crm_duplicate_review_queue")
+      .select("lead:leads!crm_duplicate_review_queue_lead_id_fkey(*)")
+      .in("id", ids)
+      .is("resolved_at", null);
+    if (error) return { success: false, error: error.message };
+    const leads = (data ?? []).flatMap((item) => Array.isArray(item.lead) ? item.lead : item.lead ? [item.lead] : []) as unknown as Lead[];
+    if (leads.length !== ids.length) return { success: false, error: "Some duplicate leads changed. Refresh the review list; nothing was deleted." };
+    return { success: true, data: leads };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Duplicate backup could not be prepared.") };
+  }
+}
+
+/** Load all outstanding admin duplicate reviews in bounded database pages. */
+export async function getDuplicateLeadReviewQueue(): Promise<ActionResult<DuplicateLeadReviewItem[]>> {
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Duplicate review is available to admins and managers only (403 Forbidden)." };
+    }
+    const items: DuplicateLeadReviewItem[] = [];
+    for (let offset = 0; offset < 5000; offset += 500) {
+      const { data, error } = await supabase
+        .from("crm_duplicate_review_queue")
+        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, city, disease)")
+        .is("resolved_at", null)
+        .order("first_seen_at", { ascending: false })
+        .range(offset, offset + 499);
+      if (error) return { success: false, error: error.message };
+      const page = (data ?? []).filter((item) => item.lead).map((item) => ({
+        ...item,
+        lead: Array.isArray(item.lead) ? item.lead[0] : item.lead,
+      })) as DuplicateLeadReviewItem[];
+      items.push(...page);
+      if (!data || data.length < 500) break;
+    }
+    return { success: true, data: items };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Duplicate reviews could not be loaded.") };
+  }
 }
 
 export async function bulkInsertLeads(
@@ -1606,12 +1735,14 @@ export async function bulkInsertLeads(
   // 1) Dedupe within the uploaded file itself: the first row with a given
   //    phone wins, later rows with the same number are ignored.
   const seenFilePhones = new Set<string>();
+  const duplicateCandidates: DuplicateReviewCandidate[] = [];
   let duplicateRows = 0;
   const uniqueRecords = records.filter((record) => {
     const phoneDigits = normalizePhoneDigits(record.phone);
     if (!phoneDigits) return true; // No phone to compare — keep the lead.
     if (seenFilePhones.has(phoneDigits)) {
       duplicateRows += 1;
+      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name });
       return false;
     }
     seenFilePhones.add(phoneDigits);
@@ -1647,15 +1778,17 @@ export async function bulkInsertLeads(
     const phoneDigits = normalizePhoneDigits(record.phone);
     if (phoneDigits && existingPhoneSet.has(phoneDigits)) {
       skippedDuplicates += 1;
+      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name });
       return false;
     }
     return true;
   });
 
   if (freshRecords.length === 0) {
+    const duplicateReviewCaptureError = await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
     return {
       success: true,
-      data: { leads: [], skippedDuplicates, skippedRows, unassigned: 0 },
+      data: { leads: [], skippedDuplicates, skippedRows, unassigned: 0, duplicateReviewCaptureError: duplicateReviewCaptureError ?? undefined },
     };
   }
 
@@ -1707,9 +1840,13 @@ export async function bulkInsertLeads(
 
             if (isDuplicatePhoneImportError(rowError)) {
               skippedDuplicates += 1;
+              const record = freshRecords[index + rowOffset];
+              const phoneIdentity = normalizePhoneDigits(record?.phone ?? "");
+              if (phoneIdentity.length === 10) duplicateCandidates.push({ phone_identity: phoneIdentity, name: record.name });
               continue;
             }
             if (rowError) {
+              await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
               const rowNumber = index + rowOffset + 1;
               const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved; ` : "";
               return {
@@ -1724,6 +1861,7 @@ export async function bulkInsertLeads(
 
         const from = index + 1;
         const to = Math.min(index + chunkSize, freshRecords.length);
+        await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
         const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved before the failure. ` : "";
         return {
           success: false,
@@ -1734,8 +1872,9 @@ export async function bulkInsertLeads(
       insertedLeads.push(...((data ?? []) as Lead[]));
     }
 
+    const duplicateReviewCaptureError = await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
     revalidatePath("/dashboard");
-    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows, unassigned } };
+    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError: duplicateReviewCaptureError ?? undefined } };
   } catch (error) {
     return {
       success: false,
