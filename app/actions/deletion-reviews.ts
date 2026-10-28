@@ -3,14 +3,16 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { getViewer } from "./leads";
+import { assignLeadsToEmployees, getViewer } from "./leads";
 
 export interface LeadDeletionReviewView {
   id: string;
+  leadId: string;
   leadName: string;
   phone: string;
   status: string;
   assignedTo: string;
+  hadPreviousAssignment: boolean;
   closedSince: string;
   deleteAfter: string;
   snoozedUntil: string | null;
@@ -29,7 +31,7 @@ export async function getDeletionReviews(): Promise<{
 
   const { data, error } = await supabase
     .from("crm_lead_deletion_reviews")
-    .select("id, assigned_to, closed_status, closed_since, delete_after, snoozed_until, agent_note, lead:leads(name, phone, status)")
+    .select("id, lead_id, assigned_to, closed_status, closed_since, delete_after, snoozed_until, agent_note, lead:leads(name, phone, status, assigned_to, had_previous_assignment)")
     .eq("decision", "pending")
     .order("created_at", { ascending: true });
   if (error) return { role, reviews: [], error: "Deletion reviews could not be loaded. Please refresh." };
@@ -42,10 +44,12 @@ export async function getDeletionReviews(): Promise<{
       if (!lead) return [];
       return [{
         id: row.id,
+        leadId: row.lead_id,
         leadName: lead.name ?? "Unnamed lead",
         phone: lead.phone ?? "",
         status: lead.status ?? row.closed_status ?? "Closed",
-        assignedTo: row.assigned_to ?? "Unassigned",
+        assignedTo: lead.assigned_to && lead.assigned_to !== "-" ? lead.assigned_to : "Unassigned",
+        hadPreviousAssignment: lead.had_previous_assignment ?? false,
         closedSince: row.closed_since,
         deleteAfter: row.delete_after,
         snoozedUntil: row.snoozed_until,
@@ -53,6 +57,54 @@ export async function getDeletionReviews(): Promise<{
       }];
     }),
   };
+}
+
+export async function getDeletionReviewAssignees(): Promise<{ names: string[]; error: string | null }> {
+  const viewer = await getViewer();
+  if (!viewer.success || viewer.data?.role !== "admin") return { names: [], error: "Only admins can assign reviewed leads." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("role", "employee")
+    .not("name", "is", null)
+    .order("name", { ascending: true });
+  if (error) return { names: [], error: "Team members could not be loaded for assignment." };
+  return { names: (data ?? []).map((profile) => profile.name).filter((name): name is string => typeof name === "string" && Boolean(name.trim())) , error: null };
+}
+
+export async function assignDeletionReviewLeads(input: {
+  reviewIds: string[];
+  employeeNames: string[];
+  asFresh: boolean;
+}): Promise<{ success: boolean; error?: string; assigned?: number }> {
+  const viewer = await getViewer();
+  if (!viewer.success || viewer.data?.role !== "admin") return { success: false, error: "Only admins can reassign closed leads." };
+  if (!input || !Array.isArray(input.reviewIds) || !Array.isArray(input.employeeNames) || typeof input.asFresh !== "boolean") {
+    return { success: false, error: "Choose the leads, team members, and transfer status." };
+  }
+  const reviewIds = [...new Set(input.reviewIds.filter((id) => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))];
+  const employeeNames = [...new Set(input.employeeNames.filter((name) => typeof name === "string").map((name) => name.trim()).filter(Boolean))];
+  if (!reviewIds.length || reviewIds.length > 10000) return { success: false, error: "Select between 1 and 10,000 closed leads." };
+  if (!employeeNames.length) return { success: false, error: "Select at least one employee." };
+  if (reviewIds.length !== input.reviewIds.length) return { success: false, error: "One or more selected reviews are invalid. Refresh and try again." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("crm_lead_deletion_reviews")
+    .select("lead_id")
+    .in("id", reviewIds)
+    .eq("decision", "pending");
+  if (error) return { success: false, error: "Selected closed leads could not be verified. Refresh and try again." };
+  const leadIds = (data ?? []).map((row) => row.lead_id);
+  if (leadIds.length !== reviewIds.length) return { success: false, error: "Some selected reviews are no longer pending. Refresh and try again." };
+
+  const result = await assignLeadsToEmployees({ leadIds, employeeNames, asFresh: input.asFresh, batchLabel: "Closed lead review transfer" });
+  if (!result.success) return { success: false, error: result.error };
+  revalidatePath("/dashboard", "layout");
+  revalidatePath("/dashboard/closed-lead-reviews");
+  revalidatePath("/dashboard/leads");
+  return { success: true, assigned: result.data.assigned };
 }
 
 export async function getPendingDeletionReviewCount(): Promise<number> {
