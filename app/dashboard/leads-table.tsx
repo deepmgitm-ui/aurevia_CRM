@@ -166,6 +166,37 @@ function getInitials(name: string): string {
   return name.split(" ").filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
+type TransferDisposition = "keep" | "fresh";
+
+function TransferDispositionChoices({
+  value,
+  onChange,
+  disabled = false,
+  idPrefix,
+}: {
+  value: TransferDisposition;
+  onChange: (value: TransferDisposition) => void;
+  disabled?: boolean;
+  idPrefix: string;
+}) {
+  return (
+    <fieldset className="space-y-2" disabled={disabled}>
+      <legend className="text-sm font-medium text-slate-800">How should the new agent receive these leads?</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label htmlFor={`${idPrefix}-keep`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "keep" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+          <input id={`${idPrefix}-keep`} type="radio" name={`${idPrefix}-disposition`} checked={value === "keep"} onChange={() => onChange("keep")} className="mt-0.5 accent-emerald-700" />
+          <span><span className="block font-semibold text-slate-900">Keep current status</span><span className="mt-0.5 block text-xs text-slate-600">The lead keeps its current disposition.</span></span>
+        </label>
+        <label htmlFor={`${idPrefix}-fresh`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "fresh" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+          <input id={`${idPrefix}-fresh`} type="radio" name={`${idPrefix}-disposition`} checked={value === "fresh"} onChange={() => onChange("fresh")} className="mt-0.5 accent-emerald-700" />
+          <span><span className="block font-semibold text-slate-900">Send as a Fresh Lead</span><span className="mt-0.5 block text-xs text-slate-600">Status becomes New; previous history stays visible.</span></span>
+        </label>
+      </div>
+      <p className="text-xs text-slate-500">Notes, calls, and appointment history are retained. The follow-up date is cleared; the receiving agent sees a Previous history marker.</p>
+    </fieldset>
+  );
+}
+
 // Common lead sources offered by the editable Source field. The lead's current
 // value is always merged in, so custom sources stay selectable.
 
@@ -430,6 +461,7 @@ export function LeadsTable({
   // "Edit Lead" modal: patient details are editable for every owner; source
   // and assignment are restricted to admins/managers.
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [editTransferAsFresh, setEditTransferAsFresh] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "",
     phone: "",
@@ -486,6 +518,7 @@ export function LeadsTable({
   const [duplicateReviewError, setDuplicateReviewError] = useState("");
   const [selectedDuplicateReviewIds, setSelectedDuplicateReviewIds] = useState<string[]>([]);
   const [duplicateReviewTarget, setDuplicateReviewTarget] = useState("");
+  const [duplicateReviewAsFresh, setDuplicateReviewAsFresh] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
   const [assignmentMode, setAssignmentMode] = useState<"selected" | "transfer-selected" | "filters" | "add-to-batch">("filters");
@@ -506,6 +539,8 @@ export function LeadsTable({
   const [isLoadingTransferLeads, setIsLoadingTransferLeads] = useState(false);
   const [isSelectingAllTransferLeads, setIsSelectingAllTransferLeads] = useState(false);
   const [transferLeadError, setTransferLeadError] = useState("");
+  const [transferDisposition, setTransferDisposition] = useState<TransferDisposition>("keep");
+  const [pendingLeadTransfer, setPendingLeadTransfer] = useState<{ lead: Lead; employeeName: string } | null>(null);
   const [selectedAssignmentLeads, setSelectedAssignmentLeads] = useState<LeadAssignmentSuggestion[]>([]);
   const [selectAllAssignmentMatches, setSelectAllAssignmentMatches] = useState(false);
   const [assignmentSuggestionTotal, setAssignmentSuggestionTotal] = useState(0);
@@ -854,6 +889,7 @@ export function LeadsTable({
         reviewIds: selectedDuplicateReviewIds,
         action,
         targetName: action === "assign" ? duplicateReviewTarget : undefined,
+        asFresh: action === "assign" && duplicateReviewAsFresh,
       });
       if (!result.success) {
         setDuplicateReviewError(result.error);
@@ -866,7 +902,7 @@ export function LeadsTable({
           ? `${result.data.affected} ${noun} deleted. An Excel copy was downloaded and a recovery snapshot was saved in Recent Deletions.`
           : action === "keep"
             ? `${result.data.affected} assigned ${noun} marked reviewed.`
-            : `${result.data.affected} ${noun} assigned to ${duplicateReviewTarget}.`,
+            : `${result.data.affected} ${noun} assigned to ${duplicateReviewTarget}${duplicateReviewAsFresh ? " as Fresh Leads; previous history is retained" : " with current statuses retained"}.`,
         type: "success",
       });
       setSelectedDuplicateReviewIds([]);
@@ -1176,18 +1212,29 @@ export function LeadsTable({
 
   async function handleAssignmentChange(lead: Lead, employeeName: string | null) {
     if (!employeeName || employeeName === lead.assigned_to || savingLeadIds.has(lead.id)) return;
+    setTransferDisposition("keep");
+    setPendingLeadTransfer({ lead, employeeName });
+  }
+
+  async function confirmSingleLeadTransfer() {
+    if (!pendingLeadTransfer || isBulkActionPending) return;
+    const { lead, employeeName } = pendingLeadTransfer;
+    setIsBulkActionPending(true);
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { assigned_to: employeeName });
-    const response = await updateLeadAssignment(lead.id, employeeName);
+    const response = await updateLeadAssignment(lead.id, employeeName, transferDisposition === "fresh");
     if (!response.success) {
       updateLeadLocally(lead);
       toast.add({ title: "Assignment update failed", description: response.error, type: "error" });
     } else {
       updateLeadLocally(response.data);
-      queueSuccessSummary("assigned");
+      setPendingLeadTransfer(null);
+      router.refresh();
+      toast.add({ title: "Lead transferred", description: transferDisposition === "fresh" ? "Sent as a Fresh Lead. Previous history is retained." : "Current status and history were retained.", type: "success" });
     }
     setLeadSaving(lead.id, false);
+    setIsBulkActionPending(false);
   }
 
   function toggleLeadSelection(leadId: string, selected: boolean) {
@@ -1247,6 +1294,7 @@ export function LeadsTable({
     setTransferLeadTotal(0);
     setTransferLeadPage(0);
     setTransferLeadError("");
+    setTransferDisposition("keep");
     setIsLoadingTransferLeads(false);
     setIsSelectingAllTransferLeads(false);
     setIsAssignmentOpen(true);
@@ -1406,6 +1454,7 @@ export function LeadsTable({
       const response = await assignLeadsToEmployees({
         ...(assignAllMatches ? { criteria: assignmentCriteria } : { leadIds: leadIdsToAssign }),
         employeeNames: assignmentEmployeeNames,
+        ...(assignmentMode !== "add-to-batch" ? { asFresh: transferDisposition === "fresh" } : {}),
       });
       if (!response.success) {
         toast.add({ title: assignmentMode === "transfer-selected" ? "Transfer failed" : "Assignment failed", description: response.error, type: "error" });
@@ -1422,7 +1471,7 @@ export function LeadsTable({
         router.refresh();
         const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
         if (assignmentMode === "transfer-selected") {
-          toast.add({ title: "Leads transferred", description: `${response.data.assigned.toLocaleString()} leads moved${perEmployee ? ` — ${perEmployee}` : ""}.`, type: "success" });
+          toast.add({ title: "Leads transferred", description: `${response.data.assigned.toLocaleString()} leads moved${perEmployee ? ` — ${perEmployee}` : ""}${transferDisposition === "fresh" ? ". Sent as Fresh Leads; previous history is retained." : ". Current statuses and history were retained."}`, type: "success" });
         } else {
           queueSuccessSummary("assigned", response.data.assigned, perEmployee);
         }
@@ -1482,11 +1531,11 @@ export function LeadsTable({
         }
       } else {
         const employeeName = assignmentBatchTargets[batch.id] ?? "";
-        const response = await transferLeadAssignmentBatch({ batchId: batch.id, employeeName });
+        const response = await transferLeadAssignmentBatch({ batchId: batch.id, employeeName, asFresh: transferDisposition === "fresh" });
         if (!response.success) {
           toast.add({ title: "Batch transfer failed", description: response.error, type: "error" });
         } else {
-          toast.add({ title: "Assignment batch transferred", description: `${response.data.transferred.toLocaleString()} leads moved to ${employeeName}.`, type: "success" });
+          toast.add({ title: "Assignment batch transferred", description: `${response.data.transferred.toLocaleString()} leads moved to ${employeeName}${transferDisposition === "fresh" ? " as Fresh Leads; previous history is retained" : " with their current statuses"}.`, type: "success" });
           setAssignmentBatchAction(null);
           router.refresh();
           await refreshAssignmentBatches();
@@ -1843,6 +1892,7 @@ export function LeadsTable({
 
   function handleEditLead(lead: Lead) {
     setEditingLead(lead);
+    setEditTransferAsFresh(false);
     setEditForm({
       name: lead.name && lead.name !== "-" ? lead.name : "",
       phone: lead.phone && lead.phone !== "-" ? lead.phone : "",
@@ -1865,10 +1915,12 @@ export function LeadsTable({
     if (!editingLead) return;
     trackLeadMutations(editingLead.id);
     setIsSavingEdit(true);
+    const assignmentChanged = editForm.assigned_to !== (editingLead.assigned_to && editingLead.assigned_to !== "-" ? editingLead.assigned_to : "");
+    const transferAsFresh = canEditCore && assignmentChanged && Boolean(editForm.assigned_to) && editTransferAsFresh;
     // Patient details are editable for employees; only source and assignment
     // remain server-side protected for their role.
     const payload = canEditCore
-      ? { id: editingLead.id, ...editForm }
+      ? { id: editingLead.id, ...editForm, transfer_as_fresh: transferAsFresh }
       : {
           id: editingLead.id,
           name: editForm.name,
@@ -1912,7 +1964,8 @@ export function LeadsTable({
           status: editForm.status,
           remarks: editForm.remarks || "-",
         };
-    updateLeadLocally(optimisticLead);
+    const optimisticResult = transferAsFresh ? { ...optimisticLead, status: "New", follow_up_date: "-" } : optimisticLead;
+    updateLeadLocally(optimisticResult);
     const response = await updateLeadDetails(payload);
     if (!response.success) {
       updateLeadLocally(editingLead);
@@ -2347,7 +2400,7 @@ export function LeadsTable({
                 return (
                 <TableRow key={lead.id} className={isNew ? "bg-emerald-50/50" : undefined}>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge><p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge>{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <span className="font-medium tabular-nums">
                       <PhonePreview value={lead.phone} className="text-sm text-slate-700" />
@@ -2611,7 +2664,7 @@ export function LeadsTable({
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium text-slate-900">{lead.name || "Unnamed lead"}</span>
-                            <span className="block truncate text-xs text-slate-500">{[lead.status, lead.disease, lead.city].filter(Boolean).join(" · ")}</span>
+                            <span className="block truncate text-xs text-slate-500">{[lead.status, lead.disease, lead.city, lead.had_previous_assignment ? "Previous history" : ""].filter(Boolean).join(" · ")}</span>
                           </span>
                           {lead.phone ? <PhonePreview value={lead.phone} className="shrink-0 text-xs text-slate-500" /> : null}
                         </label>
@@ -2825,6 +2878,7 @@ export function LeadsTable({
                 {assignmentMode === "transfer-selected" ? "Choose the new owner. Selected leads will be reassigned without changing patient details or phone numbers." : "Choose one or more employees. Selected leads will be split evenly among them."}
               </p>
             )}
+            {assignmentMode !== "add-to-batch" && <TransferDispositionChoices value={transferDisposition} onChange={setTransferDisposition} disabled={isBulkActionPending} idPrefix="bulk-transfer-disposition" />}
 
             {assignmentMode !== "add-to-batch" && <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -2943,7 +2997,7 @@ export function LeadsTable({
                         {assignableEmployees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Button type="button" variant="outline" size="sm" disabled={!assignmentBatchTargets[batch.id] || batch.activeLeadCount === 0} onClick={() => setAssignmentBatchAction({ batch, kind: "transfer" })}>Transfer batch</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!assignmentBatchTargets[batch.id] || batch.activeLeadCount === 0} onClick={() => { setTransferDisposition("keep"); setAssignmentBatchAction({ batch, kind: "transfer" }); }}>Transfer batch</Button>
                     {isAdmin && <Button type="button" variant="destructive" size="sm" disabled={batch.activeLeadCount === 0} onClick={() => setAssignmentBatchAction({ batch, kind: "delete" })}><Trash2 aria-hidden="true" />Delete batch</Button>}
                   </div>
                 </section>
@@ -2962,6 +3016,7 @@ export function LeadsTable({
                 : `${assignmentBatchAction?.batch.activeLeadCount.toLocaleString() ?? 0} active leads from “${assignmentBatchAction?.batch.label ?? ""}” will be assigned to ${assignmentBatchTargets[assignmentBatchAction?.batch.id ?? ""] ?? "the selected employee"}.`}
             </DialogDescription>
           </DialogHeader>
+          {assignmentBatchAction?.kind === "transfer" && <TransferDispositionChoices value={transferDisposition} onChange={setTransferDisposition} disabled={isAssignmentBatchActionPending} idPrefix="batch-transfer-disposition" />}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={isAssignmentBatchActionPending} onClick={() => setAssignmentBatchAction(null)}>Cancel</Button>
             <Button type="button" variant={assignmentBatchAction?.kind === "delete" ? "destructive" : "default"} disabled={isAssignmentBatchActionPending} onClick={() => void confirmAssignmentBatchAction()}>
@@ -3140,6 +3195,7 @@ export function LeadsTable({
                             {assigned ? `Assigned · ${item.lead.assigned_to}` : "Unassigned"}
                           </span>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">{item.lead.status || "No status"}</span>
+                          {item.lead.had_previous_assignment && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">Previous history</span>}
                         </span>
                         <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
                           {item.lead.phone && <PhonePreview value={item.lead.phone} />}
@@ -3157,6 +3213,7 @@ export function LeadsTable({
                   );
                 })}
               </div>
+              {duplicateReviewTarget && <div className="border-t border-slate-100 pt-3"><TransferDispositionChoices value={duplicateReviewAsFresh ? "fresh" : "keep"} onChange={(value) => setDuplicateReviewAsFresh(value === "fresh")} disabled={isResolvingDuplicateReviews} idPrefix="duplicate-transfer-disposition" /></div>}
               <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
                 <Select value={duplicateReviewTarget || "choose-target"} onValueChange={(value) => setDuplicateReviewTarget(value === "choose-target" ? "" : String(value ?? ""))} disabled={isResolvingDuplicateReviews}>
                   <SelectTrigger aria-label="Assign or transfer selected duplicate leads to" className="w-full"><SelectValue placeholder="Choose an employee" /></SelectTrigger>
@@ -3315,6 +3372,20 @@ export function LeadsTable({
 
 
 
+      <Dialog open={Boolean(pendingLeadTransfer)} onOpenChange={(open) => !open && !isBulkActionPending && setPendingLeadTransfer(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Transfer {pendingLeadTransfer?.lead.name ?? "lead"}?</DialogTitle>
+            <DialogDescription>Choose how {pendingLeadTransfer?.employeeName ?? "the new agent"} should receive this lead. Its previous notes, calls, and appointment history stay available.</DialogDescription>
+          </DialogHeader>
+          <TransferDispositionChoices value={transferDisposition} onChange={setTransferDisposition} disabled={isBulkActionPending} idPrefix="single-transfer-disposition" />
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isBulkActionPending} onClick={() => setPendingLeadTransfer(null)}>Cancel</Button>
+            <Button type="button" disabled={isBulkActionPending} onClick={() => void confirmSingleLeadTransfer()}>{isBulkActionPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ArrowRightLeft aria-hidden="true" />}Transfer lead</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(editingLead)} onOpenChange={(open) => !open && setEditingLead(null)}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
@@ -3340,6 +3411,7 @@ export function LeadsTable({
                 </SelectContent>
               </Select>
             </div>
+            {canEditCore && editForm.assigned_to && editForm.assigned_to !== (editingLead?.assigned_to && editingLead.assigned_to !== "-" ? editingLead.assigned_to : "") && <div className="sm:col-span-2"><TransferDispositionChoices value={editTransferAsFresh ? "fresh" : "keep"} onChange={(value) => setEditTransferAsFresh(value === "fresh")} disabled={isSavingEdit} idPrefix="edit-transfer-disposition" /></div>}
             <div className="space-y-1"><Label htmlFor="full-edit-source">Source</Label>
               <Select value={editForm.source || "Manual"} onValueChange={(value) => setEditForm((current) => ({ ...current, source: String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-source" disabled={!canEditCore}><SelectValue /></SelectTrigger>

@@ -336,6 +336,7 @@ export function LeadDetailDrawer({
         <SheetHeader>
           <SheetTitle>{lead ? lead.name : "Patient"}</SheetTitle>
           {title && <p className="text-xs text-slate-500">{title}</p>}
+          {lead?.had_previous_assignment && <p className="w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700">Previous history retained</p>}
         </SheetHeader>
 
         {loading && (

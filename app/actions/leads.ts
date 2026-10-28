@@ -71,6 +71,8 @@ export interface Lead {
   source_batch_label?: string | null;
   source_batch_created_at?: string | null;
   assignment_batch_id?: string | null;
+  /** True after a lead has moved from an existing owner to another owner. */
+  had_previous_assignment?: boolean;
   /**
    * OPD / IPD appointment dates — one per status (see lib/appointments.ts).
    * Nullable rather than "-": these columns were added after the original
@@ -87,7 +89,7 @@ const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
   "created_at", "updated_at", "source_batch_id", "source_batch_label",
-  "source_batch_created_at", "assignment_batch_id", "opd_booked_date", "opd_done_date",
+  "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
   "ipd_done_date",
 ].join(", ");
 
@@ -1506,7 +1508,7 @@ export interface DuplicateLeadReviewItem {
   first_seen_at: string;
   last_seen_at: string;
   expires_at: string;
-  lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "city" | "disease">;
+  lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "city" | "disease" | "had_previous_assignment">;
 }
 
 type DuplicateReviewCandidate = { phone_identity: string; name: string };
@@ -1536,6 +1538,7 @@ export async function resolveDuplicateLeadReviews(input: {
   reviewIds: string[];
   action: "assign" | "keep" | "delete";
   targetName?: string;
+  asFresh?: boolean;
 }): Promise<ActionResult<{ action: "assign" | "keep" | "delete"; affected: number; backupId: string | null }>> {
   const reviewIds = [...new Set((input.reviewIds ?? []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
   if (!reviewIds.length || reviewIds.length > 500) return { success: false, error: "Select between 1 and 500 duplicate leads." };
@@ -1549,6 +1552,7 @@ export async function resolveDuplicateLeadReviews(input: {
       p_review_ids: reviewIds,
       p_action: input.action,
       p_target_name: input.targetName?.trim() ?? null,
+      p_as_fresh: input.asFresh === true,
     });
     if (error) return { success: false, error: error.message };
     revalidatePath("/dashboard", "layout");
@@ -1593,7 +1597,7 @@ export async function getDuplicateLeadReviewQueue(): Promise<ActionResult<Duplic
     for (let offset = 0; offset < 5000; offset += 500) {
       const { data, error } = await supabase
         .from("crm_duplicate_review_queue")
-        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, city, disease)")
+        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, city, disease, had_previous_assignment)")
         .is("resolved_at", null)
         .order("first_seen_at", { ascending: false })
         .range(offset, offset + 499);
@@ -2758,6 +2762,7 @@ export interface LeadAssignmentSuggestion {
   source: string;
   status: string;
   assigned_to: string | null;
+  had_previous_assignment?: boolean;
 }
 
 const ASSIGNMENT_SUGGESTION_PAGE_SIZE = 25;
@@ -2813,7 +2818,7 @@ export async function getEmployeeLeadsForTransfer(
 
     const { data, count, error } = await supabase
       .from("leads")
-      .select("id, name, phone, city, disease, source, status, assigned_to", { count: "exact" })
+      .select("id, name, phone, city, disease, source, status, assigned_to, had_previous_assignment", { count: "exact" })
       .eq("assigned_to", profile.name)
       .order("name", { ascending: true })
       .order("created_at", { ascending: false })
@@ -2828,6 +2833,7 @@ export async function getEmployeeLeadsForTransfer(
       source: lead.source ?? "",
       status: lead.status ?? "",
       assigned_to: lead.assigned_to ?? null,
+      had_previous_assignment: lead.had_previous_assignment ?? false,
     }));
     const total = count ?? 0;
     return { success: true, data: { leads, leadIds: [], total, hasMore: safeOffset + leads.length < total } };
@@ -2964,10 +2970,12 @@ export async function getLeadsForAssignmentBatch(batchId: string): Promise<Actio
 export async function transferLeadAssignmentBatch(input: {
   batchId: string;
   employeeName: string;
+  asFresh?: boolean;
 }): Promise<ActionResult<{ transferred: number }>> {
   if (!input || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.batchId ?? "") || !input.employeeName?.trim()) {
     return { success: false, error: "Select a valid batch and team member." };
   }
+  if (input.asFresh !== undefined && typeof input.asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send these leads as fresh." };
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
@@ -2979,6 +2987,7 @@ export async function transferLeadAssignmentBatch(input: {
     const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     let transferred = 0;
+    const freshAssignmentAt = input.asFresh === true ? new Date().toISOString() : null;
     for (;;) {
       const { data: leads, error: fetchError } = await supabase
         .from("leads")
@@ -2989,9 +2998,12 @@ export async function transferLeadAssignmentBatch(input: {
       if (fetchError) return { success: false, error: assignmentBatchSetupError(fetchError.message) };
       const ids = (leads ?? []).map((lead) => lead.id);
       if (ids.length === 0) break;
+      const updatePayload = input.asFresh === true
+        ? { assigned_to: target.name, status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
+        : { assigned_to: target.name };
       const { data: updated, error: updateError } = await supabase
         .from("leads")
-        .update({ assigned_to: target.name })
+        .update(updatePayload)
         .in("id", ids)
         .select("id");
       if (updateError) return { success: false, error: `Transferred ${transferred} leads before the remaining update failed. ${updateError.message}` };
@@ -3239,10 +3251,12 @@ export async function assignLeadsToEmployees(input: {
   criteria?: LeadAssignmentCriteria;
   employeeNames: string[];
   batchLabel?: string;
+  asFresh?: boolean;
 }): Promise<ActionResult<SmartAssignmentResult>> {
   if (!input || typeof input !== "object" || !Array.isArray(input.employeeNames)) {
     return { success: false, error: "Select employees and leads to assign." };
   }
+  if (input.asFresh !== undefined && typeof input.asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send these leads as fresh." };
   const employeeNames = Array.from(
     new Set((input.employeeNames ?? []).map((name) => (typeof name === "string" ? name.trim() : "")).filter(Boolean)),
   );
@@ -3364,6 +3378,7 @@ export async function assignLeadsToEmployees(input: {
     const batchResult = await createLeadAssignmentBatch(supabase, activeTargets, matchingIds.length, input.batchLabel);
     if (!batchResult.success) return batchResult;
     const assignmentBatchId = batchResult.data.id;
+    const freshAssignmentAt = input.asFresh === true ? new Date().toISOString() : null;
 
     let assigned = 0;
     for (const entry of perEmployee) {
@@ -3371,9 +3386,12 @@ export async function assignLeadsToEmployees(input: {
       for (let offset = 0; offset < entry.leadIds.length; offset += 500) {
         const ids = entry.leadIds.slice(offset, offset + 500);
         if (ids.length === 0) continue;
+        const updatePayload = input.asFresh === true
+          ? { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
+          : { assigned_to: entry.name, assignment_batch_id: assignmentBatchId };
         let updateQuery = supabase
           .from("leads")
-          .update({ assigned_to: entry.name, assignment_batch_id: assignmentBatchId })
+          .update(updatePayload)
           .in("id", ids);
         if (assignmentByFilter && criteria) {
           const assignmentFilter = assignmentOrExpression(criteria.includeAssigned === true, criteria.excludeBatchId);
@@ -3534,8 +3552,10 @@ export async function assignUnassignedLeads(
 export async function updateLeadAssignment(
   leadId: string,
   employeeName: string,
+  asFresh = false,
 ): Promise<ActionResult<Lead>> {
   if (!leadId) return { success: false, error: "A lead is required." };
+  if (typeof asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send this lead as fresh." };
 
   try {
     const supabase = await createClient();
@@ -3566,9 +3586,13 @@ export async function updateLeadAssignment(
     const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
     if (!batch.success) return batch;
 
+    const freshAssignmentAt = asFresh ? new Date().toISOString() : null;
+    const transferUpdates = asFresh
+      ? { status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
+      : {};
     const { data, error } = await supabase
       .from("leads")
-      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id })
+      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id, ...transferUpdates })
       .eq("id", leadId)
       .select()
       .single();
@@ -3596,6 +3620,7 @@ export interface UpdateLeadDetailsInput {
   lead_date?: string;
   follow_up_date?: string;
   source?: string;
+  transfer_as_fresh?: boolean;
 }
 
 // Full editability: lets admins edit every field of a lead directly from the
@@ -3606,6 +3631,9 @@ export async function updateLeadDetails(
 ): Promise<ActionResult<Lead>> {
   if (!input.id) {
     return { success: false, error: "Lead ID is required." };
+  }
+  if (input.transfer_as_fresh !== undefined && typeof input.transfer_as_fresh !== "boolean") {
+    return { success: false, error: "Choose whether to keep the status or send this lead as fresh." };
   }
   const status = input.status?.trim() ? canonicalLeadStatus(input.status) : undefined;
   if (status && !isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
@@ -3681,6 +3709,14 @@ export async function updateLeadDetails(
           if (!batch.success) return batch;
           updates.assigned_to = target.name;
           updates.assignment_batch_id = batch.data.id;
+          if (input.transfer_as_fresh === true) {
+            updates.status = "New";
+            updates.follow_up_date = "-";
+            const freshAssignmentAt = new Date().toISOString();
+            updates.assigned_at = freshAssignmentAt;
+            updates.assigned_fresh_since = freshAssignmentAt;
+            updates.first_agent_touch_at = null;
+          }
         }
       }
     }
