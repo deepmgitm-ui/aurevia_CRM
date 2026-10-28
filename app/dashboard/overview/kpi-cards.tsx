@@ -81,7 +81,7 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
         const body = (
           <>
             <div className="flex items-start gap-3">
-              <span className={`flex size-12 shrink-0 items-center justify-center rounded-2xl ${tone.icon}`}>
+              <span className={`crm-card-icon flex size-12 shrink-0 items-center justify-center rounded-2xl ${tone.icon}`}>
                 <Icon className="size-6" aria-hidden="true" />
               </span>
               <div className="min-w-0">

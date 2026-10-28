@@ -3,25 +3,22 @@
 @import "shadcn/tailwind.css";
 
 @keyframes crm-fade-up {
-  from { opacity: 0; transform: translateY(3px); }
+  from { opacity: 0; transform: translate3d(0, 7px, 0) scale(0.99); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes crm-route-enter {
-  from { opacity: 0; transform: translateY(5px); }
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .crm-route-enter { animation: crm-route-enter 180ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
-}
-
-.crm-motion-in {
-  animation: crm-fade-up 240ms ease-out both;
+  .crm-route-enter { animation: crm-route-enter 200ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+  .crm-motion-in { animation: crm-fade-up 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
 }
 
 .crm-card-interactive {
-  transition: transform 180ms cubic-bezier(0.2, 0.75, 0.25, 1), box-shadow 180ms ease, border-color 180ms ease;
+  transition: transform 190ms cubic-bezier(0.2, 0.75, 0.25, 1), box-shadow 190ms ease, border-color 190ms ease, background-color 190ms ease;
 }
 
 .crm-app-shell .crm-card-interactive {
@@ -88,6 +85,20 @@
   transition: transform 150ms ease, color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
+.crm-app-shell .crm-nav-link {
+  transition: transform 160ms cubic-bezier(0.2, 0.75, 0.25, 1), color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+}
+
+.crm-app-shell .crm-nav-icon {
+  transition: transform 180ms cubic-bezier(0.2, 0.75, 0.25, 1), color 150ms ease;
+}
+
+.crm-app-shell input,
+.crm-app-shell textarea,
+.crm-app-shell select {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
 .crm-app-shell :focus-visible {
   scroll-margin-block: 1rem;
 }
@@ -142,9 +153,13 @@
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .crm-card-interactive:hover {
-    transform: translateY(-2px);
+    transform: translate3d(0, -3px, 0) scale(1.005);
     border-color: #d7e2da;
     box-shadow: 0 5px 14px rgb(15 23 42 / 5%);
+  }
+
+  .crm-card-interactive:hover .crm-card-icon {
+    transform: translate3d(0, -2px, 0) rotate(-3deg);
   }
 
   .crm-app-shell [data-slot="button"]:hover:not(:disabled):not([aria-disabled="true"]) {
@@ -158,12 +173,24 @@
   .crm-app-shell .crm-interactive-row:hover {
     transform: translateX(2px);
   }
+
+  .crm-app-shell .crm-nav-link:hover {
+    transform: translateX(2px);
+  }
+
+  .crm-app-shell .crm-nav-link:hover .crm-nav-icon {
+    transform: translateX(2px) scale(1.06);
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .crm-app-shell [data-slot="button"]:active:not(:disabled):not([aria-disabled="true"]),
   .crm-app-shell [data-slot="tabs-trigger"]:active:not(:disabled):not([aria-disabled="true"]) {
     transform: scale(0.985);
+  }
+
+  .crm-app-shell .crm-nav-link:active {
+    transform: scale(0.99);
   }
 }
 
@@ -174,6 +201,11 @@
   .crm-app-shell [data-slot="button"] { transition: none; }
   .crm-app-shell .crm-interactive-row { transition: none; }
   .crm-app-shell [data-slot="tabs-trigger"] { transition: none; }
+  .crm-app-shell .crm-nav-link,
+  .crm-app-shell .crm-nav-icon,
+  .crm-app-shell input,
+  .crm-app-shell textarea,
+  .crm-app-shell select { transition: none; }
 }
 
 @custom-variant dark (&:is(.dark *));

@@ -156,13 +156,13 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
                 href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
+                  "crm-nav-link flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
                   isActive
                     ? "border-emerald-700 bg-emerald-50 text-emerald-950"
                     : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
                 )}
               >
-                <Icon className="size-4.5" aria-hidden="true" />
+                <Icon className="crm-nav-icon size-4.5" aria-hidden="true" />
                 <span>{label}</span>
                 {href === "/dashboard/closed-lead-reviews" && pendingDeletionReviews > 0 && (
                   <span className="ml-auto flex size-2.5 items-center justify-center rounded-full bg-rose-600" title={`${pendingDeletionReviews} pending reviews`}>
