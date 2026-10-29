@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Search } from "lucide-react";
 
 import { assignDeletionReviewLeads, resolveDeletionReview, type LeadDeletionReviewView } from "@/app/actions/deletion-reviews";
 import { toast } from "@/components/ui/toast";
@@ -29,6 +30,7 @@ export function DeletionReviewList({
   assignmentError: string | null;
 }) {
   const router = useRouter();
+  const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -37,10 +39,12 @@ export function DeletionReviewList({
   const [pending, setPending] = useState(false);
   const statuses = useMemo(() => [...new Set(reviews.map((review) => review.status).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [reviews]);
   const assignees = useMemo(() => [...new Set(reviews.map((review) => review.assignedTo).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [reviews]);
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
   const visibleReviews = useMemo(() => reviews.filter((review) =>
+    (!normalizedSearch || review.leadName.toLocaleLowerCase().includes(normalizedSearch)) &&
     (statusFilter === "all" || review.status === statusFilter) &&
     (assigneeFilter === "all" || review.assignedTo === assigneeFilter),
-  ), [reviews, statusFilter, assigneeFilter]);
+  ), [reviews, normalizedSearch, statusFilter, assigneeFilter]);
   const visibleIds = visibleReviews.map((review) => review.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
 
@@ -80,7 +84,14 @@ export function DeletionReviewList({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="block text-xs font-semibold text-slate-600">Search leads
+          <span className="relative mt-1 block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input type="search" value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setSelectedIds([]); }} placeholder="Search by patient name" aria-label="Search closed leads by patient name" className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+          </span>
+        </label>
+
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-wrap gap-3">
             <label className="text-xs font-semibold text-slate-600">Filter by closed status
               <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSelectedIds([]); }} className="mt-1 block min-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800">
@@ -96,10 +107,11 @@ export function DeletionReviewList({
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setSelectedIds(allVisibleSelected ? selectedIds.filter((id) => !visibleIds.includes(id)) : [...new Set([...selectedIds, ...visibleIds])])} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-              {allVisibleSelected ? "Clear visible selection" : `Select ${visibleReviews.length} visible`}
+            <span className="self-center text-xs font-medium text-slate-500">{selectedIds.length} selected</span>
+            <button type="button" disabled={!visibleIds.length || allVisibleSelected} onClick={() => setSelectedIds((current) => [...new Set([...current, ...visibleIds])])} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+              Select all matching ({visibleReviews.length})
             </button>
-            {selectedIds.length > 0 && <button type="button" onClick={() => setSelectedIds([])} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100">Clear all</button>}
+            <button type="button" disabled={!selectedIds.length} onClick={() => setSelectedIds([])} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">Unselect all</button>
           </div>
         </div>
 
