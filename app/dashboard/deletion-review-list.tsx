@@ -45,7 +45,7 @@ export function DeletionReviewList({
     (statusFilter === "all" || review.status === statusFilter) &&
     (assigneeFilter === "all" || review.assignedTo === assigneeFilter),
   ), [reviews, normalizedSearch, statusFilter, assigneeFilter]);
-  const visibleIds = visibleReviews.map((review) => review.id);
+  const visibleIds = visibleReviews.map((review) => review.leadId);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
 
   function toggleReview(id: string) {
@@ -68,7 +68,7 @@ export function DeletionReviewList({
     if (pending || selectedIds.length === 0 || selectedEmployees.length === 0) return;
     setPending(true);
     try {
-      const result = await assignDeletionReviewLeads({ reviewIds: selectedIds, employeeNames: selectedEmployees, asFresh });
+      const result = await assignDeletionReviewLeads({ leadIds: selectedIds, employeeNames: selectedEmployees, asFresh });
       if (!result.success) {
         toast.add({ title: "Transfer failed", description: result.error ?? "The selected leads could not be reassigned.", type: "error" });
         return;
@@ -180,7 +180,7 @@ export function DeletionReviewList({
         {visibleReviews.map((review) => (
           <article key={review.id} className="crm-card-interactive rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
             <div className="flex items-start gap-3">
-              <input aria-label={`Select ${review.leadName}`} type="checkbox" checked={selectedIds.includes(review.id)} onChange={() => toggleReview(review.id)} disabled={pending} className="mt-1 size-4 shrink-0 accent-emerald-700" />
+              <input aria-label={`Select ${review.leadName}`} type="checkbox" checked={selectedIds.includes(review.leadId)} onChange={() => toggleReview(review.leadId)} disabled={pending} className="mt-1 size-4 shrink-0 accent-emerald-700" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
