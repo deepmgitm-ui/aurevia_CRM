@@ -30,12 +30,17 @@ export function DeletionReviewList({
 }) {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [asFresh, setAsFresh] = useState(false);
   const [pending, setPending] = useState(false);
   const statuses = useMemo(() => [...new Set(reviews.map((review) => review.status).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [reviews]);
-  const visibleReviews = useMemo(() => statusFilter === "all" ? reviews : reviews.filter((review) => review.status === statusFilter), [reviews, statusFilter]);
+  const assignees = useMemo(() => [...new Set(reviews.map((review) => review.assignedTo).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [reviews]);
+  const visibleReviews = useMemo(() => reviews.filter((review) =>
+    (statusFilter === "all" || review.status === statusFilter) &&
+    (assigneeFilter === "all" || review.assignedTo === assigneeFilter),
+  ), [reviews, statusFilter, assigneeFilter]);
   const visibleIds = visibleReviews.map((review) => review.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
 
@@ -76,12 +81,20 @@ export function DeletionReviewList({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <label className="text-xs font-semibold text-slate-600">Filter by closed status
-            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSelectedIds([]); }} className="mt-1 block min-w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800">
-              <option value="all">All statuses ({reviews.length})</option>
-              {statuses.map((status) => <option key={status} value={status}>{status} ({reviews.filter((review) => review.status === status).length})</option>)}
-            </select>
-          </label>
+          <div className="flex flex-wrap gap-3">
+            <label className="text-xs font-semibold text-slate-600">Filter by closed status
+              <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSelectedIds([]); }} className="mt-1 block min-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800">
+                <option value="all">All statuses ({reviews.length})</option>
+                {statuses.map((status) => <option key={status} value={status}>{status} ({reviews.filter((review) => review.status === status).length})</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-slate-600">Filter by assigned agent
+              <select value={assigneeFilter} onChange={(event) => { setAssigneeFilter(event.target.value); setSelectedIds([]); }} className="mt-1 block min-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800">
+                <option value="all">All agents ({reviews.length})</option>
+                {assignees.map((name) => <option key={name} value={name}>{name} ({reviews.filter((review) => review.assignedTo === name).length})</option>)}
+              </select>
+            </label>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setSelectedIds(allVisibleSelected ? selectedIds.filter((id) => !visibleIds.includes(id)) : [...new Set([...selectedIds, ...visibleIds])])} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
               {allVisibleSelected ? "Clear visible selection" : `Select ${visibleReviews.length} visible`}
@@ -121,6 +134,7 @@ export function DeletionReviewList({
       </div>
 
       <div className="space-y-3">
+        {visibleReviews.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">No closed leads match these filters.</p>}
         {visibleReviews.map((review) => (
           <article key={review.id} className="crm-card-interactive rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
             <div className="flex items-start gap-3">

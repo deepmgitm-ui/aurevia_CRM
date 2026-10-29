@@ -20,7 +20,7 @@ export async function DeletionReviewPanel({ role }: { role: string }) {
             {result.reviews.length > 0 && <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-950">{result.reviews.length}</span>}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Filter by status, reassign selected leads, or keep, snooze, and delete before scheduled cleanup.
+            Filter by closed status or assigned agent, reassign selected leads, or keep, snooze, and delete before cleanup.
           </p>
         </div>
       </div>
