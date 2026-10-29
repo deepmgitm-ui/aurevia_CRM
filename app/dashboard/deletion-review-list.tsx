@@ -56,6 +56,14 @@ export function DeletionReviewList({
     setSelectedEmployees((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
   }
 
+  function selectAllVisible() {
+    setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
+  }
+
+  function unselectAllVisible() {
+    setSelectedIds((current) => current.filter((id) => !visibleIds.includes(id)));
+  }
+
   async function assignSelected() {
     if (pending || selectedIds.length === 0 || selectedEmployees.length === 0) return;
     setPending(true);
@@ -106,13 +114,6 @@ export function DeletionReviewList({
               </select>
             </label>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="self-center text-xs font-medium text-slate-500">{selectedIds.length} selected</span>
-            <button type="button" disabled={!visibleIds.length || allVisibleSelected} onClick={() => setSelectedIds((current) => [...new Set([...current, ...visibleIds])])} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
-              Select all matching ({visibleReviews.length})
-            </button>
-            <button type="button" disabled={!selectedIds.length} onClick={() => setSelectedIds([])} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">Unselect all</button>
-          </div>
         </div>
 
         <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(250px,0.8fr)]">
@@ -142,6 +143,35 @@ export function DeletionReviewList({
               {pending ? "Assigning…" : `Assign ${selectedIds.length || "selected"} lead${selectedIds.length === 1 ? "" : "s"}`}
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3">
+          <input
+            type="checkbox"
+            aria-label="Select all matching closed leads"
+            checked={allVisibleSelected}
+            disabled={!visibleIds.length || pending}
+            onChange={() => allVisibleSelected ? unselectAllVisible() : selectAllVisible()}
+            className="size-4 shrink-0 accent-emerald-700"
+          />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Closed leads</p>
+            <p className="text-xs text-slate-500">{visibleReviews.length} shown · {selectedIds.length} selected</p>
+          </div>
+          <div className="hidden items-center gap-5 border-l border-slate-200 pl-4 text-xs font-medium text-slate-500 md:flex">
+            <span>Patient / status</span>
+            <span>Assigned agent</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!visibleIds.length || allVisibleSelected || pending} onClick={selectAllVisible} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
+            Select all
+          </button>
+          <button type="button" disabled={!selectedIds.length || pending} onClick={() => setSelectedIds([])} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">
+            Unselect all
+          </button>
         </div>
       </div>
 
