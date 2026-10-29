@@ -1285,6 +1285,31 @@ export async function getViewer(): Promise<ActionResult<Viewer | null>> {
   }
 }
 
+/** Returns only the signed-in employee's current assignment count for safe portal sync. */
+export async function getMyAssignedLeadCount(): Promise<ActionResult<number>> {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return { success: false, error: "Sign in to sync your leads." };
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("name, role")
+      .eq("id", user.id)
+      .single();
+    if (profileError || !profile) return { success: false, error: "Unable to sync your assigned leads." };
+    if (profile.role !== "employee") return { success: true, data: 0 };
+
+    const { count, error } = await supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("assigned_to", profile.name);
+    if (error) return { success: false, error: "Unable to sync your assigned leads." };
+    return { success: true, data: count ?? 0 };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to sync your assigned leads.") };
+  }
+}
+
 export interface EmployeeLeadStats {
   id: string;
   name: string;
@@ -2737,7 +2762,7 @@ export async function randomAssignLeads(
       }
     }
 
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { success: true, data: { assigned: leadIds.length } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to assign leads.") };
@@ -3014,7 +3039,7 @@ export async function transferLeadAssignmentBatch(input: {
     if (transferred === 0) return { success: false, error: "This batch has no leads that need transferring." };
     const { error: rosterError } = await supabase.from("crm_assignment_batches").update({ target_names: [target.name] }).eq("id", input.batchId);
     if (rosterError) return { success: false, error: `Leads transferred, but the batch roster could not be updated: ${rosterError.message}` };
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { success: true, data: { transferred } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to transfer this assignment batch.") };
@@ -3070,7 +3095,7 @@ export async function addLeadsToAssignmentBatch(input: {
     }
     const { error: countError } = await supabase.from("crm_assignment_batches").update({ lead_count: Number(batch.lead_count ?? 0) + added }).eq("id", input.batchId);
     if (countError) return { success: false, error: `Added ${added} leads, but the batch count could not be updated: ${countError.message}` };
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { success: true, data: { added, perEmployee: perEmployee.filter((item) => item.count > 0) } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to add leads to this assignment batch.") };
@@ -3421,7 +3446,7 @@ export async function assignLeadsToEmployees(input: {
       }
     }
 
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return {
       success: true,
       data: {
@@ -3534,7 +3559,7 @@ export async function assignUnassignedLeads(
       }
     }
 
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return {
       success: true,
       data: {
@@ -3575,7 +3600,7 @@ export async function updateLeadAssignment(
         .select()
         .single();
       if (error) return { success: false, error: error.message };
-      revalidatePath("/dashboard");
+      revalidatePath("/dashboard", "layout");
       return { success: true, data: data as Lead };
     }
 
@@ -3598,7 +3623,7 @@ export async function updateLeadAssignment(
       .single();
 
     if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { success: true, data: data as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to update lead assignment.") };
@@ -3743,7 +3768,7 @@ export async function updateLeadDetails(
       .single();
 
     if (error) return { success: false, error: error.message };
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { success: true, data: data as Lead };
   } catch (error) {
     return {

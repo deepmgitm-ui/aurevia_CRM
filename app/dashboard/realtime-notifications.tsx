@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 
-import { getViewer } from "@/app/actions/leads";
+import { getMyAssignedLeadCount, getViewer } from "@/app/actions/leads";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/components/ui/toast";
 import { isRecentSelfMutation } from "./lead-mutation-tracker";
@@ -58,6 +58,7 @@ export function RealtimeNotifications() {
   useEffect(() => {
     let cancelled = false;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let assignmentCountInterval: ReturnType<typeof setInterval> | null = null;
     let lastRefresh = 0;
     function refreshOnce() {
       if(refreshTimer || document.visibilityState !== "visible") return;
@@ -82,6 +83,19 @@ export function RealtimeNotifications() {
       const viewerName = viewer.name;
       const isEmployee = role === "employee";
       const isAdminUser = role === "admin";
+
+      if (isEmployee) {
+        let previousCount: number | null = null;
+        const syncAssignmentCount = async () => {
+          if (cancelled || document.visibilityState !== "visible") return;
+          const result = await getMyAssignedLeadCount();
+          if (cancelled || !result.success) return;
+          if (previousCount !== null && result.data !== previousCount) refreshOnce();
+          previousCount = result.data;
+        };
+        void syncAssignmentCount();
+        assignmentCountInterval = setInterval(() => void syncAssignmentCount(), 60_000);
+      }
 
       supabase = createClient();
 
@@ -225,6 +239,7 @@ export function RealtimeNotifications() {
       cancelled = true;
       document.removeEventListener("visibilitychange",onVisible);
       if(refreshTimer) clearTimeout(refreshTimer);
+      if(assignmentCountInterval) clearInterval(assignmentCountInterval);
       if(pendingRef.current.timer) clearTimeout(pendingRef.current.timer);
       if (supabase && channel) void supabase.removeChannel(channel);
     };

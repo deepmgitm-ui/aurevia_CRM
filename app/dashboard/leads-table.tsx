@@ -786,6 +786,11 @@ export function LeadsTable({
     setIsPaging(false);
   }
 
+  function refreshAfterAssignment() {
+    window.dispatchEvent(new Event("crm:leads-changed"));
+    router.refresh();
+  }
+
   const liveReload=useRef<()=>void>(()=>{});
   liveReload.current=()=>{void fetchPage(page);};
   useEffect(()=>{const reload=()=>liveReload.current();window.addEventListener("crm:leads-changed",reload);return()=>window.removeEventListener("crm:leads-changed",reload);},[]);
@@ -1230,7 +1235,7 @@ export function LeadsTable({
     } else {
       updateLeadLocally(response.data);
       setPendingLeadTransfer(null);
-      router.refresh();
+      refreshAfterAssignment();
       toast.add({ title: "Lead transferred", description: transferDisposition === "fresh" ? "Sent as a Fresh Lead. Previous history is retained." : "Current status and history were retained.", type: "success" });
     }
     setLeadSaving(lead.id, false);
@@ -1254,7 +1259,7 @@ export function LeadsTable({
       setLeads((current) => current.map((lead) => selectedLeads.includes(lead.id) ? { ...lead, assigned_to: employeeName } : lead));
       setSelectedLeads([]);
       setIsSelectAllChecked(false);
-      router.refresh();
+      refreshAfterAssignment();
       queueSuccessSummary("assigned", response.data.assigned);
     }
     setIsBulkActionPending(false);
@@ -1269,7 +1274,7 @@ export function LeadsTable({
     } else {
       setSelectedLeads([]);
       setIsSelectAllChecked(false);
-      router.refresh();
+      refreshAfterAssignment();
       queueSuccessSummary("assigned", response.data.assigned);
     }
     setIsBulkActionPending(false);
@@ -1444,7 +1449,7 @@ export function LeadsTable({
           setIsAssignmentOpen(false);
           setSelectedAssignmentLeads([]);
           setSelectAllAssignmentMatches(false);
-          router.refresh();
+          refreshAfterAssignment();
           const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
           queueSuccessSummary("assigned", response.data.added, perEmployee);
           void refreshAssignmentBatches();
@@ -1468,7 +1473,7 @@ export function LeadsTable({
           setSelectAllAssignmentMatches(false);
         }
         setIsAssignmentOpen(false);
-        router.refresh();
+        refreshAfterAssignment();
         const perEmployee = response.data.perEmployee.map((entry) => `${entry.name}: ${entry.count}`).join(" · ");
         if (assignmentMode === "transfer-selected") {
           toast.add({ title: "Leads transferred", description: `${response.data.assigned.toLocaleString()} leads moved${perEmployee ? ` — ${perEmployee}` : ""}${transferDisposition === "fresh" ? ". Sent as Fresh Leads; previous history is retained." : ". Current statuses and history were retained."}`, type: "success" });
@@ -1526,7 +1531,7 @@ export function LeadsTable({
         } else {
           toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. An Excel file and recovery snapshot were saved.`, type: "success" });
           setAssignmentBatchAction(null);
-          router.refresh();
+          refreshAfterAssignment();
           await refreshAssignmentBatches();
         }
       } else {
@@ -1537,7 +1542,7 @@ export function LeadsTable({
         } else {
           toast.add({ title: "Assignment batch transferred", description: `${response.data.transferred.toLocaleString()} leads moved to ${employeeName}${transferDisposition === "fresh" ? " as Fresh Leads; previous history is retained" : " with their current statuses"}.`, type: "success" });
           setAssignmentBatchAction(null);
-          router.refresh();
+          refreshAfterAssignment();
           await refreshAssignmentBatches();
         }
       }
@@ -1977,7 +1982,8 @@ export function LeadsTable({
       setEditingLead(null);
       queueSuccessSummary("updated");
       // Keep the server-rendered stat cards (New/Hot counts) in sync.
-      router.refresh();
+      if (assignmentChanged) refreshAfterAssignment();
+      else router.refresh();
     }
     setIsSavingEdit(false);
   }
