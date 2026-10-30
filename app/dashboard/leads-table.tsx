@@ -589,6 +589,15 @@ export function LeadsTable({
   const assignmentSuggestionSequenceRef = useRef(0);
   const transferLeadSequenceRef = useRef(0);
 
+  const selectionScopeKey = JSON.stringify({ assignedTo, filters, searchTerm, activeSearch, activeStatusFilter, selectedSource, dateField, dateFrom, dateTo });
+  const selectionScopeRef = useRef(selectionScopeKey);
+  useEffect(() => {
+    if (selectionScopeRef.current === selectionScopeKey) return;
+    selectionScopeRef.current = selectionScopeKey;
+    setSelectedLeads([]);
+    setIsSelectAllChecked(false);
+  }, [selectionScopeKey]);
+
   function queueSuccessSummary(kind: "added" | "assigned" | "updated" | "notes", count = 1, detail?: string) {
     const summary = successSummaryRef.current;
     summary[kind] += count;
@@ -781,8 +790,7 @@ export function LeadsTable({
       setPage(response.data.page);
       setServerTotal(response.data.total);
       setServerTotalPages(response.data.totalPages);
-      // Selections and sorting only apply to the currently loaded page.
-      setSelectedLeads([]);
+      // Keep selected IDs while moving between result pages.
       setIsSelectAllChecked(false);
       setSortConfig(null);
     }
@@ -1655,10 +1663,8 @@ export function LeadsTable({
   );
 
   async function handleBulkDelete() {
-    // When "select all" is active, delete with a single { deleteAll: true }
-    // request instead of shipping thousands of IDs. If a server-side search is
-    // active, the backend wipes only the leads matching that search.
-    const deleteAll = isSelectAllChecked;
+    // The page checkbox selects visible IDs; never treat it as a full wipe.
+    const deleteAll = false;
     if (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
       toast.add({
         title: "Confirmation required",
@@ -2304,7 +2310,7 @@ export function LeadsTable({
         </CardHeader>
         {canDelete && selectedLeads.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-y border-slate-200 bg-slate-50 px-4 py-3">
-            <span className="mr-2 text-sm font-medium text-slate-600">{selectedLeads.length} selected</span>
+            <span className="mr-2 text-sm font-medium text-slate-600">{selectedLeads.length} selected across pages</span>
             <Select onValueChange={(value) => void handleAssignSelected(typeof value === "string" ? value : null)} disabled={isBulkActionPending}>
               <SelectTrigger size="sm" className="w-40"><SelectValue placeholder="Assign Selected" /></SelectTrigger>
               <SelectContent>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
@@ -2322,7 +2328,7 @@ export function LeadsTable({
         <CardContent>
           <Table className="min-w-[1480px] table-fixed">
             <TableHeader><TableRow>
-              {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads" checked={isSelectAllChecked} onChange={(event) => { const checked = event.target.checked; setIsSelectAllChecked(checked); setSelectedLeads(checked ? [...new Set([...selectedLeads, ...sortedLeads.map((lead) => lead.id)])] : selectedLeads.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
+              {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads on this page" checked={sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeads.includes(lead.id))} onChange={(event) => { const checked = event.target.checked; setIsSelectAllChecked(false); setSelectedLeads((current) => checked ? [...new Set([...current, ...sortedLeads.map((lead) => lead.id)])] : current.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[150px]">Contact</TableHead>
               <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />
