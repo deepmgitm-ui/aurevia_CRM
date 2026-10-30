@@ -768,7 +768,10 @@ export function LeadsTable({
   async function fetchPage(nextPage: number, search: string = activeSearch, status: string = activeStatusFilter) {
     const requestId = ++fetchSequenceRef.current;
     setIsPaging(true);
-    const response = await getLeadsPage(nextPage, LEADS_PAGE_SIZE, search, assignedTo, status, filters);
+    let response = await getLeadsPage(nextPage, LEADS_PAGE_SIZE, search, assignedTo, status, filters);
+    if (response.success && nextPage > response.data.totalPages) {
+      response = await getLeadsPage(response.data.totalPages, LEADS_PAGE_SIZE, search, assignedTo, status, filters);
+    }
     // Skip stale responses if the user kept typing or paging meanwhile.
     if (requestId !== fetchSequenceRef.current) return;
     if (!response.success) {
@@ -787,7 +790,7 @@ export function LeadsTable({
   }
 
   function refreshAfterAssignment() {
-    window.dispatchEvent(new Event("crm:leads-changed"));
+    void fetchPage(page, activeSearch, activeStatusFilter);
     router.refresh();
   }
 
@@ -1464,6 +1467,18 @@ export function LeadsTable({
       if (!response.success) {
         toast.add({ title: assignmentMode === "transfer-selected" ? "Transfer failed" : "Assignment failed", description: response.error, type: "error" });
       } else {
+        const currentAssignee = (assignedTo.trim() || filters.assigned.trim()).toLocaleLowerCase();
+        const movesOutOfCurrentView =
+          (assignmentMode === "selected" || assignmentMode === "transfer-selected") &&
+          currentAssignee &&
+          assignmentEmployeeNames.every((name) => name.trim().toLocaleLowerCase() !== currentAssignee);
+        if (movesOutOfCurrentView) {
+          const movedIds = new Set(leadIdsToAssign);
+          setLeads((current) => current.filter((lead) => !movedIds.has(lead.id)));
+          setServerTotal((current) => Math.max(0, current - response.data.assigned));
+          setSelectedLead((current) => (current && movedIds.has(current.id) ? null : current));
+          setEditingLead((current) => (current && movedIds.has(current.id) ? null : current));
+        }
         if (assignmentMode === "selected" || assignmentMode === "transfer-selected") {
           setSelectedLeads([]);
           setIsSelectAllChecked(false);
