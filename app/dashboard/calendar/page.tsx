@@ -5,14 +5,10 @@ import { AppointmentEditor } from "./appointment-editor";
 import { getCalendarEditorSetup } from "./entry-actions";
 import { isWorkDate } from "@/lib/daily-work";
 import { createHash } from "node:crypto";
-import { getViewer } from "@/app/actions/leads";
-import { redirect } from "next/navigation";
 
 export default async function CalendarPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const viewer = await getViewer();
-  if (viewer.success && viewer.data?.role === "employee") redirect("/dashboard");
   const params = await searchParams;
   const month = Array.isArray(params.month) ? params.month[0] : params.month;
   const [result, editor] = await Promise.all([getMonthDays(month, true), getCalendarEditorSetup()]);

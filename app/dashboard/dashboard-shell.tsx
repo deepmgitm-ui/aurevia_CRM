@@ -68,6 +68,7 @@ const navigation = [
   { group: "Overview", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
   { group: "Leads & Follow-ups", label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
   { group: "Leads & Follow-ups", label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+  { group: "Leads & Follow-ups", label: "Follow-up Calendar", href: "/dashboard/follow-up-calendar", icon: CalendarDays, exact: false },
   { group: "Leads & Follow-ups", label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
   { group: "Clinic", label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
   { group: "Clinic", label: "Upcoming Appointments", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
@@ -130,7 +131,7 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
   const items = navigation
     .filter((item) => {
       if (role === "employee") {
-        return ["/dashboard", "/dashboard/leads", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report"].includes(item.href);
+        return ["/dashboard", "/dashboard/leads", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report", "/dashboard/calendar", "/dashboard/follow-up-calendar"].includes(item.href);
       }
       if (item.href === "/dashboard/closed-lead-reviews" || item.href === "/dashboard/assignment-history") return role === "admin";
       return true;

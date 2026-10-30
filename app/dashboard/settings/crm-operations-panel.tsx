@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PhonePreview } from "../phone-preview";
+import { estimateCapacityYears } from "@/lib/capacity-estimate";
 interface Capacity {
   databaseBytes: number;
   storageBytes: number | null;
@@ -25,6 +26,8 @@ interface Capacity {
   staff: number;
   leadBytes: number;
   activityBytes: number;
+  assignmentBytes: number;
+  userBytes: number;
   appointments: number;
 }
 export function CrmOperationsPanel({
@@ -110,11 +113,11 @@ export function CrmOperationsPanel({
     };
   }, [refreshCapacity]);
   const databaseLimit = 500 * 1024 * 1024;
-  const storageLimit = 1024 * 1024 * 1024;
   const databaseBytes = currentCapacity?.databaseBytes ?? 0;
   const storageBytes = currentCapacity ? currentCapacity.storageBytes : null;
   const remaining = (used: number, limit: number) => Math.max(0, limit - used);
   const formatMb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  const estimate = currentCapacity ? estimateCapacityYears(currentCapacity) : null;
   return (
     <section className="space-y-5 rounded-xl border bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -127,10 +130,10 @@ export function CrmOperationsPanel({
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ["Database", `${formatMb(databaseBytes)} used · ${formatMb(remaining(databaseBytes, databaseLimit))} left`],
-              ["File storage", storageBytes === null
+              ["Database", `${formatMb(databaseBytes)} measured · ~${formatMb(remaining(databaseBytes, databaseLimit))} left`],
+              ["Project file storage", storageBytes === null
                 ? "Could not load current usage"
-                : `${formatMb(storageBytes)} used · ${formatMb(remaining(storageBytes, storageLimit))} left`],
+                : `${formatMb(storageBytes)} used · 1 GB shared Free allowance`],
               ["Team", `${currentCapacity.staff} members · budget target 20`],
               [
                 "Records",
@@ -143,6 +146,16 @@ export function CrmOperationsPanel({
               </div>
             ))}
           </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-slate-100 p-3"><p className="text-xs text-slate-500">Leads and indexes</p><p className="mt-1 font-semibold">{formatMb(currentCapacity.leadBytes)}</p></div>
+            <div className="rounded-lg border border-slate-100 p-3"><p className="text-xs text-slate-500">Lead activity and assignments</p><p className="mt-1 font-semibold">{formatMb(currentCapacity.activityBytes + currentCapacity.assignmentBytes)}</p></div>
+            <div className="rounded-lg border border-slate-100 p-3"><p className="text-xs text-slate-500">User and profile tables</p><p className="mt-1 font-semibold">{formatMb(currentCapacity.userBytes)}</p></div>
+          </div>
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-950">
+            <p className="font-semibold">Planning scenario: 6 team members and 100 new leads per day</p>
+            <p className="mt-1">{estimate ? `Estimated database capacity: approximately ${estimate.lowerYears.toFixed(1)}–${estimate.upperYears.toFixed(1)} years at 1–3× today's average lead, activity and assignment storage.` : "Not enough lead data to estimate growth yet."}</p>
+            <p className="mt-1 text-xs">This is an illustration, not a guarantee. Notes, backups, appointments, other tables, file storage, bandwidth and usage limits can change the result. Check Supabase usage before upgrading.</p>
+          </div>
           {(databaseBytes / 1024 / 1024 >= 250 || currentCapacity.staff >= 18) && (
             <p
               role="status"
@@ -153,7 +166,7 @@ export function CrmOperationsPanel({
             </p>
           )}
           <p className="text-xs text-slate-500">
-            Usage checked {new Date(currentCapacity.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST · Auto-refreshes every minute and when you return to this tab. Database and file storage show the Free plan allowances (500 MB and 1 GB); bandwidth and billing usage are separate.
+            Usage checked {new Date(currentCapacity.checkedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST · Auto-refreshes every minute and when you return to this tab. Database size is a live PostgreSQL measurement; Supabase billing metrics may differ. File storage sums available object sizes in this project; the 1 GB Free allowance is shared across the organization. Bandwidth and billing usage are separate.
           </p>
           {capacityError && <p role="alert" className="text-sm text-rose-700">{capacityError}</p>}
         </>

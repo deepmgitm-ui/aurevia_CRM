@@ -16,6 +16,7 @@ import {
   getViewer,
   logLeadCall,
   updateLeadDetails,
+  updateLeadAppointment,
   type Lead,
   type LeadActivity,
   type UpdateLeadDetailsInput,
@@ -31,6 +32,8 @@ import { toast } from "@/components/ui/toast";
 import { CALL_OUTCOMES } from "@/lib/calls";
 import { relativeLeadAge } from "./lead-filters";
 import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
+import { appointmentForStatus, normaliseAppointmentDate } from "@/lib/appointments";
+import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 
 export type LeadDetailTab = "info" | "activity" | "call";
 
@@ -205,6 +208,27 @@ export function LeadDetailDrawer({
       },
       "Patient updated",
     );
+  }
+
+  async function handleAppointmentSave(value: string) {
+    if (!lead || saving) return;
+    const field = appointmentForStatus(lead.status);
+    if (!field) return;
+    setSaving(true);
+    try {
+      const response = await updateLeadAppointment({ id: lead.id, column: field.column, value });
+      if (!response.success) {
+        toast.add({ title: "Date not saved", description: response.error, type: "error" });
+        return;
+      }
+      setLead(response.data);
+      onMutated?.(response.data);
+      toast.add({ title: "Appointment date saved" });
+    } catch {
+      toast.add({ title: "Date not saved", description: "Unable to reach the server. Please try again.", type: "error" });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleAddNote() {
@@ -450,6 +474,10 @@ export function LeadDetailDrawer({
                       onChange={(event) => setEdits((current) => ({ ...current, followUpDate: event.target.value }))}
                     />
                   </div>
+                  {appointmentForStatus(lead.status) && (() => {
+                    const field = appointmentForStatus(lead.status)!;
+                    return <div className="col-span-2"><Label>{field.label}</Label><AppointmentDatePicker value={normaliseAppointmentDate(lead[field.column])} label={field.label} hint={field.hint} disabled={saving} onChange={(value) => void handleAppointmentSave(value)} /></div>;
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">

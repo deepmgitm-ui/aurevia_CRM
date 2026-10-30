@@ -85,8 +85,9 @@ for (const status of LEAD_STATUS_OPTIONS) {
   assert.equal(cardFilters.allMonths, true);
   assert.ok(leadStatusStorageValues(status).includes(status), `${status} drill-down includes the current stored value`);
 }
-assert.ok(LEAD_STATUS_OPTIONS.includes("Language"), "Language is a selectable disposition");
-assert.equal(stageForStatus("Language"), "contacted", "Language is a worked disposition, not a new lead");
+assert.ok(LEAD_STATUS_OPTIONS.includes("Language Issue"), "Language Issue is a selectable disposition");
+assert.ok(leadStatusStorageValues("Language Issue").includes("Language"), "legacy Language records remain visible");
+assert.equal(stageForStatus("Language Issue"), "contacted", "Language Issue is a worked disposition, not a new lead");
 assert.ok(leadStatusStorageValues("DNP2").includes("DNP 2"), "DNP2 drill-down includes the legacy spaced spelling");
 assert.ok(leadStatusStorageValues("DNP3").includes("DNP 3"), "DNP3 drill-down includes the legacy spaced spelling");
 assert.ok(leadStatusStorageValues("RNR").includes("Not Reachable"), "RNR drill-down includes its legacy label");

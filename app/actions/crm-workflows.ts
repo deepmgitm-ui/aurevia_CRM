@@ -59,46 +59,20 @@ export async function getCapacity() {
   const supabase = await createClient();
   const viewer = await getViewer();
   if (!viewer.success || viewer.data?.role !== "admin") return null;
-  const { data, error } = await supabase.rpc("crm_capacity");
+  const { data, error } = await supabase.rpc("crm_capacity_breakdown");
   if (error || !data) return null;
-
-  // Supabase's Storage API applies the bucket's existing RLS rules. Only the
-  // aggregate is returned to the admin UI; object names never leave the server.
-  let storageBytes: number | null = 0;
-  const folders = [""];
-  try {
-    while (folders.length) {
-      const path = folders.pop()!;
-      for (let offset = 0; ; offset += 1000) {
-        const { data: objects, error: storageError } = await supabase.storage
-          .from("employee-avatars")
-          .list(path, { limit: 1000, offset });
-        if (storageError) throw storageError;
-        for (const object of objects ?? []) {
-          if (object.id === null) {
-            folders.push(path ? `${path}/${object.name}` : object.name);
-          } else {
-            const size = Number(object.metadata?.size);
-            if (Number.isFinite(size) && size > 0) storageBytes += size;
-          }
-        }
-        if (!objects || objects.length < 1000) break;
-      }
-    }
-  } catch {
-    storageBytes = null;
-  }
-
   return {
     ...(data as {
       databaseBytes: number;
+      storageBytes: number | null;
       leads: number;
       staff: number;
       leadBytes: number;
       activityBytes: number;
+      assignmentBytes: number;
+      userBytes: number;
       appointments: number;
     }),
-    storageBytes,
     checkedAt: new Date().toISOString(),
   };
 }

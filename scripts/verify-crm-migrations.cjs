@@ -12,6 +12,9 @@ let db;
 create schema cron;create table cron.job(jobid bigint,jobname text);
 create function cron.schedule(text,text,text) returns bigint language sql as $$select 1::bigint$$;
 create function cron.unschedule(bigint) returns boolean language sql as $$select true$$;
+create table auth.users(id uuid primary key);
+create schema storage;create table storage.objects(metadata jsonb);
+insert into storage.objects(metadata) values ('{"size":100}'::jsonb), ('{"size":250}'::jsonb);
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table public.profiles(id uuid primary key,name text,role text,phone text,email text,gender text,blood_group text,emergency_contact text,manager_name text,photo_url text);
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
@@ -70,6 +73,12 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     pinned_updated_path: true,
     has_meta_id: true,
   });
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const capacity = (await db.query("select public.crm_capacity_breakdown() as data")).rows[0].data;
+  assert.equal(Number(capacity.storageBytes), 350, "all project object sizes are aggregated");
+  assert.equal(Number(capacity.staff), 3);
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await assert.rejects(db.query("select public.crm_capacity_breakdown()"), "employees cannot read admin capacity data");
   const privateProfileSchema = (await db.query(`select
     has_table_privilege('authenticated','public.employee_private_profiles','select') as can_select,
     has_table_privilege('authenticated','public.employee_private_profiles','insert') as can_insert,
@@ -360,6 +369,13 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   // Today's untouched assignments are New Today, become Follow-up on first
   // touch, and become Fresh only after the clinic-day boundary.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const followUpA = (await db.query("insert into leads(name,phone,assigned_to,status,follow_up_date) values('Calendar A','9192222211','Agent A','Follow-Up','2026-10-25') returning id")).rows[0].id;
+  const followUpB = (await db.query("insert into leads(name,phone,assigned_to,status,follow_up_date) values('Calendar B','9192222212','Agent B','Follow-Up','2026-10-25') returning id")).rows[0].id;
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  const visibleFollowUps = (await db.query("select id from leads where id=any($1::uuid[]) and follow_up_day='2026-10-25'", [[followUpA, followUpB]])).rows;
+  assert.deepEqual(visibleFollowUps.map((row) => row.id), [followUpA], "employee follow-up calendar cannot read another agent's lead");
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  await db.query("delete from leads where id=any($1::uuid[])", [[followUpA, followUpB]]);
   const newAssignmentId = (await db.query(
     "insert into leads(name,phone,assigned_to,status) values('New assignment check','9192222200','-','New') returning id",
   )).rows[0].id;

@@ -1197,17 +1197,22 @@ export function LeadsTable({
       setSaving(true);
       setLeadSaving(lead.id, true);
       patchLeadLocally(lead.id, { [column]: next });
-      const response = await updateLeadAppointment({ id: lead.id, column, value: next });
-      setSaving(false);
-      if (!response.success) {
+      try {
+        const response = await updateLeadAppointment({ id: lead.id, column, value: next });
+        if (!response.success) {
+          patchLeadLocally(lead.id, { [column]: current });
+          toast.add({ title: "Date not saved", description: response.error, type: "error" });
+          return;
+        }
+        updateLeadLocally(response.data);
+        queueSuccessSummary("updated");
+      } catch {
         patchLeadLocally(lead.id, { [column]: current });
-        toast.add({ title: "Date not saved", description: response.error, type: "error" });
+        toast.add({ title: "Date not saved", description: "Unable to reach the server. Please try again.", type: "error" });
+      } finally {
+        setSaving(false);
         setLeadSaving(lead.id, false);
-        return;
       }
-      updateLeadLocally(response.data);
-      queueSuccessSummary("updated");
-      setLeadSaving(lead.id, false);
     }
 
     return (
@@ -2030,15 +2035,21 @@ export function LeadsTable({
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { follow_up_date: followUpDate || "-" });
-    const response = await updateLeadFollowUpDate(lead.id, followUpDate);
-    if (!response.success) {
+    try {
+      const response = await updateLeadFollowUpDate(lead.id, followUpDate);
+      if (!response.success) {
+        updateLeadLocally(lead);
+        toast.add({ title: "Unable to update follow-up", description: response.error, type: "error" });
+      } else {
+        updateLeadLocally(response.data);
+        queueSuccessSummary("updated");
+      }
+    } catch {
       updateLeadLocally(lead);
-      toast.add({ title: "Unable to update follow-up", description: response.error, type: "error" });
-    } else {
-      updateLeadLocally(response.data);
-      queueSuccessSummary("updated");
+      toast.add({ title: "Unable to update follow-up", description: "Unable to reach the server. Please try again.", type: "error" });
+    } finally {
+      setLeadSaving(lead.id, false);
     }
-    setLeadSaving(lead.id, false);
   }
 
   return (
@@ -2487,6 +2498,7 @@ export function LeadsTable({
                         </span>
                       )}
                       <AppointmentDateInput lead={lead} />
+                      {canonicalLeadStatus(lead.status) === "Follow-Up" && <div><Label htmlFor={`follow-up-${lead.id}`} className="text-[10px] text-slate-500">Follow-up date</Label><Input id={`follow-up-${lead.id}`} type="date" value={toInputDateValue(lead.follow_up_date)} disabled={savingLeadIds.has(lead.id)} onChange={(event) => void handleFollowUpChange(lead, event.target.value)} /></div>}
                     </div>
                   </TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
@@ -3491,6 +3503,7 @@ export function LeadsTable({
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span></div>
+                <div className="sm:col-span-2"><AppointmentDateInput lead={selectedLead} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
               <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>

@@ -882,7 +882,7 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
       const { data, error } = await query;
       if (error) return { success: false, error: "Assignment statuses could not be loaded." };
       for (const row of data ?? []) {
-        const status = row.status ?? null;
+        const status = canonicalLeadStatus(row.status);
         counts.set(status, (counts.get(status) ?? 0) + 1);
       }
       if (!data || data.length < 500) break;
@@ -930,6 +930,11 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     if (dnpError) return { success: false, error: "Your DNP lead count could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
     const statusCounts = row.statuses && typeof row.statuses === "object" ? row.statuses : {};
+    const normalizedCounts: Record<string, number> = {};
+    for (const [status, count] of Object.entries(statusCounts)) {
+      const canonical = canonicalLeadStatus(status);
+      normalizedCounts[canonical] = (normalizedCounts[canonical] ?? 0) + (Number(count) || 0);
+    }
     return { success: true, data: {
       total: Number(row.total ?? 0),
       fresh: Number(row.fresh ?? 0),
@@ -940,7 +945,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       opdDone: Number(row.opdDone ?? 0),
       ipdBooked: Number(row.ipdBooked ?? 0),
       ipdDone: Number(row.ipdDone ?? 0),
-      statuses: Object.fromEntries(Object.entries(statusCounts).map(([status, count]) => [status, Number(count) || 0])),
+      statuses: normalizedCounts,
     } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Your lead summary could not be loaded.") };
@@ -2078,10 +2083,11 @@ export async function updateLeadFollowUpDate(
         leadId,
         user.id,
         "follow_up",
-        nextFollowUp ? `Follow-up set: ${nextFollowUp}` : "Follow-up clear kiya",
+        nextFollowUp ? `Follow-up set: ${nextFollowUp}` : "Follow-up cleared",
       );
     }
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/follow-up-calendar");
     return { success: true, data: data as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to update follow-up date.") };
@@ -3910,6 +3916,7 @@ export async function completeFollowUp(
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/follow-up-calendar");
     return { success: true, data: updated as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to complete follow-up.") };
@@ -3955,6 +3962,7 @@ export async function rescheduleFollowUp(
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/follow-up-calendar");
     return { success: true, data: data as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to reschedule follow-up.") };
@@ -3968,7 +3976,7 @@ export async function logLeadCall(
  const date=input.next_follow_up_date?parseStoredDateKey(input.next_follow_up_date):null;if(date&&!isWorkDate(date))return {success:false,error:"Choose a valid callback date."};
  const time=input.next_follow_up_time?.trim()||null;if(time&&(!date||!isCallTime(time)))return {success:false,error:"Choose a callback date and time."};
  const supabase=await createClient();const {data,error}=await supabase.rpc("crm_log_call",{p_lead:input.lead_id,p_outcome:outcome,p_notes:input.notes?.trim()||"",p_next:date,p_time:time});if(error)return {success:false,error:error.message};
- revalidatePath("/dashboard");revalidatePath("/dashboard/tasks");return {success:true,data:data as LeadActivity};
+ revalidatePath("/dashboard");revalidatePath("/dashboard/tasks");revalidatePath("/dashboard/follow-up-calendar");return {success:true,data:data as LeadActivity};
  }catch(error){return {success:false,error:getErrorMessage(error,"Unable to log call.")};}
 }
 
