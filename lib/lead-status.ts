@@ -10,6 +10,7 @@ export const LEAD_STATUS_OPTIONS = [
   "Didn’t Enquired",
   "Budget Issue",
   "Location Issue",
+  "Language",
   "Non Surgical",
   "OPD Booked",
   "OPD Done",

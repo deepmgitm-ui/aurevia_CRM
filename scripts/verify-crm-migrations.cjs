@@ -8,7 +8,10 @@ const fs = require("node:fs"),
 let db;
 (async () => {
   db = new PGlite();
-  await db.exec(`create role anon;create role authenticated;create schema auth;
+  await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;
+create schema cron;create table cron.job(jobid bigint,jobname text);
+create function cron.schedule(text,text,text) returns bigint language sql as $$select 1::bigint$$;
+create function cron.unschedule(bigint) returns boolean language sql as $$select true$$;
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table public.profiles(id uuid primary key,name text,role text,phone text,email text,gender text,blood_group text,emergency_contact text,manager_name text,photo_url text);
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
@@ -357,6 +360,39 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   // Today's untouched assignments are New Today, become Follow-up on first
   // touch, and become Fresh only after the clinic-day boundary.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const newAssignmentId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('New assignment check','9192222200','-','New') returning id",
+  )).rows[0].id;
+  await db.query("update leads set assigned_to='Agent A' where id=$1", [newAssignmentId]);
+  let assignmentEvent = (await db.query("select assigned_to, previous_assigned_to, event_kind, actor_id from crm_assignment_events where lead_id=$1 order by id desc limit 1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentEvent.assigned_to, "Agent A");
+  assert.equal(assignmentEvent.previous_assigned_to, null);
+  assert.equal(assignmentEvent.event_kind, "assignment");
+  assert.equal(assignmentEvent.actor_id, "00000000-0000-4000-8000-000000000001");
+  let assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentState.workflow_bucket, "fresh", "assignment alone keeps an untouched lead New Today");
+  assert.equal(assignmentState.first_agent_touch_at, null);
+  const beforeAdminEdit = Number((await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned);
+  await db.query("update leads set status='Language' where id=$1", [newAssignmentId]);
+  assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentState.workflow_bucket, "followup", "admin disposition update removes the lead from New Today");
+  assert.ok(assignmentState.first_agent_touch_at);
+  const afterAdminEdit = Number((await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned);
+  assert.equal(beforeAdminEdit - afterAdminEdit, 1, "daily New count matches the changed disposition");
+  await db.query("update leads set assigned_to='Agent B',status='New',first_agent_touch_at=null where id=$1", [newAssignmentId]);
+  assignmentEvent = (await db.query("select assigned_to, previous_assigned_to, event_kind, actor_id from crm_assignment_events where lead_id=$1 order by id desc limit 1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentEvent.previous_assigned_to, "Agent A");
+  assert.equal(assignmentEvent.assigned_to, "Agent B");
+  assert.equal(assignmentEvent.event_kind, "transfer");
+  assert.equal(assignmentEvent.actor_id, "00000000-0000-4000-8000-000000000001");
+  assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentState.workflow_bucket, "fresh", "fresh transfer stays fresh for the receiving agent");
+  assert.equal(assignmentState.first_agent_touch_at, null);
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  await db.query("update leads set remarks='Agent B note' where id=$1", [newAssignmentId]);
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0].workflow_bucket, "followup", "receiving agent's edit removes the lead from New Today");
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  await db.query("delete from leads where id=$1", [newAssignmentId]);
   const bucketIds = {};
   for (const [key, name, status] of [
     ["edited", "Bucket edited", "New"],

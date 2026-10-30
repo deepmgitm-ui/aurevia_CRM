@@ -489,7 +489,7 @@ export function stageForStatus(status: string): StageKey {
   // 6. Contact attempted. A "DNP" (did not pick up) status only exists because
   //    somebody rang the lead, so it is contacted — not a brand-new lead.
   if (
-    /(contact|call|follow|reach|touch|ring|pursu|\bdnp\b|\brnr\b|no response|didn'?t pick|not pick)/.test(value)
+    /(contact|call|follow|reach|touch|ring|pursu|\bdnp\b|\brnr\b|\blanguage\b|no response|didn'?t pick|not pick)/.test(value)
   ) {
     return "contacted";
   }

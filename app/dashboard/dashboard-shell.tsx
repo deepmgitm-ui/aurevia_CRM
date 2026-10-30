@@ -81,6 +81,7 @@ const navigation = [
   { group: "Analytics", label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
   { group: "Tools", label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
   { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false },
+  { group: "Tools", label: "Assignment History", href: "/dashboard/assignment-history", icon: Users, exact: false },
   { group: "Tools", label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
 ] as const;
 
@@ -131,7 +132,7 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
       if (role === "employee") {
         return ["/dashboard", "/dashboard/leads", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report"].includes(item.href);
       }
-      if (item.href === "/dashboard/closed-lead-reviews") return role === "admin";
+      if (item.href === "/dashboard/closed-lead-reviews" || item.href === "/dashboard/assignment-history") return role === "admin";
       return true;
     })
     .map((item) => {
