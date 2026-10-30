@@ -860,7 +860,7 @@ export function LeadsTable({
   }, []);
 
   const refreshDuplicateReviews = useCallback(async (openDialog = false) => {
-    if (!canDelete) return;
+    if (!isAdmin) return;
     setIsLoadingDuplicateReviews(true);
     setDuplicateReviewError("");
     try {
@@ -877,7 +877,7 @@ export function LeadsTable({
     } finally {
       setIsLoadingDuplicateReviews(false);
     }
-  }, [canDelete]);
+  }, [isAdmin]);
 
   async function openDuplicateReviews() {
     setIsDuplicateReviewOpen(true);
@@ -932,14 +932,14 @@ export function LeadsTable({
   }
 
   useEffect(() => {
-    if (!canDelete) return;
+    if (!isAdmin) return;
     const initialLoad = window.setTimeout(() => void refreshDuplicateReviews(), 0);
     const timer = window.setInterval(() => void refreshDuplicateReviews(), 60_000);
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(timer);
     };
-  }, [canDelete, refreshDuplicateReviews]);
+  }, [isAdmin, refreshDuplicateReviews]);
 
   async function processImportedRows(parsedData: ImportRow[], fileName: string) {
     try {
@@ -1917,6 +1917,9 @@ export function LeadsTable({
       const updated = response.data;
       updateLeadLocally(updated);
       queueSuccessSummary("updated");
+      if (response.warning) toast.add({ title: "Timeline could not be updated", description: response.warning, type: "error" });
+      const refreshed = await getLeadActivities(updated.id);
+      if (refreshed.success) setActivities(refreshed.data);
     }
     setIsSavingEdits(false);
   }
@@ -2007,6 +2010,7 @@ export function LeadsTable({
       updateLeadLocally(updated);
       setEditingLead(null);
       queueSuccessSummary("updated");
+      if (response.warning) toast.add({ title: "Timeline could not be updated", description: response.warning, type: "error" });
       // Keep the server-rendered stat cards (New/Hot counts) in sync.
       if (assignmentChanged) refreshAfterAssignment();
       else router.refresh();
@@ -2091,7 +2095,7 @@ export function LeadsTable({
                 Recent Deletions
               </Button>
             )}
-            {canDelete && (
+            {isAdmin && (
               <Button type="button" variant={duplicateReviewItems.length > 0 ? "secondary" : "outline"} onClick={() => void openDuplicateReviews()}>
                 {isLoadingDuplicateReviews ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <UserRoundPlus aria-hidden="true" />}
                 Duplicate Reviews
@@ -3228,8 +3232,10 @@ export function LeadsTable({
                         onChange={(event) => setSelectedDuplicateReviewIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))}
                       />
                       <span className="min-w-0 flex-1">
+                        <span className="grid gap-2 sm:grid-cols-2">
+                        <span className="rounded-lg bg-slate-50 p-2">
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900">{item.lead.name || "Unnamed existing lead"}</span>
+                          <span className="font-semibold text-slate-900">Existing lead: {item.lead.name || "Unnamed"}</span>
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${assigned ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-900"}`}>
                             {assigned ? `Assigned · ${item.lead.assigned_to}` : "Unassigned"}
                           </span>
@@ -3241,8 +3247,14 @@ export function LeadsTable({
                           {item.lead.disease && item.lead.disease !== "-" && <span>{item.lead.disease}</span>}
                           {item.lead.city && item.lead.city !== "-" && <span>{item.lead.city}</span>}
                         </span>
-                        <span className="mt-1 block text-xs text-slate-500">
-                          Incoming: {item.incoming_name || "Name not provided"} · {item.source} · {item.attempt_count} duplicate attempt{item.attempt_count === 1 ? "" : "s"}
+                        <span className="mt-1 block text-xs text-slate-500">{assigned ? `Assigned since: ${item.lead.assigned_at ? formatDate(item.lead.assigned_at) : "Time unavailable"}` : "No current assignment"}</span>
+                        </span>
+                        <span className="rounded-lg bg-amber-50 p-2 text-xs text-slate-600">
+                          <span className="block font-semibold text-slate-900">Latest incoming duplicate: {item.incoming_name || "Name not provided"}</span>
+                          <span className="mt-1 block">Same phone · Not added or assigned</span>
+                          <span className="mt-1 block">{item.source} · {item.attempt_count} duplicate attempt{item.attempt_count === 1 ? "" : "s"}</span>
+                          <span className="mt-1 block">Last received: {formatDate(item.last_seen_at)}</span>
+                        </span>
                         </span>
                         <span className={`mt-1 block text-xs ${!assigned ? "font-medium text-amber-800" : "text-slate-500"}`}>
                           {!assigned ? (remainingMs > 0 ? `Auto-delete in about ${remainingHours} hour${remainingHours === 1 ? "" : "s"} unless assigned.` : "Past 24 hours — awaiting the hourly cleanup.") : "No automatic deletion while assigned. Keep, transfer, or delete this lead."}
@@ -3506,7 +3518,7 @@ export function LeadsTable({
                 <div className="sm:col-span-2"><AppointmentDateInput lead={selectedLead} /></div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
-              <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
+              <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
               <section className="space-y-3 border-t border-slate-200 pt-5"><Label htmlFor="lead-note">Add note</Label><Textarea id="lead-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Write a note about this lead..." rows={4} /><Button type="button" onClick={handleAddNote} disabled={isAddingNote || !note.trim()}>{isAddingNote ? "Adding note..." : "Add Note"}</Button></section>
             </div>
           </>}

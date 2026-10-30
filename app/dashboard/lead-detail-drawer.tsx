@@ -183,6 +183,9 @@ export function LeadDetailDrawer({
     setLead(update.data);
     onMutated?.(update.data);
     toast.add({ title: successTitle });
+    if (update.warning) toast.add({ title: "Timeline could not be updated", description: update.warning, type: "error" });
+    const refreshed = await getLeadActivities(lead.id);
+    if (refreshed.success) setActivities(refreshed.data);
     setSaving(false);
   }
 
@@ -293,6 +296,7 @@ export function LeadDetailDrawer({
             {activity.action_type}
           </p>
           <p className="text-sm text-slate-700">{activity.description || "No details provided."}</p>
+          <p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p>
           <p className="text-[11px] text-slate-400">
             {new Date(activity.created_at).toLocaleString("en-IN", {
               day: "numeric",

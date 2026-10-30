@@ -531,7 +531,20 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.equal(savedBackup[0].scope, "Lost leads — 7-day auto-cleanup");
   assert.equal(savedBackup[0].lead_rows[0].name, "Review Purge");
 
-  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
+  // Exercise the production-style activity policy with a second actor on one lead.
+  await db.exec("reset role; drop policy fixture_activity_scope on public.lead_activities; create policy fixture_admin_activity on public.lead_activities for all to authenticated using (public.current_user_role() in ('admin','manager')) with check (public.current_user_role() in ('admin','manager')); insert into profiles(id,name,role) values ('00000000-0000-4000-8000-000000000004','Manager','manager');");
+  const privacyLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Privacy fixture','9190000077','Agent A','New') returning id")).rows[0].id;
+  await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000001','Note','Admin activity'),($1,'00000000-0000-4000-8000-000000000002','Note','Agent activity')", [privacyLead]);
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
+  assert.deepEqual((await db.query("select description from lead_activities where lead_id=$1", [privacyLead])).rows.map(r => r.description), ['Agent activity']);
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'");
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [privacyLead])).rows[0].n, 2);
+  await db.query("select crm_capture_duplicate_review_candidates($1::jsonb,'Test')", [JSON.stringify([{phone_identity:'9190000077',name:'Incoming'}])]);
+  const reviewId = (await db.query("select id from crm_duplicate_review_queue where lead_id=$1", [privacyLead])).rows[0].id;
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000004'");
+  assert.equal((await db.query("select count(*)::int n from crm_duplicate_review_queue where id=$1", [reviewId])).rows[0].n, 0);
+  await assert.rejects(db.query("select crm_resolve_duplicate_review_items($1::uuid[],'keep',null,false)", [[reviewId]]));
+  await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
   console.log(

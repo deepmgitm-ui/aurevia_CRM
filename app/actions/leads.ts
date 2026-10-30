@@ -65,6 +65,7 @@ export interface Lead {
   source: string;
   status: LeadStatus;
   assigned_to: string | null;
+  assigned_at?: string | null;
   created_at: string;
   updated_at: string;
   source_batch_id?: string | null;
@@ -97,6 +98,7 @@ export interface LeadActivity {
   id: string;
   lead_id: string;
   user_id: string;
+  actor_name?: string;
   action_type: string;
   description: string | null;
   created_at: string;
@@ -151,7 +153,7 @@ export interface AddLeadActivityInput {
 }
 
 export type ActionResult<T> =
-  | { success: true; data: T }
+  | { success: true; data: T; warning?: string }
   | { success: false; error: string; code?: string };
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -1072,7 +1074,42 @@ export async function getLeadActivities(
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: (data ?? []) as LeadActivity[] };
+    const activities = (data ?? []) as LeadActivity[];
+    const role = await getViewerRole(supabase);
+    const { data: assignmentEvents } = role === "employee" ? { data: [] } : await supabase
+      .from("crm_assignment_events")
+      .select("id, actor_id, assigned_to, assigned_at")
+      .eq("lead_id", leadId)
+      .order("assigned_at", { ascending: false });
+    const assignmentActivities: LeadActivity[] = (assignmentEvents ?? []).map((event) => ({
+      id: `assignment-${event.id}`,
+      lead_id: leadId,
+      user_id: event.actor_id ?? "",
+      action_type: "Assignment",
+      description: `Assigned to ${event.assigned_to || "Unassigned"}`,
+      created_at: event.assigned_at,
+    }));
+    const allActivities = [...activities, ...assignmentActivities];
+    const actorIds = [...new Set(allActivities.map((activity) => activity.user_id).filter(Boolean))];
+    const actorNames = new Map<string, string>();
+    if (actorIds.length > 0) {
+      const { data: actors } = await supabase
+        .from("profiles")
+        .select("id, name")
+        .in("id", actorIds);
+      for (const actor of actors ?? []) {
+        if (actor.name?.trim()) actorNames.set(actor.id, actor.name.trim());
+      }
+    }
+    return {
+      success: true,
+      data: allActivities
+        .map((activity) => ({
+        ...activity,
+        actor_name: actorNames.get(activity.user_id) ?? (activity.action_type === "Assignment" ? "System" : "Team member"),
+      }))
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)),
+    };
   } catch (error) {
     return {
       success: false,
@@ -1538,7 +1575,7 @@ export interface DuplicateLeadReviewItem {
   first_seen_at: string;
   last_seen_at: string;
   expires_at: string;
-  lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "city" | "disease" | "had_previous_assignment">;
+  lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "assigned_at" | "city" | "disease" | "had_previous_assignment">;
 }
 
 type DuplicateReviewCandidate = { phone_identity: string; name: string };
@@ -1577,7 +1614,7 @@ export async function resolveDuplicateLeadReviews(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can resolve duplicate reviews (403 Forbidden)." };
+    if (viewerRole !== "admin") return { success: false, error: "Only admins can resolve duplicate reviews (403 Forbidden)." };
     const { data, error } = await supabase.rpc("crm_resolve_duplicate_review_items", {
       p_review_ids: reviewIds,
       p_action: input.action,
@@ -1600,7 +1637,7 @@ export async function getDuplicateReviewLeadsForExport(reviewIds: string[]): Pro
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can export duplicate reviews (403 Forbidden)." };
+    if (viewerRole !== "admin") return { success: false, error: "Only admins can export duplicate reviews (403 Forbidden)." };
     const { data, error } = await supabase
       .from("crm_duplicate_review_queue")
       .select("lead:leads!crm_duplicate_review_queue_lead_id_fkey(*)")
@@ -1620,14 +1657,14 @@ export async function getDuplicateLeadReviewQueue(): Promise<ActionResult<Duplic
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") {
-      return { success: false, error: "Duplicate review is available to admins and managers only (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Duplicate review is available to admins only (403 Forbidden)." };
     }
     const items: DuplicateLeadReviewItem[] = [];
     for (let offset = 0; offset < 5000; offset += 500) {
       const { data, error } = await supabase
         .from("crm_duplicate_review_queue")
-        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, city, disease, had_previous_assignment)")
+        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, assigned_at, city, disease, had_previous_assignment)")
         .is("resolved_at", null)
         .order("first_seen_at", { ascending: false })
         .range(offset, offset + 499);
@@ -1926,16 +1963,17 @@ async function recordLeadActivity(
   userId: string,
   actionType: string,
   description: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await supabase.from("lead_activities").insert({
+    const { error } = await supabase.from("lead_activities").insert({
       lead_id: leadId,
       user_id: userId,
       action_type: actionType,
       description,
     });
+    return !error;
   } catch {
-    // Swallow — the timeline is a nice-to-have, the lead update is the truth.
+    return false;
   }
 }
 
@@ -3701,6 +3739,15 @@ export async function updateLeadDetails(
       return { success: false, error: "You must be signed in to edit leads." };
     }
 
+    const { data: previousLead, error: previousLeadError } = await supabase
+      .from("leads")
+      .select("name, phone, email, gender, city, disease, insurance_status, remarks, status, assigned_to, lead_date, follow_up_date, source")
+      .eq("id", input.id)
+      .single();
+    if (previousLeadError || !previousLead) {
+      return { success: false, error: previousLeadError?.message ?? "Lead not found." };
+    }
+
     // Employees can edit patient details on rows RLS scopes to their own
     // assignments. Keep assignment and source metadata under team-lead control.
     const { data: viewerProfile } = await supabase
@@ -3774,8 +3821,47 @@ export async function updateLeadDetails(
       .single();
 
     if (error) return { success: false, error: error.message };
+    const fieldLabels: Record<string, string> = {
+      name: "Patient name",
+      phone: "Phone number",
+      email: "Email",
+      gender: "Gender",
+      city: "City",
+      disease: "Treatment / disease",
+      insurance_status: "Insurance status",
+      remarks: "Remarks",
+      status: "Status",
+      assigned_to: "Assignment",
+      lead_date: "Lead date",
+      follow_up_date: "Follow-up date",
+      source: "Source",
+    };
+    const changedFields = Object.entries(fieldLabels).flatMap(([field, label]) => {
+      if (!(field in updates)) return [];
+      const before = String(previousLead[field as keyof typeof previousLead] ?? "").trim();
+      const after = String((data as Record<string, unknown>)[field] ?? "").trim();
+      if (before === after) return [];
+      if (field === "status") return [`${label}: ${before || "—"} → ${after || "—"}`];
+      if (field === "lead_date" || field === "follow_up_date") {
+        return [`${label}: ${before || "—"} → ${after || "—"}`];
+      }
+      return [`${label} updated`];
+    });
+    const activityRecorded = changedFields.length === 0
+      ? true
+      : await recordLeadActivity(
+        supabase,
+        input.id,
+        user.id,
+        "Lead details updated",
+        `Changed: ${changedFields.join("; ")}.`,
+      );
     revalidatePath("/dashboard", "layout");
-    return { success: true, data: data as Lead };
+    return {
+      success: true,
+      data: data as Lead,
+      ...(!activityRecorded ? { warning: "Lead changes were saved, but the timeline entry could not be recorded. Please tell an admin." } : {}),
+    };
   } catch (error) {
     return {
       success: false,
