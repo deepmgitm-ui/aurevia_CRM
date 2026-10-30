@@ -3202,7 +3202,7 @@ export function LeadsTable({
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            <p>Unassigned matches are automatically deleted after 24 hours if they remain unresolved. A recovery copy is saved in Recent Deletions. Assigning or transferring a lead stops the timer.</p>
+            <p>Unassigned reviews close after 24 hours if unresolved. The existing lead and its history remain safe. You can assign, transfer, or manually delete a lead with a backup.</p>
           </div>
           {duplicateReviewError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{duplicateReviewError}</p>}
           {isLoadingDuplicateReviews ? (
@@ -3257,7 +3257,7 @@ export function LeadsTable({
                         </span>
                         </span>
                         <span className={`mt-1 block text-xs ${!assigned ? "font-medium text-amber-800" : "text-slate-500"}`}>
-                          {!assigned ? (remainingMs > 0 ? `Auto-delete in about ${remainingHours} hour${remainingHours === 1 ? "" : "s"} unless assigned.` : "Past 24 hours — awaiting the hourly cleanup.") : "No automatic deletion while assigned. Keep, transfer, or delete this lead."}
+                          {!assigned ? (remainingMs > 0 ? `Review closes in about ${remainingHours} hour${remainingHours === 1 ? "" : "s"}; the existing lead stays.` : "Review is due to close at the next hourly check; the existing lead stays.") : "Review stays pending while assigned. Keep, transfer, or delete this lead."}
                         </span>
                       </span>
                     </label>

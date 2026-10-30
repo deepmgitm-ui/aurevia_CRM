@@ -4,4 +4,5 @@
 - Lead detail edits add a timeline entry describing changed fields. Status and date changes include their previous and new values. An unsuccessful timeline write is reported to the user after the lead is saved.
 - Duplicate review is restricted to admins at the interface, server action, table policy and resolution function. Duplicate detection remains available to all permitted lead creators.
 - Each pending review shows the existing lead, current assignee and recorded assignment time, together with the latest rejected duplicate attempt. Older repeated attempt names are not stored; the count remains available.
+- An unresolved, unassigned duplicate review expires after 24 hours during the hourly job. The existing lead and its activity remain intact. Admins may explicitly delete a reviewed lead with the existing backup flow.
 - The migration changes permissions only; existing leads and their activities are retained.

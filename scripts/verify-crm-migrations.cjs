@@ -544,6 +544,19 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000004'");
   assert.equal((await db.query("select count(*)::int n from crm_duplicate_review_queue where id=$1", [reviewId])).rows[0].n, 0);
   await assert.rejects(db.query("select crm_resolve_duplicate_review_items($1::uuid[],'keep',null,false)", [[reviewId]]));
+  // A forged duplicate attempt must never delete an existing unassigned lead.
+  await db.exec("reset role");
+  const safeLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Existing patient','9190000088','-','New') returning id")).rows[0].id;
+  await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000001','Note','Retain this history')", [safeLead]);
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
+  await db.query("select crm_capture_duplicate_review_candidates($1::jsonb,'Test')", [JSON.stringify([{phone_identity:'9190000088',name:'Duplicate'}])]);
+  await db.exec("reset role");
+  await db.query("update crm_duplicate_review_queue set expires_at=now()-interval '1 hour' where lead_id=$1", [safeLead]);
+  await db.query("select crm_private.cleanup_expired_duplicate_reviews()");
+  await db.query("select crm_private.cleanup_expired_duplicate_reviews()");
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [safeLead])).rows[0].n, 1, 'existing lead survives expired duplicate review');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [safeLead])).rows[0].n, 1, 'existing lead history survives');
+  assert.equal((await db.query("select resolution from crm_duplicate_review_queue where lead_id=$1", [safeLead])).rows[0].resolution, 'expired');
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
