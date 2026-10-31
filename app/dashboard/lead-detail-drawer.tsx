@@ -172,21 +172,34 @@ export function LeadDetailDrawer({
     const optimistic = { ...lead, ...patch, id: lead.id };
     setLead(optimistic);
     onMutated?.(optimistic);
-    const update = await updateLeadDetails({ ...patch, id: lead.id });
-    if (!update.success) {
+    try {
+      const update = await updateLeadDetails({ ...patch, id: lead.id });
+      if (!update.success) {
+        setLead(lead);
+        onMutated?.(lead);
+        toast.add({ title: "Could not save", description: update.error, type: "error" });
+        return;
+      }
+      setLead(update.data);
+      onMutated?.(update.data);
+      const refreshed = await getLeadActivities(lead.id);
+      if (refreshed.success) setActivities(refreshed.data);
+      if (update.warning) {
+        toast.add({ title: "Changes saved with a timeline warning", description: update.warning, type: "error" });
+      } else {
+        toast.add({ title: successTitle });
+      }
+    } catch (error) {
       setLead(lead);
       onMutated?.(lead);
-      toast.add({ title: "Could not save", description: update.error, type: "error" });
+      toast.add({
+        title: "Could not save",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your changes are still here; try again.",
+        type: "error",
+      });
+    } finally {
       setSaving(false);
-      return;
     }
-    setLead(update.data);
-    onMutated?.(update.data);
-    toast.add({ title: successTitle });
-    if (update.warning) toast.add({ title: "Timeline could not be updated", description: update.warning, type: "error" });
-    const refreshed = await getLeadActivities(lead.id);
-    if (refreshed.success) setActivities(refreshed.data);
-    setSaving(false);
   }
 
   async function handleInfoSave() {
@@ -226,7 +239,8 @@ export function LeadDetailDrawer({
       }
       setLead(response.data);
       onMutated?.(response.data);
-      toast.add({ title: "Appointment date saved" });
+      if (response.warning) toast.add({ title: "Date saved with a timeline warning", description: response.warning, type: "error" });
+      else toast.add({ title: "Appointment date saved" });
     } catch {
       toast.add({ title: "Date not saved", description: "Unable to reach the server. Please try again.", type: "error" });
     } finally {
@@ -236,38 +250,61 @@ export function LeadDetailDrawer({
 
   async function handleAddNote() {
     if (!lead || !note.trim()) return;
+    const noteText = note.trim();
     setSavingNote(true);
-    const response = await addLeadActivity({ lead_id: lead.id, action_type: "note", description: note.trim() });
-    setSavingNote(false);
-    if (!response.success) {
-      toast.add({ title: "Could not save note", description: response.error, type: "error" });
-      return;
+    try {
+      const response = await addLeadActivity({ lead_id: lead.id, action_type: "note", description: noteText });
+      if (!response.success) {
+        toast.add({ title: "Could not save note", description: response.error, type: "error" });
+        return;
+      }
+      setNote("");
+      const refreshed = await getLeadActivities(lead.id);
+      if (refreshed.success) {
+        setActivities(refreshed.data);
+        toast.add({ title: "Note added" });
+      } else {
+        toast.add({ title: "Note saved", description: "The timeline could not refresh. Reopen the lead to see it.", type: "error" });
+      }
+    } catch (error) {
+      toast.add({
+        title: "Could not save note",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your note is still here; try again.",
+        type: "error",
+      });
+    } finally {
+      setSavingNote(false);
     }
-    const refreshed = await getLeadActivities(lead.id);
-    if (refreshed.success) setActivities(refreshed.data);
-    setNote("");
-    toast.add({ title: "Note added" });
   }
 
   async function handleLogCall() {
     if (!lead || saving) return;
     trackLeadMutations(lead.id);
     setSaving(true);
-    const response = await logLeadCall({
-      lead_id: lead.id,
-      outcome: callDraft.outcome,
-      notes: callDraft.notes.trim() || null,
-      next_follow_up_date: callDraft.nextDate || null,
-      next_follow_up_time: callDraft.nextTime || null,
-    });
-    setSaving(false);
-    if (!response.success) {
-      toast.add({ title: "Could not log call", description: response.error, type: "error" });
-      return;
+    try {
+      const response = await logLeadCall({
+        lead_id: lead.id,
+        outcome: callDraft.outcome,
+        notes: callDraft.notes.trim() || null,
+        next_follow_up_date: callDraft.nextDate || null,
+        next_follow_up_time: callDraft.nextTime || null,
+      });
+      if (!response.success) {
+        toast.add({ title: "Could not log call", description: response.error, type: "error" });
+        return;
+      }
+      setActivities((current) => [response.data, ...current]);
+      setCallDraft(emptyCallDraft());
+      toast.add({ title: "Call logged" });
+    } catch (error) {
+      toast.add({
+        title: "Could not log call",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your call details are still here; try again.",
+        type: "error",
+      });
+    } finally {
+      setSaving(false);
     }
-    setActivities((current) => [response.data, ...current]);
-    setCallDraft(emptyCallDraft());
-    toast.add({ title: "Call logged" });
   }
 
   if (!open) return null;
@@ -296,7 +333,6 @@ export function LeadDetailDrawer({
             {activity.action_type}
           </p>
           <p className="text-sm text-slate-700">{activity.description || "No details provided."}</p>
-          <p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p>
           <p className="text-[11px] text-slate-400">
             {new Date(activity.created_at).toLocaleString("en-IN", {
               day: "numeric",

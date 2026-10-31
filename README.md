@@ -24,6 +24,11 @@ function-hardening migration makes Meta delivery writes idempotent and removes
 anonymous RPC access to trigger helpers. Review [CRM operations](docs/CRM-OPERATIONS.md)
 for rollout order, backups, capacity and verification.
 
+See the root [production guide](PRODUCTION.md) for role and workflow contracts,
+feature-to-file ownership, release checks and the change log. Update that guide
+in the same change whenever production behavior, permissions or data rules
+change.
+
 ## Meta lead forms
 
 The CRM receives Meta Lead Ads through `/api/meta-webhook`. Setup requires a

@@ -2,17 +2,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 import type { TeamStats } from "@/app/actions/leads";
+import { getInitials } from "@/lib/utils";
 import { leadsHref, type LeadListFilters } from "./lead-filters";
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function StatChip({ label, value, className, href, name }: { label: string; value: number; className: string; href: string; name: string }) {
   return (

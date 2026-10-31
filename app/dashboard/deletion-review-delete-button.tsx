@@ -22,7 +22,7 @@ export function DeletionReviewDeleteButton({ reviewId }: { reviewId: string }) {
         return;
       }
       const excel = await import("@/lib/lead-excel");
-      excel.downloadLeadsExcel(
+      await excel.downloadLeadsExcel(
         [backup.lead as LeadExcelRecord],
         `deleted-lead-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
       );

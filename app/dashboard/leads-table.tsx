@@ -58,7 +58,6 @@ import {
   type ViewerRole,
 } from "@/app/actions/leads";
 import {
-  DELETE_ALL_CONFIRMATION,
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
@@ -89,10 +88,11 @@ import { toast } from "@/components/ui/toast";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
 import { DAILY_WORK_LABELS } from "@/lib/daily-work";
+import { getInitials } from "@/lib/utils";
 
 async function downloadLeadsExcel(leads: Lead[], fileName: string): Promise<void> {
   const excel = await import("@/lib/lead-excel");
-  excel.downloadLeadsExcel(leads, fileName);
+  await excel.downloadLeadsExcel(leads, fileName);
 }
 import {
   AGE_CHIP_BUCKETS,
@@ -159,11 +159,11 @@ function getPastedHeaders(text: string): string[] {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function getInitials(name: string): string {
-  return name.split(" ").filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(value));
 }
 
 type TransferDisposition = "keep" | "fresh";
@@ -220,6 +220,15 @@ function buildDateFilter(dateField: DateFilterField, from: string, to: string) {
   };
 }
 
+function hashSelectionScope(scope: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= scope.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 // Normalizes BOTH stored formats — DD/MM/YYYY (Excel imports, Meta webhook) and
 // YYYY-MM-DD (native date pickers) — into one sortable ISO string. Unknown or
 // empty values return "" so they group together instead of crashing comparisons.
@@ -249,6 +258,35 @@ function formatLeadDateDisplay(value: string): string {
   if (!iso) return value;
   const [year, month, day] = iso.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function formatLeadTimeDisplay(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(date);
+}
+
+function assignmentBatchRowClass(batchId: string | null | undefined): string {
+  if (!batchId) return "";
+  let hash = 0;
+  for (let index = 0; index < batchId.length; index += 1) {
+    hash = (hash * 31 + batchId.charCodeAt(index)) | 0;
+  }
+  const colors = [
+    "border-l-2 border-l-rose-300 bg-rose-50/45",
+    "border-l-2 border-l-amber-300 bg-amber-50/45",
+    "border-l-2 border-l-sky-300 bg-sky-50/45",
+    "border-l-2 border-l-violet-300 bg-violet-50/45",
+    "border-l-2 border-l-emerald-300 bg-emerald-50/45",
+    "border-l-2 border-l-orange-300 bg-orange-50/45",
+  ];
+  return colors[Math.abs(hash) % colors.length];
 }
 
 /**
@@ -404,6 +442,7 @@ export function LeadsTable({
   initialTotalPages,
   assignedTo = "",
   role = "employee",
+  viewerId = "",
   filters = EMPTY_LEAD_FILTERS,
   initialOpenLeadId = "",
 }: {
@@ -416,6 +455,8 @@ export function LeadsTable({
   // Employees can edit patient details on their assigned leads. Team-lead-only
   // controls remain assignment, source, import, deletion and team visibility.
   role?: ViewerRole;
+  // Prevents a browser tab from carrying one user's selection into another account.
+  viewerId?: string;
   // Chart drill-down filters from the URL (?stage=&treatment=&age=&city=).
   // They travel with EVERY server call so paging/export stays filtered.
   filters?: LeadListFilters;
@@ -429,6 +470,7 @@ export function LeadsTable({
   const canDelete = isAdmin || isManager;
   const canSeeSource = isAdmin || isManager;
   const canEditCore = isAdmin || isManager;
+  const canAssign = isAdmin;
   const [leads, setLeads] = useState(initialLeads);
   // Server-side pagination state: only one page of 50 leads lives in memory;
   // the next page is fetched from the server on demand.
@@ -436,12 +478,8 @@ export function LeadsTable({
   const [serverTotal, setServerTotal] = useState(initialTotal);
   const [serverTotalPages, setServerTotalPages] = useState(initialTotalPages);
   const [isPaging, setIsPaging] = useState(false);
-  // True while the header "select all" checkbox is checked — bulk delete then
-  // sends a { deleteAll: true } flag instead of thousands of IDs.
-  const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
-  // A wipe-everything delete now needs the phrase typed out, and every bulk
-  // delete leaves a snapshot in `lead_deletion_backups` (restore panel below).
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  // Header selection applies to the loaded page; selected IDs accumulate as
+  // the user moves between pages.
   const [isRestoreOpen, setIsRestoreOpen] = useState(false);
   const [deletionBackups, setDeletionBackups] = useState<LeadDeletionBackup[]>([]);
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
@@ -588,15 +626,67 @@ export function LeadsTable({
   const fetchSequenceRef = useRef(0);
   const assignmentSuggestionSequenceRef = useRef(0);
   const transferLeadSequenceRef = useRef(0);
+  const selectionScopeKey = hashSelectionScope(JSON.stringify({
+    viewerId,
+    role,
+    assignedTo,
+    filters,
+    searchTerm: searchTerm.trim(),
+    activeSearch,
+    activeStatusFilter,
+    selectedSource,
+    dateField,
+    dateFrom,
+    dateTo,
+  }));
+  const skipSelectionPersistRef = useRef(false);
 
-  const selectionScopeKey = JSON.stringify({ assignedTo, filters, searchTerm, activeSearch, activeStatusFilter, selectedSource, dateField, dateFrom, dateTo });
-  const selectionScopeRef = useRef(selectionScopeKey);
   useEffect(() => {
-    if (selectionScopeRef.current === selectionScopeKey) return;
-    selectionScopeRef.current = selectionScopeKey;
-    setSelectedLeads([]);
-    setIsSelectAllChecked(false);
+    let restoredIds: string[] = [];
+    try {
+      const raw = window.sessionStorage.getItem("aurevia:lead-selection:v1");
+      if (raw) {
+        const saved = JSON.parse(raw) as { scope?: string; ids?: unknown; savedAt?: number };
+        const isCurrentScope = saved.scope === selectionScopeKey;
+        const isRecent = typeof saved.savedAt === "number" && Date.now() - saved.savedAt < 30 * 60 * 1000;
+        if (isCurrentScope && isRecent && Array.isArray(saved.ids)) {
+          restoredIds = [...new Set(saved.ids.filter((id): id is string =>
+            typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+          ))];
+        } else {
+          window.sessionStorage.removeItem("aurevia:lead-selection:v1");
+        }
+      }
+    } catch {
+      try {
+        window.sessionStorage.removeItem("aurevia:lead-selection:v1");
+      } catch {
+        // Ignore blocked session storage and keep selection in React state.
+      }
+    }
+    // A remount on the same filter scope restores IDs; changing the scope clears
+    // them so a bulk action cannot accidentally include hidden leads.
+    skipSelectionPersistRef.current = true;
+    // Session storage is unavailable during server rendering; restore only after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedLeads(restoredIds);
   }, [selectionScopeKey]);
+
+  useEffect(() => {
+    if (skipSelectionPersistRef.current) {
+      skipSelectionPersistRef.current = false;
+      return;
+    }
+    try {
+      window.sessionStorage.setItem("aurevia:lead-selection:v1", JSON.stringify({
+        scope: selectionScopeKey,
+        ids: selectedLeads,
+        savedAt: Date.now(),
+      }));
+    } catch {
+      // Pagination still works in memory if browser storage is unavailable.
+    }
+  }, [selectedLeads, selectionScopeKey]);
 
   function queueSuccessSummary(kind: "added" | "assigned" | "updated" | "notes", count = 1, detail?: string) {
     const summary = successSummaryRef.current;
@@ -632,6 +722,28 @@ export function LeadsTable({
   function updateLeadLocally(lead: Lead) {
     setLeads((current) => current.map((item) => (item.id === lead.id ? lead : item)));
     setSelectedLead((current) => (current?.id === lead.id ? lead : current));
+  }
+
+  async function refreshLeadTimeline(leadId: string) {
+    try {
+      const response = await getLeadActivities(leadId);
+      if (response.success) setActivities(response.data);
+      else toast.add({ title: "Timeline not refreshed", description: response.error, type: "error" });
+    } catch {
+      toast.add({ title: "Timeline not refreshed", description: "Reopen the lead to try again.", type: "error" });
+    }
+  }
+
+  function applyLeadAssignmentLocally(lead: Lead) {
+    const currentAssignee = (assignedTo.trim() || filters.assigned.trim()).toLocaleLowerCase();
+    if (currentAssignee && lead.assigned_to?.trim().toLocaleLowerCase() !== currentAssignee) {
+      setLeads((current) => current.filter((item) => item.id !== lead.id));
+      setServerTotal((current) => Math.max(0, current - 1));
+      setSelectedLead((current) => (current?.id === lead.id ? null : current));
+      setEditingLead((current) => (current?.id === lead.id ? null : current));
+      return;
+    }
+    updateLeadLocally(lead);
   }
 
   function patchLeadLocally(id: string, patch: Partial<Lead>) {
@@ -719,6 +831,8 @@ export function LeadsTable({
 
   const activeFilterChips: { key: string; label: string; onRemove: () => void }[] = [];
   if (activeSearch) {
+    // This callback runs only when the user removes the chip, never during render.
+    // eslint-disable-next-line react-hooks/refs
     activeFilterChips.push({
       key: "search",
       label: `Search: "${activeSearch}"`,
@@ -730,6 +844,8 @@ export function LeadsTable({
     });
   }
   if (activeStatusFilter) {
+    // This callback runs only when the user removes the chip, never during render.
+    // eslint-disable-next-line react-hooks/refs
     activeFilterChips.push({
       key: "status",
       label: `Status: ${activeStatusFilter}`,
@@ -774,7 +890,7 @@ export function LeadsTable({
   // Fetches a page of leads from the server and swaps it into the table.
   // `search` is the server-side search term and `status` the server-side
   // status filter ("" = no filter).
-  async function fetchPage(nextPage: number, search: string = activeSearch, status: string = activeStatusFilter) {
+  const fetchPage = useCallback(async (nextPage: number, search: string = activeSearch, status: string = activeStatusFilter) => {
     const requestId = ++fetchSequenceRef.current;
     setIsPaging(true);
     let response = await getLeadsPage(nextPage, LEADS_PAGE_SIZE, search, assignedTo, status, filters);
@@ -790,12 +906,11 @@ export function LeadsTable({
       setPage(response.data.page);
       setServerTotal(response.data.total);
       setServerTotalPages(response.data.totalPages);
-      // Keep selected IDs while moving between result pages.
-      setIsSelectAllChecked(false);
+      // Keep selections from other pages so bulk actions cover the full selection.
       setSortConfig(null);
     }
     setIsPaging(false);
-  }
+  }, [activeSearch, activeStatusFilter, assignedTo, filters]);
 
   function refreshAfterAssignment() {
     void fetchPage(page, activeSearch, activeStatusFilter);
@@ -803,7 +918,9 @@ export function LeadsTable({
   }
 
   const liveReload=useRef<()=>void>(()=>{});
-  liveReload.current=()=>{void fetchPage(page);};
+  useEffect(() => {
+    liveReload.current = () => { void fetchPage(page); };
+  }, [fetchPage, page]);
   useEffect(()=>{const reload=()=>liveReload.current();window.addEventListener("crm:leads-changed",reload);return()=>window.removeEventListener("crm:leads-changed",reload);},[]);
 
   async function handlePageChange(nextPage: number) {
@@ -1120,33 +1237,42 @@ export function LeadsTable({
     const form = event.currentTarget;
     setIsCreatingLead(true);
     const formData = new FormData(form);
-    const response = await createLead({
-      name: String(formData.get("name") ?? ""),
-      phone: String(formData.get("phone") ?? ""),
-      email: String(formData.get("email") ?? ""),
-      gender: String(formData.get("gender") ?? ""),
-      city: String(formData.get("city") ?? ""),
-      disease: String(formData.get("disease") ?? ""),
-      insurance_status: String(formData.get("insurance_status") ?? ""),
-      remarks: String(formData.get("remarks") ?? ""),
-      follow_up_date: String(formData.get("follow_up_date") ?? ""),
-      status: String(formData.get("status") ?? "New"),
-    });
-    if (!response.success) {
-      toast.add({ title: "Unable to add lead", description: response.error, type: "error" });
-      if (response.code === "duplicate-phone") {
+    try {
+      const response = await createLead({
+        name: String(formData.get("name") ?? ""),
+        phone: String(formData.get("phone") ?? ""),
+        email: String(formData.get("email") ?? ""),
+        gender: String(formData.get("gender") ?? ""),
+        city: String(formData.get("city") ?? ""),
+        disease: String(formData.get("disease") ?? ""),
+        insurance_status: String(formData.get("insurance_status") ?? ""),
+        remarks: String(formData.get("remarks") ?? ""),
+        follow_up_date: String(formData.get("follow_up_date") ?? ""),
+        status: String(formData.get("status") ?? "New"),
+      });
+      if (!response.success) {
+        toast.add({ title: "Unable to add lead", description: response.error, type: "error" });
+        if (response.code === "duplicate-phone") {
+          setIsAddLeadOpen(false);
+          await refreshDuplicateReviews(true);
+        }
+      } else {
+        trackLeadMutations(response.data.id);
+        setLeads((currentLeads) => [response.data, ...currentLeads]);
+        setServerTotal((current) => current + 1);
         setIsAddLeadOpen(false);
-        await refreshDuplicateReviews(true);
+        form.reset();
+        queueSuccessSummary("added");
       }
-    } else {
-      trackLeadMutations(response.data.id);
-      setLeads((currentLeads) => [response.data, ...currentLeads]);
-      setServerTotal((current) => current + 1);
-      setIsAddLeadOpen(false);
-      form.reset();
-      queueSuccessSummary("added");
+    } catch (error) {
+      toast.add({
+        title: "Unable to add lead",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your form is still here; try again.",
+        type: "error",
+      });
+    } finally {
+      setIsCreatingLead(false);
     }
-    setIsCreatingLead(false);
   }
 
   async function handleStatusChange(lead: Lead, status: string | null) {
@@ -1154,21 +1280,33 @@ export function LeadsTable({
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { status });
-    const response = await updateLeadStatus({ id: lead.id, status });
-    if (!response.success) {
-      updateLeadLocally(lead);
-      toast.add({ title: "Status update failed", description: response.error, type: "error" });
-    } else {
-      updateLeadLocally(response.data);
-      queueSuccessSummary("updated");
-      // Gamification: the surgery stage ("Won", "IPD Done", "Surgery Completed")
-      // fires confetti + a reward toast — but only on the way IN, so toggling
-      // between two winning statuses doesn't spam the celebration.
-      if (stageForStatus(status) === "surgery" && stageForStatus(lead.status) !== "surgery") {
-        celebrateLeadWin({ name: response.data.name || lead.name, status });
+    try {
+      const response = await updateLeadStatus({ id: lead.id, status });
+      if (!response.success) {
+        updateLeadLocally(lead);
+        toast.add({ title: "Status update failed", description: response.error, type: "error" });
+      } else {
+        updateLeadLocally(response.data);
+        if (selectedLead?.id === lead.id) {
+          await refreshLeadTimeline(lead.id);
+        }
+        if (response.warning) toast.add({ title: "Status saved with a timeline warning", description: response.warning, type: "error" });
+        queueSuccessSummary("updated");
+        // Celebrate only when entering a completed surgery status.
+        if (stageForStatus(status) === "surgery" && stageForStatus(lead.status) !== "surgery") {
+          celebrateLeadWin({ name: response.data.name || lead.name, status });
+        }
       }
+    } catch (error) {
+      updateLeadLocally(lead);
+      toast.add({
+        title: "Status update failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setLeadSaving(lead.id, false);
     }
-    setLeadSaving(lead.id, false);
   }
 
   /**
@@ -1181,8 +1319,7 @@ export function LeadsTable({
    * Renders nothing for a status with no date, which is what keeps the table
    * tidy: only the three OPD/IPD statuses grow a date row.
    */
-  function AppointmentDateInput({ lead }: { lead: Lead }) {
-    const [saving, setSaving] = useState(false);
+  function renderAppointmentDateInput(lead: Lead) {
     // Captured into a non-null local: TypeScript cannot carry the `if (!field)`
     // narrowing into the `save` closure below, so it would otherwise widen back
     // to `AppointmentField | null` on every use.
@@ -1194,7 +1331,6 @@ export function LeadsTable({
 
     async function save(next: string) {
       if (next === current || savingLeadIds.has(lead.id)) return;
-      setSaving(true);
       setLeadSaving(lead.id, true);
       patchLeadLocally(lead.id, { [column]: next });
       try {
@@ -1205,12 +1341,15 @@ export function LeadsTable({
           return;
         }
         updateLeadLocally(response.data);
+        if (selectedLead?.id === lead.id) {
+          await refreshLeadTimeline(lead.id);
+        }
+        if (response.warning) toast.add({ title: "Date saved with a timeline warning", description: response.warning, type: "error" });
         queueSuccessSummary("updated");
-      } catch {
+      } catch (error) {
         patchLeadLocally(lead.id, { [column]: current });
-        toast.add({ title: "Date not saved", description: "Unable to reach the server. Please try again.", type: "error" });
+        toast.add({ title: "Date not saved", description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.", type: "error" });
       } finally {
-        setSaving(false);
         setLeadSaving(lead.id, false);
       }
     }
@@ -1224,7 +1363,7 @@ export function LeadsTable({
           value={current}
           label={field.label}
           hint={field.hint}
-          disabled={saving || savingLeadIds.has(lead.id)}
+          disabled={savingLeadIds.has(lead.id)}
           onChange={(value) => void save(value)}
         />
       </div>
@@ -1244,56 +1383,84 @@ export function LeadsTable({
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { assigned_to: employeeName });
-    const response = await updateLeadAssignment(lead.id, employeeName, transferDisposition === "fresh");
-    if (!response.success) {
-      updateLeadLocally(lead);
-      toast.add({ title: "Assignment update failed", description: response.error, type: "error" });
-    } else {
-      updateLeadLocally(response.data);
+    try {
+      const response = await updateLeadAssignment(lead.id, employeeName, transferDisposition === "fresh");
+      if (!response.success) {
+        updateLeadLocally(lead);
+        toast.add({ title: "Assignment update failed", description: response.error, type: "error" });
+        return;
+      }
+      applyLeadAssignmentLocally(response.data);
       setPendingLeadTransfer(null);
       refreshAfterAssignment();
       toast.add({ title: "Lead transferred", description: transferDisposition === "fresh" ? "Sent as a Fresh Lead. Previous history is retained." : "Current status and history were retained.", type: "success" });
+    } catch (error) {
+      updateLeadLocally(lead);
+      toast.add({ title: "Assignment update failed", description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.", type: "error" });
+    } finally {
+      setLeadSaving(lead.id, false);
+      setIsBulkActionPending(false);
     }
-    setLeadSaving(lead.id, false);
-    setIsBulkActionPending(false);
   }
 
   function toggleLeadSelection(leadId: string, selected: boolean) {
     setSelectedLeads((current) => selected ? [...new Set([...current, leadId])] : current.filter((id) => id !== leadId));
-    // Individually deselecting a lead cancels the "select all" (delete-all) mode.
-    if (!selected) setIsSelectAllChecked(false);
   }
 
   async function handleAssignSelected(employeeName: string | null) {
     if (!employeeName || employeeName === "-") return;
     setIsBulkActionPending(true);
     trackLeadMutations(selectedLeads);
-    const response = await assignLeadsToEmployees({ leadIds: selectedLeads, employeeNames: [employeeName] });
-    if (!response.success) {
-      toast.add({ title: "Assignment failed", description: response.error, type: "error" });
-    } else {
-      setLeads((current) => current.map((lead) => selectedLeads.includes(lead.id) ? { ...lead, assigned_to: employeeName } : lead));
-      setSelectedLeads([]);
-      setIsSelectAllChecked(false);
-      refreshAfterAssignment();
-      queueSuccessSummary("assigned", response.data.assigned);
+    try {
+      const response = await assignLeadsToEmployees({ leadIds: selectedLeads, employeeNames: [employeeName] });
+      if (!response.success) {
+        toast.add({ title: "Assignment failed", description: response.error, type: "error" });
+      } else {
+        const currentAssignee = assignedTo.trim() || filters.assigned.trim();
+        if (currentAssignee && employeeName.trim().toLocaleLowerCase() !== currentAssignee.toLocaleLowerCase()) {
+          setLeads((current) => current.filter((lead) => !selectedLeads.includes(lead.id)));
+          setServerTotal((current) => Math.max(0, current - response.data.assigned));
+          setSelectedLead((current) => (current && selectedLeads.includes(current.id) ? null : current));
+          setEditingLead((current) => (current && selectedLeads.includes(current.id) ? null : current));
+        } else {
+          setLeads((current) => current.map((lead) => selectedLeads.includes(lead.id) ? { ...lead, assigned_to: employeeName } : lead));
+        }
+        setSelectedLeads([]);
+        refreshAfterAssignment();
+        queueSuccessSummary("assigned", response.data.assigned);
+      }
+    } catch (error) {
+      toast.add({
+        title: "Assignment failed",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your selection is still saved; try again.",
+        type: "error",
+      });
+    } finally {
+      setIsBulkActionPending(false);
     }
-    setIsBulkActionPending(false);
   }
 
   async function handleRandomAssign() {
     setIsBulkActionPending(true);
     trackLeadMutations(selectedLeads);
-    const response = await randomAssignLeads(selectedLeads);
-    if (!response.success) {
-      toast.add({ title: "Distribution failed", description: response.error, type: "error" });
-    } else {
-      setSelectedLeads([]);
-      setIsSelectAllChecked(false);
-      refreshAfterAssignment();
-      queueSuccessSummary("assigned", response.data.assigned);
+    try {
+      const response = await randomAssignLeads(selectedLeads);
+      if (!response.success) {
+        toast.add({ title: "Distribution failed", description: response.error, type: "error" });
+      } else {
+        setSelectedLeads([]);
+        refreshAfterAssignment();
+        queueSuccessSummary("assigned", response.data.assigned);
+      }
+    } catch (error) {
+      toast.add({
+        title: "Distribution failed",
+        description: error instanceof Error ? error.message : "The server could not be reached. Your selection is still saved; try again.",
+        type: "error",
+      });
+    } finally {
+      setIsBulkActionPending(false);
     }
-    setIsBulkActionPending(false);
   }
 
   function openAssignment(mode: "selected" | "transfer-selected" | "filters" | "add-to-batch", batch: LeadAssignmentBatch | null = null) {
@@ -1494,7 +1661,6 @@ export function LeadsTable({
         }
         if (assignmentMode === "selected" || assignmentMode === "transfer-selected") {
           setSelectedLeads([]);
-          setIsSelectAllChecked(false);
           setTransferLeadIds([]);
         } else {
           setSelectedAssignmentLeads([]);
@@ -1656,28 +1822,10 @@ export function LeadsTable({
     }
   }
 
-  // A scoped delete (one employee / one search) already can't touch more than
-  // what is on screen, so only the true whole-table wipe needs typing.
-  const requiresTypedConfirm =
-    isSelectAllChecked &&
-    !assignedTo.trim() &&
-    !activeSearch.trim() &&
-    !filters.assignmentStatus;
-  const deleteAllIsScoped = Boolean(
-    activeSearch.trim() || assignedTo.trim() || activeStatusFilter || hasLeadFilters(filters),
-  );
-
   async function handleBulkDelete() {
-    // The page checkbox selects visible IDs; never treat it as a full wipe.
-    const deleteAll = false;
-    if (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION) {
-      toast.add({
-        title: "Confirmation required",
-        description: `Type ${DELETE_ALL_CONFIRMATION} in the box to delete every lead.`,
-        type: "error",
-      });
-      return;
-    }
+    // Delete only the explicitly selected IDs; page selection never means all
+    // matching database rows.
+    if (selectedLeads.length === 0) return;
     setIsBulkActionPending(true);
     // SAFETY NET #1 (always): write every row this delete will remove to a local
     // CSV BEFORE touching the database. Only the admin-only export can do a
@@ -1685,13 +1833,9 @@ export function LeadsTable({
     // instead of silently unrecoverable data loss.
     // SAFETY NET #2 (server): bulkDeleteLeads stores a snapshot in
     // lead_deletion_backups when that migration has been applied.
-    const backupScope = deleteAll ? activeSearch : "";
-    const backup = deleteAll
-      ? await getLeadsForExport(backupScope, activeStatusFilter, assignedTo, filters)
-      : await getLeadsForExport("", "", "", undefined, selectedLeads);
-    if (backup.success) {
-      await downloadLeadsExcel(backup.data, `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`);
-    } else {
+    const selectedIds = [...selectedLeads];
+    const backup = await getLeadsForExport("", "", "", undefined, selectedIds);
+    if (!backup.success) {
       toast.add({
         title: "Delete cancelled — Excel backup could not be prepared",
         description: `${backup.error} Nothing was deleted. Try again or export the leads first.`,
@@ -1700,56 +1844,27 @@ export function LeadsTable({
       setIsBulkActionPending(false);
       return;
     }
-    const response = await bulkDeleteLeads(
-      deleteAll ? [] : selectedLeads,
-      deleteAll,
-      activeSearch,
-      assignedTo,
-      deleteConfirmText,
-      filters,
-      activeStatusFilter,
+    await downloadLeadsExcel(
+      backup.data,
+      `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
     );
+    const response = await bulkDeleteLeads(selectedIds, false);
     if (!response.success) {
       toast.add({ title: "Delete failed", description: response.error, type: "error" });
       setIsBulkActionPending(false);
       return;
     }
+
     const deletedCount = response.data.deleted;
-    if (deleteAll) {
-      setLeads([]);
-      setPage(1);
-      setServerTotal(0);
-      setServerTotalPages(1);
-    } else {
-      setLeads((current) => current.filter((lead) => !selectedLeads.includes(lead.id)));
-      const remaining = Math.max(0, serverTotal - deletedCount);
-      const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
-      setServerTotal(remaining);
-      setServerTotalPages(nextTotalPages);
-      // The current page was the last one and is now empty — load the new last page.
-      if (page > nextTotalPages) {
-        await fetchPage(nextTotalPages);
-      }
-    }
+    const remaining = Math.max(0, serverTotal - deletedCount);
+    const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
     setSelectedLeads([]);
-    setIsSelectAllChecked(false);
     setIsDeleteConfirmOpen(false);
-    setDeleteConfirmText("");
-    // Sync the server-rendered stat cards after revalidatePath on the server.
+    await fetchPage(Math.min(page, nextTotalPages));
     router.refresh();
     toast.add({
       title: "Leads deleted",
-      description: `${
-        deleteAll
-          ? activeSearch
-            ? `All ${deletedCount} leads matching the search were deleted`
-            : `All ${deletedCount} leads were deleted`
-          : `${deletedCount} leads deleted`
-      }.${
-        response.data.snapshotSkipped
-          ? ""
-          : ' A snapshot was saved — "Recent Deletions" can restore them.'
-      }`,
+      description: `${deletedCount} selected leads deleted.${response.data.snapshotSkipped ? "" : ' A snapshot was saved — "Recent Deletions" can restore them.'}`,
       type: "success",
     });
     if (response.data.snapshotSkipped) {
@@ -1762,7 +1877,6 @@ export function LeadsTable({
     setIsBulkActionPending(false);
   }
 
-  /** Loads the newest bulk-delete snapshots so an admin can undo one. */
   async function openRestoreDialog() {
     setIsRestoreOpen(true);
     setIsLoadingBackups(true);
@@ -1814,7 +1928,11 @@ export function LeadsTable({
       await downloadLeadsExcel(response.data, `${label}-deletion-backup-${date}.xlsx`);
       toast.add({ title: "Excel backup ready", description: `${response.data.length.toLocaleString()} leads downloaded.`, type: "success" });
     } catch (error) {
-      toast.add({ title: "Backup download failed", description: error instanceof Error ? error.message : "The Excel file could not be created.", type: "error" });
+      toast.add({
+        title: "Backup download failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
     } finally {
       setDownloadingBackupId(null);
     }
@@ -1850,20 +1968,33 @@ export function LeadsTable({
 
   async function handleQuickNote() {
     if (!quickNoteLead || !quickNote.trim()) return;
-    trackLeadMutations(quickNoteLead.id);
+    const lead = quickNoteLead;
+    const noteText = quickNote.trim();
+    trackLeadMutations(lead.id);
     setIsSavingQuickNote(true);
-    const response = await addLeadActivity({ lead_id: quickNoteLead.id, action_type: "Note", description: quickNote.trim() });
-    if (!response.success) {
-      toast.add({ title: "Unable to save note", description: response.error, type: "error" });
-    } else {
-      const updatedLead = { ...quickNoteLead, remarks: [quickNoteLead.remarks === "-" ? "" : quickNoteLead.remarks, quickNote.trim()].filter(Boolean).join("\n") };
-      setLeads((currentLeads) => currentLeads.map((lead) => lead.id === updatedLead.id ? updatedLead : lead));
-      if (selectedLead?.id === updatedLead.id) setSelectedLead(updatedLead);
+    try {
+      const response = await addLeadActivity({ lead_id: lead.id, action_type: "Note", description: noteText });
+      if (!response.success) {
+        toast.add({ title: "Unable to save note", description: response.error, type: "error" });
+        return;
+      }
+      const updatedLead = { ...lead, remarks: [lead.remarks === "-" ? "" : lead.remarks, noteText].filter(Boolean).join("\n") };
+      updateLeadLocally(updatedLead);
+      if (selectedLead?.id === updatedLead.id) {
+        await refreshLeadTimeline(updatedLead.id);
+      }
       setQuickNoteLead(null);
       setQuickNote("");
       queueSuccessSummary("notes");
+    } catch (error) {
+      toast.add({
+        title: "Unable to save note",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsSavingQuickNote(false);
     }
-    setIsSavingQuickNote(false);
   }
 
   async function handleViewLead(lead: Lead) {
@@ -1909,19 +2040,28 @@ export function LeadsTable({
       ? { ...selectedLead, ...leadEdits }
       : { ...selectedLead, remarks: leadEdits.remarks || "-" };
     updateLeadLocally(optimisticLead);
-    const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits });
-    if (!response.success) {
+    try {
+      const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits });
+      if (!response.success) {
+        updateLeadLocally(previousLead);
+        toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
+      } else {
+        const updated = response.data;
+        updateLeadLocally(updated);
+        await refreshLeadTimeline(updated.id);
+        if (response.warning) toast.add({ title: "Changes saved with a timeline warning", description: response.warning, type: "error" });
+        queueSuccessSummary("updated");
+      }
+    } catch (error) {
       updateLeadLocally(previousLead);
-      toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
-    } else {
-      const updated = response.data;
-      updateLeadLocally(updated);
-      queueSuccessSummary("updated");
-      if (response.warning) toast.add({ title: "Timeline could not be updated", description: response.warning, type: "error" });
-      const refreshed = await getLeadActivities(updated.id);
-      if (refreshed.success) setActivities(refreshed.data);
+      toast.add({
+        title: "Unable to save changes",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsSavingEdits(false);
     }
-    setIsSavingEdits(false);
   }
 
   function handleEditLead(lead: Lead) {
@@ -2000,38 +2140,65 @@ export function LeadsTable({
         };
     const optimisticResult = transferAsFresh ? { ...optimisticLead, status: "New", follow_up_date: "-" } : optimisticLead;
     updateLeadLocally(optimisticResult);
-    const response = await updateLeadDetails(payload);
-    if (!response.success) {
+    try {
+      const response = await updateLeadDetails(payload);
+      if (!response.success) {
+        updateLeadLocally(editingLead);
+        toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
+      } else {
+        const updated = response.data;
+        // Smooth refresh: swap the saved row into the table state — no page reload.
+        if (assignmentChanged) applyLeadAssignmentLocally(updated);
+        else updateLeadLocally(updated);
+        if (selectedLead?.id === updated.id && !assignmentChanged) await refreshLeadTimeline(updated.id);
+        if (response.warning) toast.add({ title: "Changes saved with a timeline warning", description: response.warning, type: "error" });
+        setEditingLead(null);
+        queueSuccessSummary("updated");
+        // Keep the server-rendered stat cards (New/Hot counts) in sync.
+        if (assignmentChanged) refreshAfterAssignment();
+        else router.refresh();
+      }
+    } catch (error) {
       updateLeadLocally(editingLead);
-      toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
-    } else {
-      const updated = response.data;
-      // Smooth refresh: swap the saved row into the table state — no page reload.
-      updateLeadLocally(updated);
-      setEditingLead(null);
-      queueSuccessSummary("updated");
-      if (response.warning) toast.add({ title: "Timeline could not be updated", description: response.warning, type: "error" });
-      // Keep the server-rendered stat cards (New/Hot counts) in sync.
-      if (assignmentChanged) refreshAfterAssignment();
-      else router.refresh();
+      toast.add({
+        title: "Unable to save changes",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsSavingEdit(false);
     }
-    setIsSavingEdit(false);
   }
 
   async function handleAddNote() {
     if (!selectedLead || !note.trim()) return;
+    const noteText = note.trim();
+    const lead = selectedLead;
     setIsAddingNote(true);
-    trackLeadMutations(selectedLead.id);
-    const response = await addLeadActivity({ lead_id: selectedLead.id, action_type: "Note", description: note.trim() });
-    if (!response.success) {
-      toast.add({ title: "Unable to add note", description: response.error, type: "error" });
-    } else {
-      const refreshedActivities = await getLeadActivities(selectedLead.id);
-      if (refreshedActivities.success) setActivities(refreshedActivities.data);
+    trackLeadMutations(lead.id);
+    try {
+      const response = await addLeadActivity({ lead_id: lead.id, action_type: "Note", description: noteText });
+      if (!response.success) {
+        toast.add({ title: "Unable to add note", description: response.error, type: "error" });
+        return;
+      }
+      const updatedLead = {
+        ...lead,
+        remarks: [lead.remarks === "-" ? "" : lead.remarks, noteText].filter(Boolean).join("\n"),
+      };
+      updateLeadLocally(updatedLead);
+      await refreshLeadTimeline(lead.id);
       setNote("");
       queueSuccessSummary("notes");
+    } catch (error) {
+      toast.add({
+        title: "Unable to add note",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsAddingNote(false);
     }
-    setIsAddingNote(false);
   }
 
   async function handleFollowUpChange(lead: Lead, followUpDate: string) {
@@ -2046,11 +2213,19 @@ export function LeadsTable({
         toast.add({ title: "Unable to update follow-up", description: response.error, type: "error" });
       } else {
         updateLeadLocally(response.data);
+        if (selectedLead?.id === lead.id) {
+          await refreshLeadTimeline(lead.id);
+        }
+        if (response.warning) toast.add({ title: "Follow-up saved with a timeline warning", description: response.warning, type: "error" });
         queueSuccessSummary("updated");
       }
-    } catch {
+    } catch (error) {
       updateLeadLocally(lead);
-      toast.add({ title: "Unable to update follow-up", description: "Unable to reach the server. Please try again.", type: "error" });
+      toast.add({
+        title: "Unable to update follow-up",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
     } finally {
       setLeadSaving(lead.id, false);
     }
@@ -2104,19 +2279,19 @@ export function LeadsTable({
                 </span>
               </Button>
             )}
-            {canDelete && (
+            {canAssign && (
               <Button type="button" variant="outline" onClick={() => openAssignment("transfer-selected")}>
                 <ArrowRightLeft aria-hidden="true" />
                 Transfer Leads
               </Button>
             )}
-            {canDelete && (
+            {canAssign && (
               <Button type="button" variant="outline" onClick={() => openAssignment("filters")}>
                 <UserRoundPlus aria-hidden="true" />
                 Assign by Filters
               </Button>
             )}
-            {canDelete && (
+            {canAssign && (
               <Button type="button" variant="outline" onClick={() => void openAssignmentBatches()}>
                 <Users aria-hidden="true" />
                 Assignment Batches
@@ -2326,24 +2501,23 @@ export function LeadsTable({
         {canDelete && selectedLeads.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-y border-slate-200 bg-slate-50 px-4 py-3">
             <span className="mr-2 text-sm font-medium text-slate-600">{selectedLeads.length} selected across pages</span>
-            <Select onValueChange={(value) => void handleAssignSelected(typeof value === "string" ? value : null)} disabled={isBulkActionPending}>
+            {canAssign && <Select onValueChange={(value) => void handleAssignSelected(typeof value === "string" ? value : null)} disabled={isBulkActionPending}>
               <SelectTrigger size="sm" className="w-40"><SelectValue placeholder="Assign Selected" /></SelectTrigger>
               <SelectContent>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("transfer-selected")}>
-              <ArrowRightLeft aria-hidden="true" />Transfer Selected
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("selected")}>
+            </Select>}
+            {canAssign && <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("transfer-selected")}><ArrowRightLeft aria-hidden="true" />Transfer Selected</Button>}
+            {canAssign && <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => openAssignment("selected")}>
               <UserRoundPlus aria-hidden="true" />Split among employees
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => void handleRandomAssign()}><Dices aria-hidden="true" />Distribute Equally</Button>
+            </Button>}
+            {canAssign && <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => void handleRandomAssign()}><Dices aria-hidden="true" />Distribute Equally</Button>}
             <Button type="button" variant="destructive" size="sm" disabled={isBulkActionPending} onClick={() => setIsDeleteConfirmOpen(true)}><Trash2 aria-hidden="true" />Delete Selected</Button>
+            <Button type="button" variant="ghost" size="sm" disabled={isBulkActionPending} onClick={() => setSelectedLeads([])}>Clear selection</Button>
           </div>
         )}
         <CardContent>
           <Table className="min-w-[1480px] table-fixed">
             <TableHeader><TableRow>
-              {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads on this page" checked={sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeads.includes(lead.id))} onChange={(event) => { const checked = event.target.checked; setIsSelectAllChecked(false); setSelectedLeads((current) => checked ? [...new Set([...current, ...sortedLeads.map((lead) => lead.id)])] : current.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
+              {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads on this page" checked={sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeads.includes(lead.id))} onChange={(event) => { const checked = event.target.checked; setSelectedLeads((current) => checked ? [...new Set([...current, ...sortedLeads.map((lead) => lead.id)])] : current.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[150px]">Contact</TableHead>
               <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />
@@ -2412,7 +2586,6 @@ export function LeadsTable({
                               // One place clears the filters (it also refetches
                               // page 1 when the search/status hit the server).
                               resetFilters();
-                              setIsSelectAllChecked(false);
                               router.push(assignedTo ? `/dashboard/leads?assigned=${encodeURIComponent(assignedTo)}` : "/dashboard/leads");
                             }}
                           >
@@ -2440,7 +2613,7 @@ export function LeadsTable({
                 const ageLabel = relativeLeadAge(lead.lead_date);
                 const treatment = treatmentCellData(lead);
                 return (
-                <TableRow key={lead.id} className={isNew ? "bg-emerald-50/50" : undefined}>
+                <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-emerald-50/50" : undefined)}>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge>{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
@@ -2456,6 +2629,9 @@ export function LeadsTable({
                       </p>
                       <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
                         {ageLabel ?? "No date"}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {lead.assigned_at ? "Assigned" : "Added"} {formatLeadTimeDisplay(lead.assigned_at || lead.created_at) || "time unavailable"}
                       </p>
                     </div>
                   </TableCell>
@@ -2501,11 +2677,11 @@ export function LeadsTable({
                           Won
                         </span>
                       )}
-                      <AppointmentDateInput lead={lead} />
+                      {renderAppointmentDateInput(lead)}
                       {canonicalLeadStatus(lead.status) === "Follow-Up" && <div><Label htmlFor={`follow-up-${lead.id}`} className="text-[10px] text-slate-500">Follow-up date</Label><Input id={`follow-up-${lead.id}`} type="date" value={toInputDateValue(lead.follow_up_date)} disabled={savingLeadIds.has(lead.id)} onChange={(event) => void handleFollowUpChange(lead, event.target.value)} /></div>}
                     </div>
                   </TableCell>
-                  <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
+                  <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={!canAssign || savingLeadIds.has(lead.id)}>
                     <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
@@ -2599,30 +2775,12 @@ export function LeadsTable({
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isSelectAllChecked ? "Delete ALL leads?" : "Delete selected leads?"}</DialogTitle>
+            <DialogTitle>Delete selected leads?</DialogTitle>
             <DialogDescription>
-              {isSelectAllChecked
-                ? `This deletes ALL ${serverTotal.toLocaleString()} leads ${
-                    deleteAllIsScoped ? "matching the current filters" : "in your pipeline"
-                  } and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`
-                : `This deletes ${selectedLeads.length} selected leads and their related activity history. A backup snapshot is taken first, so you can undo it from "Recent Deletions".`}
+              This deletes {selectedLeads.length} selected lead{selectedLeads.length === 1 ? "" : "s"} and their related activity history. A backup snapshot is taken first, so you can undo it from &quot;Recent Deletions&quot;.
             </DialogDescription>
           </DialogHeader>
-          {requiresTypedConfirm && (
-            <div className="grid gap-2">
-              <Label htmlFor="delete-all-confirmation">
-                Type <span className="font-semibold">{DELETE_ALL_CONFIRMATION}</span> to confirm
-              </Label>
-              <Input
-                id="delete-all-confirmation"
-                value={deleteConfirmText}
-                autoComplete="off"
-                placeholder={DELETE_ALL_CONFIRMATION}
-                onChange={(event) => setDeleteConfirmText(event.target.value)}
-              />
-            </div>
-          )}
-          <DialogFooter><Button type="button" variant="outline" onClick={() => { setIsDeleteConfirmOpen(false); setDeleteConfirmText(""); }}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || (requiresTypedConfirm && deleteConfirmText.trim().toUpperCase() !== DELETE_ALL_CONFIRMATION)} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : isSelectAllChecked ? (activeSearch ? "Delete All Matching" : "Delete All Leads") : "Delete Leads"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || selectedLeads.length === 0} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : "Delete selected leads"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -3220,8 +3378,6 @@ export function LeadsTable({
               <div className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1">
                 {duplicateReviewItems.map((item) => {
                   const assigned = Boolean(item.lead.assigned_to?.trim() && !["-", "unassigned"].includes(item.lead.assigned_to.trim().toLowerCase()));
-                  const remainingMs = new Date(item.expires_at).getTime() - Date.now();
-                  const remainingHours = Math.max(0, Math.ceil(remainingMs / (60 * 60 * 1000)));
                   return (
                     <label key={item.id} className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
                       <input
@@ -3250,14 +3406,14 @@ export function LeadsTable({
                         <span className="mt-1 block text-xs text-slate-500">{assigned ? `Assigned since: ${item.lead.assigned_at ? formatDate(item.lead.assigned_at) : "Time unavailable"}` : "No current assignment"}</span>
                         </span>
                         <span className="rounded-lg bg-amber-50 p-2 text-xs text-slate-600">
-                          <span className="block font-semibold text-slate-900">Latest incoming duplicate: {item.incoming_name || "Name not provided"}</span>
+                          <span className="block font-semibold text-slate-900">Incoming duplicate: {item.incoming_name || "Name not provided"}</span>
                           <span className="mt-1 block">Same phone · Not added or assigned</span>
                           <span className="mt-1 block">{item.source} · {item.attempt_count} duplicate attempt{item.attempt_count === 1 ? "" : "s"}</span>
                           <span className="mt-1 block">Last received: {formatDate(item.last_seen_at)}</span>
                         </span>
                         </span>
                         <span className={`mt-1 block text-xs ${!assigned ? "font-medium text-amber-800" : "text-slate-500"}`}>
-                          {!assigned ? (remainingMs > 0 ? `Review closes in about ${remainingHours} hour${remainingHours === 1 ? "" : "s"}; the existing lead stays.` : "Review is due to close at the next hourly check; the existing lead stays.") : "Review stays pending while assigned. Keep, transfer, or delete this lead."}
+                          {!assigned ? `Review closes ${formatDate(item.expires_at)}; the existing lead stays.` : "Review stays pending while assigned. Keep, transfer, or delete this lead."}
                         </span>
                       </span>
                     </label>
@@ -3455,7 +3611,7 @@ export function LeadsTable({
             <div className="space-y-1"><Label htmlFor="full-edit-followup">Next Follow-Up Date</Label><Input id="full-edit-followup" type="date" value={editForm.follow_up_date} onChange={(event) => setEditForm((current) => ({ ...current, follow_up_date: event.target.value }))} /></div>
             <div className="space-y-1"><Label htmlFor="full-edit-assigned">Assigned To</Label>
               <Select value={editForm.assigned_to || "unassigned"} onValueChange={(value) => setEditForm((current) => ({ ...current, assigned_to: value === "unassigned" ? "" : String(value ?? "") }))}>
-                <SelectTrigger id="full-edit-assigned" disabled={!canEditCore}><SelectValue /></SelectTrigger>
+                <SelectTrigger id="full-edit-assigned" disabled={!canAssign}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                   {employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}
@@ -3515,7 +3671,7 @@ export function LeadsTable({
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
                 <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span></div>
-                <div className="sm:col-span-2"><AppointmentDateInput lead={selectedLead} /></div>
+                <div className="sm:col-span-2">{renderAppointmentDateInput(selectedLead)}</div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
               <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>

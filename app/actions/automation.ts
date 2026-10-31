@@ -8,6 +8,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getErrorMessage } from "@/lib/utils";
 import {
   ALL_RULES,
   AUTOMATION_CAP,
@@ -19,11 +20,6 @@ import {
 } from "@/lib/automation";
 
 export type { AutomationChange, AutomationRuleKey } from "@/lib/automation";
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 
 export interface AutomationRule {
   key: AutomationRuleKey;

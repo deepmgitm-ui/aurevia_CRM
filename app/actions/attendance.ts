@@ -20,6 +20,7 @@ import {
   type ApprovedAttendanceLeave,
 } from "@/lib/attendance";
 import { createClient } from "@/lib/supabase/server";
+import { getErrorMessage } from "@/lib/utils";
 
 export type AttendanceResult<T> =
   | { success: true; data: T }
@@ -44,10 +45,6 @@ function isMissingTableError(message: string): boolean {
     text.includes("42703") ||
     text.includes("pgrst204")
   );
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 async function getViewerContext(): Promise<{

@@ -83,6 +83,7 @@ export default async function DashboardPage({
             initialTotalPages={leadsPage.totalPages}
             assignedTo={employeeStats.name}
             role={viewer?.role ?? "employee"}
+            viewerId={viewer?.id ?? ""}
           />
         </div>
       );
@@ -238,7 +239,7 @@ export default async function DashboardPage({
             <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
           </div>
         ) : (
-          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} />
+          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} viewerId={viewer?.id ?? ""} />
         )}
       </section>
     </div>

@@ -29,55 +29,63 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE
 const PROBE = "TEMP timeline self-test — safe to delete";
 
 async function main() {
-  // Pick a real lead and the admin who would log the call.
-  const { data: lead } = await supabase.from("leads").select("id, name").limit(1).single();
-  if (!lead) throw new Error("no lead to test against");
-  const { data: admin } = await supabase.from("profiles").select("id, name").eq("role", "admin").limit(1).single();
-  if (!admin) throw new Error("no admin to test against");
+  // Pick a real lead and admin, but never print patient or staff names.
+  const { data: lead, error: leadError } = await supabase.from("leads").select("id").limit(1).maybeSingle();
+  if (leadError || !lead) {
+    throw new Error(`unable to find a test lead (${leadError?.code ?? "no rows"}). Check the local service-role key and project URL.`);
+  }
+  const { data: admin, error: adminError } = await supabase.from("profiles").select("id").eq("role", "admin").limit(1).maybeSingle();
+  if (adminError || !admin) {
+    throw new Error(`unable to find an admin profile (${adminError?.code ?? "no rows"}). Check the local service-role key and project URL.`);
+  }
 
-  console.log(`testing against lead: ${lead.name} (${lead.id.slice(0, 8)})`);
-  console.log(`logged as            : ${admin.name}`);
+  console.log(`testing against an existing lead (ID ${lead.id.slice(0, 8)})`);
 
-  // 1. WRITE — exactly the payload addLeadActivity() sends.
-  const { data: written, error: writeError } = await supabase
-    .from("lead_activities")
-    .insert({
-      lead_id: lead.id,
-      user_id: admin.id,
-      action_type: "note",
-      description: PROBE,
-    })
-    .select()
-    .single();
-  if (writeError) throw new Error(`write failed: ${writeError.message}`);
-  console.log(`\n  ✓ wrote a row (id ${written.id.slice(0, 8)})`);
+  let writtenId: string | null = null;
+  try {
+    // 1. WRITE — same activity fields used by the app.
+    const { data: written, error: writeError } = await supabase
+      .from("lead_activities")
+      .insert({
+        lead_id: lead.id,
+        user_id: admin.id,
+        action_type: "note",
+        description: PROBE,
+      })
+      .select("id, user_id, created_at")
+      .single();
+    if (writeError || !written) throw new Error(`write failed: ${writeError?.message ?? "no activity returned"}`);
+    writtenId = written.id;
+    console.log("  ✓ activity saved with an actor and timestamp");
 
-  // 2. READ — the exact query the drawer / calendar run.
-  const { data: read, error: readError } = await supabase
-    .from("lead_activities")
-    .select("id, lead_id, user_id, action_type, description, created_at, user:profiles(name)")
-    .eq("lead_id", lead.id)
-    .order("created_at", { ascending: false });
-  if (readError) throw new Error(`read failed: ${readError.message}`);
-  console.log(`  ✓ read back ${(read ?? []).length} row(s) for this lead`);
-
-  const joined = (read ?? [])[0] as { user?: { name?: string } } | undefined;
-  console.log(`  ✓ author name resolves: ${joined?.user?.name ?? "(would be null)"}`);
-
-  // 3. The calendar lane groups the same rows by local day.
-  const today = new Date().toISOString().slice(0, 10);
-  const onToday = (read ?? []).filter(
-    (row) => String((row as { created_at: string }).created_at).slice(0, 10) === today,
-  ).length;
-  console.log(`  ✓ ${onToday} of them land on today (${today}) for the calendar lane`);
-
-  // 4. CLEAN UP — leave the CRM exactly as it was found.
-  const { error: deleteError } = await supabase.from("lead_activities").delete().eq("id", written.id);
-  if (deleteError) throw new Error(`cleanup failed: ${deleteError.message}`);
-  console.log(`\n  ✓ test row removed — the CRM is back to its original state`);
+    // 2. READ — verify the activity body, timestamp and public actor name.
+    const { data: read, error: readError } = await supabase
+      .from("lead_activities")
+      .select("id, user_id, action_type, description, created_at")
+      .eq("id", writtenId)
+      .single();
+    if (readError || !read) throw new Error(`read failed: ${readError?.message ?? "activity not found"}`);
+    const { data: actor, error: actorError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", read.user_id)
+      .single();
+    if (actorError || !actor) throw new Error("activity actor could not be resolved");
+    if (read.description !== PROBE || !read.created_at || read.action_type !== "note") {
+      throw new Error("activity fields did not round-trip correctly");
+    }
+    console.log("  ✓ activity text, timestamp and actor ID resolve");
+  } finally {
+    // Always remove the test event, even if the read/actor checks fail.
+    if (writtenId) {
+      const { error: deleteError } = await supabase.from("lead_activities").delete().eq("id", writtenId);
+      if (deleteError) throw new Error(`cleanup failed: ${deleteError.message}`);
+      console.log("  ✓ temporary test event removed");
+    }
+  }
 
   const { count } = await supabase.from("lead_activities").select("id", { count: "exact", head: true });
-  console.log(`\nlead_activities rows now: ${count ?? 0} (unchanged — the feature works, it is just unused)`);
+  console.log(`  ✓ activity total after cleanup: ${count ?? 0}`);
 }
 
 // Wrapped in main() so the process does not exit with the Supabase socket open.

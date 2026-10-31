@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 export interface LeadExcelRecord {
   name?: string | null;
   phone?: string | null;
@@ -18,7 +16,8 @@ export interface LeadExcelRecord {
 }
 
 /** Download a readable Excel copy before a user-triggered lead deletion. */
-export function downloadLeadsExcel(leads: LeadExcelRecord[], fileName: string): void {
+export async function downloadLeadsExcel(leads: LeadExcelRecord[], fileName: string): Promise<void> {
+  const XLSX = await import("xlsx");
   const rows = leads.map((lead) => ({
     Name: lead.name ?? "",
     Phone: lead.phone ?? "",

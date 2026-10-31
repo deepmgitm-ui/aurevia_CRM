@@ -40,6 +40,7 @@ import {
 import { isWonStatus, normaliseAppointmentDate } from "@/lib/appointments";
 import { assignmentOrExpression } from "@/lib/lead-assignment-filter";
 import { createClient } from "@/lib/supabase/server";
+import { getErrorMessage } from "@/lib/utils";
 import { canonicalLeadStatus, isLeadStatusOption, leadStatusStorageValues } from "@/lib/lead-status";
 import {
   cleanImportedLeadRemarks,
@@ -89,7 +90,7 @@ export interface Lead {
 const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
-  "created_at", "updated_at", "source_batch_id", "source_batch_label",
+  "created_at", "updated_at", "assigned_at", "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
   "ipd_done_date",
 ].join(", ");
@@ -155,10 +156,6 @@ export interface AddLeadActivityInput {
 export type ActionResult<T> =
   | { success: true; data: T; warning?: string }
   | { success: false; error: string; code?: string };
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 function dashIfEmpty(value: unknown): string {
   if (typeof value === "string" && value.trim()) {
@@ -364,21 +361,6 @@ export interface PipelineBoardData {
   total: number;
   /** Cards returned per column; `total` may be larger ("N more" hint in the UI). */
   cardLimit: number;
-}
-
-// Builds the role-scoped base query (employees only see leads assigned to them).
-// The query is a builder, so callers can chain .range()/.eq() on top of it.
-function buildScopedLeadsQuery(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  role: string,
-  employeeName: string | null,
-  withCount = false,
-  assignedTo = "",
-) {
-  const base = supabase.from("leads").select("id", withCount ? { count: "exact", head: true } : undefined);
-  if (role === "employee") return base.ilike("assigned_to", employeeName ?? "");
-  // Admins/managers can drill down into one specific employee's leads.
-  return assignedTo.trim() ? base.eq("assigned_to", assignedTo.trim()) : base;
 }
 
 // Returns the signed-in user's role (null when unauthenticated) for server-side
@@ -762,6 +744,7 @@ export async function getLeadsPage(
     }
     leadsQuery = applyLeadFilters(leadsQuery, resolved);
     const { data, error, count } = await leadsQuery
+      .order("assigned_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -1991,13 +1974,17 @@ export async function updateLeadStatus(
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Sign in before changing a lead status." };
 
     // Capture the previous status so the timeline can show the real transition.
-    const { data: before } = await supabase
+    const { data: before, error: beforeError } = await supabase
       .from("leads")
       .select("status")
       .eq("id", input.id)
       .single();
+    if (beforeError || !before) {
+      return { success: false, error: beforeError?.message ?? "Lead not found or you do not have access." };
+    }
 
     const { data, error } = await supabase
       .from("leads")
@@ -2012,13 +1999,17 @@ export async function updateLeadStatus(
       return { success: false, error: error.message };
     }
 
-    const previousStatus = (before?.status ?? "").trim();
-    if (user && previousStatus && previousStatus !== status) {
-      await recordLeadActivity(supabase, input.id, user.id, "status", `${previousStatus} → ${status}`);
-    }
+    const previousStatus = (before.status ?? "").trim();
+    const activityRecorded = !previousStatus || previousStatus === status
+      ? true
+      : await recordLeadActivity(supabase, input.id, user.id, "Status changed", `${previousStatus} → ${status}`);
 
-    revalidatePath("/dashboard");
-    return { success: true, data: data as Lead };
+    revalidatePath("/dashboard", "layout");
+    return {
+      success: true,
+      data: data as Lead,
+      ...(!activityRecorded ? { warning: "Status saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
+    };
   } catch (error) {
     return {
       success: false,
@@ -2052,6 +2043,15 @@ export async function updateLeadAppointment(input: {
     } = await supabase.auth.getUser();
 
     const value = normaliseAppointmentDate(input.value);
+    const { data: previousLead, error: previousLeadError } = await supabase
+      .from("leads")
+      .select(input.column)
+      .eq("id", input.id)
+      .single();
+    if (previousLeadError || !previousLead) {
+      return { success: false, error: previousLeadError?.message ?? "Lead not found." };
+    }
+
     const { data, error } = await supabase
       .from("leads")
       .update({ [input.column]: value || null })
@@ -2072,21 +2072,27 @@ export async function updateLeadAppointment(input: {
       return { success: false, error: error.message };
     }
 
-    if (user && value) {
-      const label = input.column.replace(/_/g, " ").replace(" date", "");
-      await recordLeadActivity(
+    const previousDates = previousLead as unknown as Record<string, unknown>;
+    const oldValue = normaliseAppointmentDate(String(previousDates[input.column] ?? ""));
+    const appointmentLabel = input.column.replace(/_/g, " ").replace(" date", "");
+    const activityRecorded = !user || oldValue === value
+      ? true
+      : await recordLeadActivity(
         supabase,
         input.id,
         user.id,
-        "note",
-        `Appointment date set — ${label}: ${value}`,
+        "Appointment date updated",
+        `${appointmentLabel}: ${oldValue || "—"} → ${value || "—"}`,
       );
-    }
 
     // The calendar reads these columns directly, so it must re-render too.
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/calendar");
-    return { success: true, data: data as Lead };
+    return {
+      success: true,
+      data: data as Lead,
+      ...(!activityRecorded ? { warning: "Appointment date saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
+    };
   } catch (error) {
     return {
       success: false,
@@ -2107,6 +2113,14 @@ export async function updateLeadFollowUpDate(
       data: { user },
     } = await supabase.auth.getUser();
     const nextFollowUp = followUpDate.trim();
+    const { data: previousLead, error: previousLeadError } = await supabase
+      .from("leads")
+      .select("follow_up_date")
+      .eq("id", leadId)
+      .single();
+    if (previousLeadError || !previousLead) {
+      return { success: false, error: previousLeadError?.message ?? "Lead not found." };
+    }
     const { data, error } = await supabase
       .from("leads")
       .update({ follow_up_date: nextFollowUp || "-" })
@@ -2115,18 +2129,24 @@ export async function updateLeadFollowUpDate(
       .single();
 
     if (error) return { success: false, error: error.message };
-    if (user) {
-      await recordLeadActivity(
+    const oldFollowUp = String(previousLead.follow_up_date ?? "").trim();
+    const storedFollowUp = nextFollowUp || "-";
+    const activityRecorded = !user || oldFollowUp === storedFollowUp
+      ? true
+      : await recordLeadActivity(
         supabase,
         leadId,
         user.id,
-        "follow_up",
-        nextFollowUp ? `Follow-up set: ${nextFollowUp}` : "Follow-up cleared",
+        "Follow-up updated",
+        `${oldFollowUp === "-" ? "—" : oldFollowUp} → ${nextFollowUp || "—"}`,
       );
-    }
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/follow-up-calendar");
-    return { success: true, data: data as Lead };
+    return {
+      success: true,
+      data: data as Lead,
+      ...(!activityRecorded ? { warning: "Follow-up saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
+    };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to update follow-up date.") };
   }
@@ -2774,10 +2794,10 @@ export async function randomAssignLeads(
   try {
     const supabase = await createClient();
 
-    // RBAC: only Admins and Managers can distribute leads.
+    // RBAC: assignment changes are admin-only.
     const viewerRole = await getViewerRole(supabase);
-    if (!viewerRole || viewerRole === "employee") {
-      return { success: false, error: "Only admins and managers can distribute leads (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can distribute leads (403 Forbidden)." };
     }
 
     const { data: profiles, error: employeeError } = await supabase
@@ -2801,7 +2821,7 @@ export async function randomAssignLeads(
     if (!batch.success) return batch;
     for (const entry of distribution) {
       for (let offset = 0; offset < entry.ids.length; offset += 500) {
-        const { error } = await supabase.from("leads").update({ assigned_to: entry.name, assignment_batch_id: batch.data.id }).in("id", entry.ids.slice(offset, offset + 500));
+        const { error } = await supabase.from("leads").update({ assigned_to: entry.name, assignment_batch_id: batch.data.id, assigned_at: new Date().toISOString() }).in("id", entry.ids.slice(offset, offset + 500));
         if (error) return { success: false, error: `Assigned some leads before failing: ${assignmentBatchSetupError(error.message)}` };
       }
     }
@@ -2849,8 +2869,8 @@ export async function getEmployeeLeadsForTransfer(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") {
-      return { success: false, error: "Only admins and managers can select leads for transfer (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can select leads for transfer (403 Forbidden)." };
     }
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -3048,7 +3068,7 @@ export async function transferLeadAssignmentBatch(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can transfer assignment batches (403 Forbidden)." };
+    if (viewerRole !== "admin") return { success: false, error: "Only admins can transfer assignment batches (403 Forbidden)." };
     const { data: profiles, error: profileError } = await supabase.from("profiles").select("name, role").eq("name", input.employeeName.trim());
     if (profileError) return { success: false, error: profileError.message };
     const target = profiles?.find((profile) => profile.role === "employee" || viewerRole === "admin");
@@ -3056,7 +3076,8 @@ export async function transferLeadAssignmentBatch(input: {
     const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     let transferred = 0;
-    const freshAssignmentAt = input.asFresh === true ? new Date().toISOString() : null;
+    const assignmentAt = new Date().toISOString();
+    const freshAssignmentAt = input.asFresh === true ? assignmentAt : null;
     for (;;) {
       const { data: leads, error: fetchError } = await supabase
         .from("leads")
@@ -3069,7 +3090,7 @@ export async function transferLeadAssignmentBatch(input: {
       if (ids.length === 0) break;
       const updatePayload = input.asFresh === true
         ? { assigned_to: target.name, status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
-        : { assigned_to: target.name };
+        : { assigned_to: target.name, assigned_at: assignmentAt };
       const { data: updated, error: updateError } = await supabase
         .from("leads")
         .update(updatePayload)
@@ -3104,7 +3125,7 @@ export async function addLeadsToAssignmentBatch(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can add leads to assignment batches (403 Forbidden)." };
+    if (viewerRole !== "admin") return { success: false, error: "Only admins can add leads to assignment batches (403 Forbidden)." };
     const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names, lead_count").eq("id", input.batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     const targetNames = Array.isArray(batch.target_names) ? batch.target_names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
@@ -3129,10 +3150,11 @@ export async function addLeadsToAssignmentBatch(input: {
       perEmployee[targetIndex].count += 1;
     });
     let added = 0;
+    const addedAt = new Date().toISOString();
     for (let targetIndex = 0; targetIndex < buckets.length; targetIndex++) {
       const name = validTargets[targetIndex];
       for (let offset = 0; offset < buckets[targetIndex].length; offset += 500) {
-        const { data, error } = await supabase.from("leads").update({ assigned_to: name, assignment_batch_id: input.batchId }).in("id", buckets[targetIndex].slice(offset, offset + 500)).select("id");
+        const { data, error } = await supabase.from("leads").update({ assigned_to: name, assignment_batch_id: input.batchId, assigned_at: addedAt }).in("id", buckets[targetIndex].slice(offset, offset + 500)).select("id");
         if (error) return { success: false, error: `Added ${added} leads before the remaining update failed: ${error.message}` };
         added += data?.length ?? 0;
       }
@@ -3215,8 +3237,8 @@ export async function getUnassignedLeadAssignmentSuggestions(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") {
-      return { success: false, error: "Only admins and managers can search leads for assignment (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can search leads for assignment (403 Forbidden)." };
     }
 
     let query = supabase
@@ -3299,8 +3321,8 @@ export async function getLeadAssignmentPreview(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") {
-      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
     }
     const query = applyAssignmentCriteria(
       supabase.from("leads").select("id", { count: "exact", head: true }),
@@ -3369,8 +3391,8 @@ export async function assignLeadsToEmployees(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && viewerRole !== "manager") {
-      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
     }
 
     const { data: profiles, error: profilesError } = await supabase
@@ -3447,7 +3469,8 @@ export async function assignLeadsToEmployees(input: {
     const batchResult = await createLeadAssignmentBatch(supabase, activeTargets, matchingIds.length, input.batchLabel);
     if (!batchResult.success) return batchResult;
     const assignmentBatchId = batchResult.data.id;
-    const freshAssignmentAt = input.asFresh === true ? new Date().toISOString() : null;
+    const assignmentAt = new Date().toISOString();
+    const freshAssignmentAt = input.asFresh === true ? assignmentAt : null;
 
     let assigned = 0;
     for (const entry of perEmployee) {
@@ -3456,8 +3479,8 @@ export async function assignLeadsToEmployees(input: {
         const ids = entry.leadIds.slice(offset, offset + 500);
         if (ids.length === 0) continue;
         const updatePayload = input.asFresh === true
-          ? { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
-          : { assigned_to: entry.name, assignment_batch_id: assignmentBatchId };
+          ? { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, assigned_at: assignmentAt, status: "New", follow_up_date: "-", assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
+          : { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, assigned_at: assignmentAt };
         let updateQuery = supabase
           .from("leads")
           .update(updatePayload)
@@ -3488,6 +3511,13 @@ export async function assignLeadsToEmployees(input: {
       if (countError) {
         console.error("[assignLeadsToEmployees] Could not reconcile batch count", countError.message);
       }
+    }
+
+    if (assigned === 0) {
+      return {
+        success: false,
+        error: "No leads were assigned. They may already have changed or moved; refresh the list and try again.",
+      };
     }
 
     revalidatePath("/dashboard", "layout");
@@ -3535,10 +3565,10 @@ export async function assignUnassignedLeads(
   try {
     const supabase = await createClient();
 
-    // RBAC: only Admins and Managers can assign leads.
+    // RBAC: assignment changes are admin-only.
     const viewerRole = await getViewerRole(supabase);
-    if (!viewerRole || viewerRole === "employee") {
-      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
     }
 
     // Validate the selected employees against the profiles table.
@@ -3629,10 +3659,10 @@ export async function updateLeadAssignment(
   try {
     const supabase = await createClient();
 
-    // RBAC: employees cannot reassign leads (assigned_to is a core field).
+    // RBAC: only admins may reassign leads (assigned_to is a core field).
     const viewerRole = await getViewerRole(supabase);
-    if (!viewerRole || viewerRole === "employee") {
-      return { success: false, error: "Only admins and managers can reassign leads (403 Forbidden)." };
+    if (viewerRole !== "admin") {
+      return { success: false, error: "Only admins can reassign leads (403 Forbidden)." };
     }
 
     const targetName = employeeName.trim();
@@ -3655,13 +3685,14 @@ export async function updateLeadAssignment(
     const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
     if (!batch.success) return batch;
 
-    const freshAssignmentAt = asFresh ? new Date().toISOString() : null;
+    const assignmentAt = new Date().toISOString();
+    const freshAssignmentAt = asFresh ? assignmentAt : null;
     const transferUpdates = asFresh
       ? { status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
       : {};
     const { data, error } = await supabase
       .from("leads")
-      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id, ...transferUpdates })
+      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id, assigned_at: assignmentAt, ...transferUpdates })
       .eq("id", leadId)
       .select()
       .single();
@@ -3763,7 +3794,14 @@ export async function updateLeadDetails(
       }
     }
 
-    if (typeof updates.assigned_to === "string" && (viewerProfile?.role === "admin" || viewerProfile?.role === "manager")) {
+    if (typeof updates.assigned_to === "string" && viewerProfile?.role === "manager") {
+      if (updates.assigned_to.trim() !== (previousLead.assigned_to ?? "").trim()) {
+        return { success: false, error: "Only admins can assign or transfer leads." };
+      }
+      delete updates.assigned_to;
+    }
+
+    if (typeof updates.assigned_to === "string" && viewerProfile?.role === "admin") {
       const { data: currentLead, error: currentLeadError } = await supabase
         .from("leads")
         .select("assigned_to")
@@ -3787,6 +3825,7 @@ export async function updateLeadDetails(
           if (!batch.success) return batch;
           updates.assigned_to = target.name;
           updates.assignment_batch_id = batch.data.id;
+          updates.assigned_at = new Date().toISOString();
           if (input.transfer_as_fresh === true) {
             updates.status = "New";
             updates.follow_up_date = "-";

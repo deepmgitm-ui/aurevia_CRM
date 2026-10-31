@@ -126,6 +126,7 @@ export default async function LeadsPage({
           initialTotalPages={leadsPage.totalPages}
           initialOpenLeadId={initialOpenLeadId}
           role={viewer?.role ?? "employee"}
+          viewerId={viewer?.id ?? ""}
           filters={filters}
         />
       </section>

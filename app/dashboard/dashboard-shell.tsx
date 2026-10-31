@@ -5,20 +5,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  BarChart3,
-  CalendarDays,
   CheckSquare,
   CircleCheck,
-  Kanban,
-  LayoutDashboard,
   LogOut,
-  Megaphone,
   Menu,
-  Settings,
-  Stethoscope,
-  UserCheck,
-  UserCog,
-  Users,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,7 +21,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
+import { cn, getInitials } from "@/lib/utils";
+import { getDashboardDestinations, type DashboardRole } from "@/lib/dashboard-navigation";
 import { logout } from "@/app/login/actions";
 import { currentQuarterRange, type DateRange } from "./overview/analytics";
 import { DashboardDateRangeProvider } from "./dashboard-date-range";
@@ -63,41 +54,8 @@ interface DashboardShellProps {
   pendingDeletionReviews?: number;
 }
 
-// Keep every workspace destination in the sidebar so the header stays focused.
-const navigation = [
-  { group: "Overview", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true },
-  { group: "Leads & Follow-ups", label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false },
-  { group: "Leads & Follow-ups", label: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
-  { group: "Leads & Follow-ups", label: "Follow-up Calendar", href: "/dashboard/follow-up-calendar", icon: CalendarDays, exact: false },
-  { group: "Leads & Follow-ups", label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false },
-  { group: "Clinic", label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false },
-  { group: "Clinic", label: "Upcoming Appointments", href: "/dashboard/calendar", icon: CalendarDays, exact: false },
-  { group: "Clinic", label: "Consultations", href: "/dashboard/consultations", icon: CalendarDays, exact: false },
-  { group: "Clinic", label: "Surgeries", href: "/dashboard/surgeries", icon: Stethoscope, exact: false },
-  { group: "Analytics", label: "Lead Analysis", href: "/dashboard/lead-analysis", icon: BarChart3, exact: false },
-  { group: "Analytics", label: "Source Analysis", href: "/dashboard/source-analysis", icon: Megaphone, exact: false },
-  { group: "Analytics", label: "City Analysis", href: "/dashboard/city-analysis", icon: CalendarDays, exact: false },
-  { group: "Analytics", label: "Agents Performance", href: "/dashboard/agents", icon: UserCog, exact: false },
-  { group: "Analytics", label: "Daily Team Report", href: "/dashboard/daily-report", icon: BarChart3, exact: false },
-  { group: "Analytics", label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false },
-  { group: "Tools", label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false },
-  { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false },
-  { group: "Tools", label: "Assignment History", href: "/dashboard/assignment-history", icon: Users, exact: false },
-  { group: "Tools", label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false },
-] as const;
-
 function isActivePath(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname.startsWith(href);
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 // Official company logo (public/logo.png, transparent background). The source
@@ -125,22 +83,10 @@ function BrandLogo({
   );
 }
 
-function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobile?: boolean; role?: string; pendingDeletionReviews?: number }) {
+function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobile?: boolean; role: DashboardRole; pendingDeletionReviews?: number }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const items = navigation
-    .filter((item) => {
-      if (role === "employee") {
-        return ["/dashboard", "/dashboard/leads", "/dashboard/attendance", "/dashboard/agents", "/dashboard/daily-report", "/dashboard/calendar", "/dashboard/follow-up-calendar"].includes(item.href);
-      }
-      if (item.href === "/dashboard/closed-lead-reviews" || item.href === "/dashboard/assignment-history") return role === "admin";
-      return true;
-    })
-    .map((item) => {
-      if (role === "employee" && item.href === "/dashboard/daily-report") return { ...item, label: "My Daily Summary", group: "My Work" };
-      if (role === "employee" && item.href === "/dashboard/agents") return { ...item, label: "My Profile", group: "My Work" };
-      return item;
-    });
+  const items = getDashboardDestinations(role, "sidebar");
   const groups = [...new Set(items.map((item) => item.group))].map((group) => ({
     label: group,
     items: items.filter((item) => item.group === group),

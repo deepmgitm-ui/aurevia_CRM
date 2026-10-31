@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
+import { getInitials } from "@/lib/utils";
 import type { EmployeeDirectoryEntry } from "@/app/actions/leads";
 
 import {
@@ -33,16 +34,6 @@ import {
   type AgentStat,
 } from "./analytics";
 import { normalizeGreetingGender } from "./greeting-copy";
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function DetailRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -586,7 +577,7 @@ function AgentAvatar({ card, size }: { card: AgentCard; size: "md" | "lg" }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={card.photoUrl} alt="" className="size-full object-cover" />
       ) : (
-        <span>{card.emoji || initials(card.name)}</span>
+        <span>{card.emoji || getInitials(card.name)}</span>
       )}
     </span>
   );

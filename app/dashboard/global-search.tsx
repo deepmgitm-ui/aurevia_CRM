@@ -5,34 +5,13 @@ import Link from "next/link";
 import { ArrowRight, LoaderCircle, Search, UserRound } from "lucide-react";
 
 import { searchLeadsForGlobalSearch, type GlobalLeadSearchResult } from "@/app/actions/leads";
+import { getDashboardDestinations, type DashboardRole } from "@/lib/dashboard-navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PhonePreview } from "./phone-preview";
 
-const destinations = [
-  { label: "Dashboard", href: "/dashboard", roles: ["admin", "manager", "employee"] },
-  { label: "Follow-ups", href: "/dashboard/tasks", roles: ["admin", "manager"] },
-  { label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager"] },
-  { label: "Daily Team Report", href: "/dashboard/daily-report", roles: ["admin", "manager"] },
-  { label: "My Daily Summary", href: "/dashboard/daily-report", roles: ["employee"] },
-  { label: "Leads", href: "/dashboard/leads", roles: ["admin", "manager", "employee"] },
-  { label: "Pipeline Board", href: "/dashboard/board", roles: ["admin", "manager"] },
-  { label: "Lead Analysis", href: "/dashboard/lead-analysis", roles: ["admin", "manager"] },
-  { label: "Source Analysis", href: "/dashboard/source-analysis", roles: ["admin", "manager"] },
-  { label: "City Analysis", href: "/dashboard/city-analysis", roles: ["admin", "manager"] },
-  { label: "Attendance", href: "/dashboard/attendance", roles: ["admin", "manager", "employee"] },
-  { label: "Consultations", href: "/dashboard/consultations", roles: ["admin", "manager"] },
-  { label: "Surgeries", href: "/dashboard/surgeries", roles: ["admin", "manager"] },
-  { label: "Patients", href: "/dashboard/patients", roles: ["admin", "manager"] },
-  { label: "Agents", href: "/dashboard/agents", roles: ["admin", "manager", "employee"] },
-  { label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", roles: ["admin"] },
-  { label: "Marketing", href: "/dashboard/marketing", roles: ["admin", "manager"] },
-  { label: "Reports", href: "/dashboard/reports", roles: ["admin", "manager"] },
-  { label: "Settings", href: "/dashboard/settings", roles: ["admin", "manager"] },
-] as const;
-
-export function GlobalSearch({ role }: { role: string }) {
+export function GlobalSearch({ role }: { role: DashboardRole }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [leads, setLeads] = useState<GlobalLeadSearchResult[]>([]);
@@ -74,10 +53,8 @@ export function GlobalSearch({ role }: { role: string }) {
     };
   }, [open, term]);
 
-  const visibleDestinations = destinations.filter(
-    (item) => item.roles.some((allowedRole) => allowedRole === role) &&
-      (!normalizedTerm || item.label.toLocaleLowerCase().includes(normalizedTerm)),
-  );
+  const visibleDestinations = getDashboardDestinations(role, "search")
+    .filter((item) => !normalizedTerm || item.label.toLocaleLowerCase().includes(normalizedTerm));
 
   function closeSearch() {
     setOpen(false);

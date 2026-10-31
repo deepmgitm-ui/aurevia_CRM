@@ -39,8 +39,7 @@ export const TREND_COLORS = {
   surgeries: "#5eead4",
 } as const;
 
-const CITY_COLORS = ["#047857", "#059669", "#10b981", "#14b8a6", "#34d399", "#6ee7b7", "#5eead4", "#a7f3d0"];
-const SOURCE_COLORS = ["#047857", "#059669", "#10b981", "#14b8a6", "#34d399", "#6ee7b7", "#5eead4", "#a7f3d0"];
+const CATEGORY_COLORS = ["#047857", "#059669", "#10b981", "#14b8a6", "#34d399", "#6ee7b7", "#5eead4", "#a7f3d0"];
 
 const AXIS_TICK = { fill: "#94a3b8", fontSize: 12 } as const;
 
@@ -384,7 +383,7 @@ export function CitiesChart({ rows }: { rows: BreakdownRow[] }) {
     <CategoryBarChart
       rows={rows}
       dataKey="surgeries"
-      colors={CITY_COLORS}
+      colors={CATEGORY_COLORS}
       onRowClick={(row) => {
         if (row.label && row.label !== "-") router.push(leadsHref({ city: row.label }));
       }}
@@ -398,7 +397,7 @@ export function SourcesChart({ rows }: { rows: BreakdownRow[] }) {
     <CategoryBarChart
       rows={rows}
       dataKey="leads"
-      colors={SOURCE_COLORS}
+      colors={CATEGORY_COLORS}
       wrapLabels
       onRowClick={(row) => {
         if (row.label && row.label !== "-") router.push(leadsHref({ source: row.label }));
