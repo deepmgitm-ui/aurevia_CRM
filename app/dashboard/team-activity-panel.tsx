@@ -144,7 +144,7 @@ export function TeamActivityPanel({
       )}
       <p className="text-xs text-slate-500">
         Active means recent CRM interaction within 5 minutes; idle means the CRM
-        is open without recent interaction. Offline means no update for over 4
+        is open without recent interaction. Offline means no update for over 2½
         minutes. Durations estimate CRM usage, not attendance or completed
         calls.
       </p>

@@ -39,7 +39,7 @@ const allRoles = ["admin", "manager", "employee"] as const;
 // Keep the sidebar and quick search backed by one role-aware route registry.
 const destinations: readonly DashboardDestination[] = [
   { group: "Overview", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, exact: true, roles: allRoles, surfaces: ["sidebar", "search"] },
-  { group: "Leads & Follow-ups", label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
+  { group: "Leads & Follow-ups", label: "Follow-ups", href: "/dashboard/tasks", icon: CheckSquare, exact: false, roles: allRoles, surfaces: ["sidebar", "search"] },
   { group: "Leads & Follow-ups", label: "Leads", href: "/dashboard/leads", icon: Users, exact: false, roles: allRoles, surfaces: ["sidebar", "search"] },
   { group: "Leads & Follow-ups", label: "Pipeline Board", href: "/dashboard/board", icon: Kanban, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Clinic", label: "Attendance", href: "/dashboard/attendance", icon: UserCheck, exact: false, roles: allRoles, surfaces: ["sidebar", "search"] },

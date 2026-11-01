@@ -11,9 +11,9 @@ export interface StaffActivity {
   active_seconds: number;
 }
 
-// One missed heartbeat remains online; two missed beats go offline.
-export const ACTIVITY_HEARTBEAT_INTERVAL_MS = 120_000;
-export const ACTIVITY_OFFLINE_AFTER_MS = 240_000;
+// Keep heartbeats below the database trigger's 90-second duration-credit cap.
+export const ACTIVITY_HEARTBEAT_INTERVAL_MS = 60_000;
+export const ACTIVITY_OFFLINE_AFTER_MS = 150_000;
 export const ACTIVITY_ROSTER_REFRESH_INTERVAL_MS = 120_000;
 
 export function activityState(

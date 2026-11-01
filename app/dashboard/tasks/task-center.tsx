@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { CalendarClock, CheckCircle2, MessageCircle, Phone, RotateCcw, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bell, CalendarClock, CheckCircle2, MessageCircle, Phone, RotateCcw, Search } from "lucide-react";
 
 import {
   completeFollowUp,
@@ -55,6 +55,34 @@ function displayDate(value: string | null): string {
   return `${d}/${m}/${y}`;
 }
 
+function followUpDueAt(lead: TaskLead): number | null {
+  if (lead.follow_up_at) {
+    const timestamp = Date.parse(lead.follow_up_at);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  const day = dateKey(lead.follow_up_date ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return Date.parse(`${day}T09:00:00+05:30`);
+}
+
+function playReminderTone() {
+  const AudioContextClass = window.AudioContext;
+  if (!AudioContextClass) return;
+  const context = new AudioContextClass();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.value = 880;
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.24);
+  oscillator.onended = () => void context.close();
+}
+
 export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLead[]; initialPage: TaskPageData }) {
   const [leads, setLeads] = useState(initialLeads);
   const [page,setPage]=useState(1),[total,setTotal]=useState(initialPage.total),[stats,setStats]=useState(initialPage.stats),[loading,setLoading]=useState(false),[requestError,setRequestError]=useState(""),[nextTime,setNextTime]=useState("");
@@ -65,6 +93,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
   const [callOutcome, setCallOutcome] = useState("Connected");
   const [callNotes, setCallNotes] = useState("");
   const [nextDate, setNextDate] = useState("");
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
 
   const today = todayKey();
 
@@ -74,7 +103,38 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
     try{const response=await getTaskPage(nextBucket,nextQuery,nextPage);if(request!==loadSequence.current)return;if(response.success){const last=Math.max(1,Math.ceil(response.data.total/50));if(nextPage>last){await load(nextBucket,nextQuery,last);return;}setLeads(response.data.leads);setTotal(response.data.total);setStats(response.data.stats);setBucket(nextBucket);setPage(nextPage);}else setRequestError(response.error);}
     catch{setRequestError("Follow-ups could not be loaded. Please retry.");}finally{if(request===loadSequence.current)setLoading(false);}
   }
-  const visible=useMemo(()=>[...leads].sort((a,b)=>getLeadPriorityScore(b)-getLeadPriorityScore(a)||dateKey(a.follow_up_date ?? "").localeCompare(dateKey(b.follow_up_date ?? ""))),[leads]);
+  const visible=useMemo(()=>[...leads].sort((a,b)=>(followUpDueAt(a)??Number.MAX_SAFE_INTEGER)-(followUpDueAt(b)??Number.MAX_SAFE_INTEGER)||getLeadPriorityScore(b)-getLeadPriorityScore(a)),[leads]);
+
+  useEffect(() => {
+    if (!alertsEnabled || !leads.length) return;
+    const reminderKey = (lead: TaskLead) => `aurevia-task-reminded:${lead.id}:${followUpDueAt(lead)}`;
+    const remindDue = () => {
+      const now = Date.now();
+      for (const lead of leads) {
+        const dueAt = followUpDueAt(lead);
+        if (dueAt === null || dueAt > now || window.localStorage.getItem(reminderKey(lead))) continue;
+        window.localStorage.setItem(reminderKey(lead), "1");
+        toast.add({ title: "Follow-up due", description: lead.name, type: "success" });
+        playReminderTone();
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("Follow-up due", { body: lead.name, tag: `aurevia-${lead.id}` });
+        }
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") remindDue(); };
+    remindDue();
+    const timer = window.setInterval(remindDue, 30_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [alertsEnabled, leads]);
+
+  async function enableTaskAlerts() {
+    playReminderTone();
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    setAlertsEnabled(true);
+  }
 
   async function handleComplete(lead: TaskLead) {
     if (busyId) return;
@@ -173,6 +233,12 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
 
   return (
     <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">Follow-ups are ordered by due date. Employees see their assigned leads; managers and admins can review the team.</p>
+        <Button type="button" variant="outline" onClick={() => void enableTaskAlerts()}>
+          <Bell aria-hidden="true" /> {alertsEnabled ? "Task reminders enabled" : "Enable task reminders"}
+        </Button>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: "All follow-ups", value: stats.total, active: bucket === "all", next: "all" as const },

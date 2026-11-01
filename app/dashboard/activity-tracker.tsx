@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { recordMyActivity } from "@/app/actions/team-activity";
+import { createClient } from "@/lib/supabase/client";
 import { ACTIVITY_HEARTBEAT_INTERVAL_MS } from "@/lib/team-activity";
 
 export function ActivityTracker() {
@@ -10,6 +10,7 @@ export function ActivityTracker() {
     let lastAttempt = -Infinity;
     let pending = false;
     let cancelled = false;
+    const supabase = createClient();
     const interacted = () => {
       lastInteraction = performance.now();
     };
@@ -35,9 +36,10 @@ export function ActivityTracker() {
       lastAttempt = performance.now();
       try {
         // Send only a boolean, never keys, clicks, patient names or page content.
-        const success = await recordMyActivity(
-          performance.now() - lastInteraction < 65_000,
-        );
+        const { error } = await supabase.rpc("crm_activity_heartbeat", {
+          p_active: performance.now() - lastInteraction < 65_000,
+        });
+        const success = !error;
         if (!cancelled)
           window.dispatchEvent(
             new CustomEvent("crm:activity-health", { detail: success }),

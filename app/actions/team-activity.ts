@@ -5,15 +5,6 @@ import { isWorkDate } from "@/lib/daily-work";
 import { clinicDate } from "@/lib/attendance";
 import type { StaffActivity } from "@/lib/team-activity";
 
-export async function recordMyActivity(active: boolean) {
-  if (typeof active !== "boolean") return false;
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("crm_activity_heartbeat", {
-    p_active: active,
-  });
-  return !error;
-}
-
 export async function getStaffActivity(day = clinicDate()) {
   if (!isWorkDate(day))
     return { success: false as const, error: "Choose a valid date." };
