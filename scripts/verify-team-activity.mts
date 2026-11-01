@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   activityState,
   activityDuration,
+  ACTIVITY_OFFLINE_AFTER_MS,
   type StaffActivity,
 } from "../lib/team-activity.ts";
 const now = Date.parse("2026-10-12T12:00:00Z");
@@ -26,7 +27,7 @@ assert.equal(
 );
 assert.equal(
   activityState(
-    { ...row, last_seen: new Date(now - 151_000).toISOString() },
+    { ...row, last_seen: new Date(now - ACTIVITY_OFFLINE_AFTER_MS - 1_000).toISOString() },
     now,
   ),
   "Offline",

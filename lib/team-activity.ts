@@ -11,12 +11,17 @@ export interface StaffActivity {
   active_seconds: number;
 }
 
+// One missed heartbeat remains online; two missed beats go offline.
+export const ACTIVITY_HEARTBEAT_INTERVAL_MS = 120_000;
+export const ACTIVITY_OFFLINE_AFTER_MS = 240_000;
+export const ACTIVITY_ROSTER_REFRESH_INTERVAL_MS = 120_000;
+
 export function activityState(
   row: StaffActivity,
   now = Date.now(),
 ): "Active" | "Idle" | "Offline" {
   const seen = row.last_seen ? Date.parse(row.last_seen) : NaN;
-  if (!Number.isFinite(seen) || now - seen > 150_000) return "Offline";
+  if (!Number.isFinite(seen) || now - seen > ACTIVITY_OFFLINE_AFTER_MS) return "Offline";
   const active = row.last_active ? Date.parse(row.last_active) : NaN;
   return Number.isFinite(active) && now - active <= 300_000 ? "Active" : "Idle";
 }

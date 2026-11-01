@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { recordMyActivity } from "@/app/actions/team-activity";
+import { ACTIVITY_HEARTBEAT_INTERVAL_MS } from "@/lib/team-activity";
 
 export function ActivityTracker() {
   useEffect(() => {
@@ -27,7 +28,7 @@ export function ActivityTracker() {
         pending ||
         document.visibilityState !== "visible" ||
         !navigator.onLine ||
-        performance.now() - lastAttempt < 55_000
+        performance.now() - lastAttempt < ACTIVITY_HEARTBEAT_INTERVAL_MS - 5_000
       )
         return;
       pending = true;
@@ -50,7 +51,7 @@ export function ActivityTracker() {
         pending = false;
       }
     }
-    const timer = setInterval(() => void heartbeat(), 60_000);
+    const timer = setInterval(() => void heartbeat(), ACTIVITY_HEARTBEAT_INTERVAL_MS);
     const resumed = () => {
       if (document.visibilityState === "visible") {
         lastInteraction = performance.now();

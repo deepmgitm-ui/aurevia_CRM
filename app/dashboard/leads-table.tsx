@@ -1051,7 +1051,9 @@ export function LeadsTable({
   useEffect(() => {
     if (!isAdmin) return;
     const initialLoad = window.setTimeout(() => void refreshDuplicateReviews(), 0);
-    const timer = window.setInterval(() => void refreshDuplicateReviews(), 60_000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshDuplicateReviews();
+    }, 120_000);
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(timer);

@@ -5,6 +5,7 @@ import { getStaffActivity } from "@/app/actions/team-activity";
 import {
   activityDuration,
   activityState,
+  ACTIVITY_ROSTER_REFRESH_INTERVAL_MS,
   type StaffActivity,
 } from "@/lib/team-activity";
 import { clinicDate } from "@/lib/attendance";
@@ -81,7 +82,7 @@ export function TeamActivityPanel({
     void load();
     const timer = setInterval(() => {
       if (!snapshotDay || targetDay === snapshotDay) void load();
-    }, 60_000);
+    }, ACTIVITY_ROSTER_REFRESH_INTERVAL_MS);
     document.addEventListener("visibilitychange", visible);
     window.addEventListener("crm:activity-health", health);
     window.addEventListener("offline", offline);
@@ -118,7 +119,7 @@ export function TeamActivityPanel({
             {own ? "My CRM activity" : "Team activity"}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            {targetDay} · IST · Updates about every minute
+            {targetDay} · IST · Updates about every two minutes
           </p>
         </div>
         <Button
@@ -143,7 +144,7 @@ export function TeamActivityPanel({
       )}
       <p className="text-xs text-slate-500">
         Active means recent CRM interaction within 5 minutes; idle means the CRM
-        is open without recent interaction. Offline means no update for over 2½
+        is open without recent interaction. Offline means no update for over 4
         minutes. Durations estimate CRM usage, not attendance or completed
         calls.
       </p>

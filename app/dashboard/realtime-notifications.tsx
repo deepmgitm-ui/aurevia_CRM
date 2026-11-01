@@ -94,7 +94,9 @@ export function RealtimeNotifications() {
           previousCount = result.data;
         };
         void syncAssignmentCount();
-        assignmentCountInterval = setInterval(() => void syncAssignmentCount(), 60_000);
+        // Realtime catches incoming assignments; this slower fallback also
+        // catches removals, which no longer match the employee filter.
+        assignmentCountInterval = setInterval(() => void syncAssignmentCount(), 120_000);
       }
 
       supabase = createClient();
