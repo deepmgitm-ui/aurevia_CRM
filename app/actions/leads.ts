@@ -71,6 +71,7 @@ export interface Lead {
   assigned_to: string | null;
   assigned_at?: string | null;
   assigned_fresh_since?: string | null;
+  fresh_pending_since?: string | null;
   first_agent_touch_at?: string | null;
   workflow_bucket?: string | null;
   created_at: string;
@@ -97,7 +98,7 @@ const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
   "imported_status",
-  "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "first_agent_touch_at", "workflow_bucket",
+  "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "fresh_pending_since", "first_agent_touch_at", "workflow_bucket",
   "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
   "ipd_done_date",

@@ -39,12 +39,19 @@ procedure changes. Keep the implementation and this guide in the same change.
   preserve the existing role rules, and report a useful error if saving fails.
 - Language Issue is an active disposition with its own status card and filter;
   legacy Language values remain visible under the same status.
-- Keep the distinction between **New Leads** (assigned on the selected day) and
-  **Fresh Leads** (never touched by the current owner). Any owner activity moves
-  the lead out of New/Fresh into its proper workflow bucket.
-- Assigning an untouched lead does not count as a touch. Subsequent patient or
-  status edits by the assigned employee, admin or manager count as a touch;
-  explicit fresh transfers still reset the touch marker.
+- Keep the distinction between **New Leads** (untouched assignments made today,
+  plus untouched unassigned leads created today) and **Fresh Leads** (untouched
+  leads after their intake/assignment day). New imported rows start untouched
+  regardless of their source status or whether they have an assignee. Preserve
+  the uploaded disposition as provenance until a CRM user changes that status.
+- Assignment by itself does not count as a touch. An employee's note, call,
+  field/status edit, or an admin/manager action on a lead ends its New/Fresh
+  state; route it to the bucket for its actual CRM status. Keep this pending
+  first-touch marker separate from the assignment timestamp so employee daily
+  counts still mean leads assigned to that employee that day.
+- A source-file Lost/closed label is not a real closed workflow until a CRM user
+  first works the lead. Start its existing 7-day lost review only after it enters
+  the actual Closed bucket.
 - Dashboard and Leads status cards must link to the exact matching leads.
 - OPD/IPD dates and appointment state must stay consistent with lib/appointments.ts
   and the calendar workflows.
@@ -90,7 +97,7 @@ procedure changes. Keep the implementation and this guide in the same change.
 |---|---|
 | Leads, imports, assignment, activities and deletion recovery | app/dashboard/leads-table.tsx, app/actions/leads.ts |
 | Admin assignment/transfer history | app/dashboard/assignment-history/page.tsx, crm_assignment_events |
-| Status vocabulary and workflow normalization | lib/lead-status.ts, lib/daily-work.ts |
+| Status vocabulary and workflow normalization | lib/lead-status.ts, lib/daily-work.ts, leads.fresh_pending_since |
 | Dashboard and agent summaries | app/dashboard/page.tsx, app/dashboard/overview/, app/actions/leads.ts |
 | Appointments and personal follow-up calendar | app/dashboard/calendar/, app/dashboard/follow-up-calendar/, app/actions/leads.ts, lib/appointments.ts |
 | Attendance, weekly offs and leave | app/dashboard/attendance/, app/actions/attendance.ts |
@@ -153,6 +160,7 @@ check application, database and hosting logs before changing permissions.
 | 2026-10-30 | Added Language disposition, clarified untouched assignment versus subsequent edits, and added an admin-only assignment history showing actor, destination and previous owner for newly recorded events. Historical events lack fields that were never recorded; lead deletion retains existing cleanup behaviour. | Isolated migration, filter, daily-work and release TypeScript checks pass; migration applied and Vercel GitHub check succeeded for commit 32b56e1. Live browser role-based smoke test remains pending. |
 | 2026-10-30 | Renamed Language to Language Issue with legacy support, added employee appointment calendar and personal follow-up calendar, exposed appointment dates in lead details, and added admin capacity breakdown and planning estimate. | Filter, capacity, appointment, TypeScript, isolated migration/RLS checks and webpack production build pass. Migration `20261030124221` is applied without updating lead rows. Commit `2ea454b` is pushed; Vercel check succeeded. Live browser smoke test was unavailable in this session. |
 | 2026-11-01 | Reduced Vercel work: activity heartbeat writes go directly through the authenticated, RLS-protected Supabase RPC every 60 seconds (kept below its 90-second duration-credit cap); roster reads, employee assignment-count fallback and duplicate-review polling run every two minutes; hidden Leads tabs skip duplicate polling. Proxy session refresh runs only on protected `/dashboard` routes. Employees can use Follow-ups for their RLS-scoped assigned leads, ordered by due date, with opt-in browser/sound reminders while the page is open. | Activity and daily-work checks, TypeScript, targeted ESLint and `git diff --check` pass. Full production build tracing has not been re-run for this change; the previous trace stalled after successful compile/static generation. Live Vercel CPU baseline is pending team authorization (403 for `aurevia2`). |
+| 2026-11-02 | New records from imports, Meta, manual entry or other intake remain New/Fresh until a person works them, including while unassigned. Daily New also includes today's untouched unassigned intake; agent counts remain assignment-based. Admin/manager notes and edits now count as first touch. Imported closed labels wait for real CRM touch before the 7-day cleanup clock starts. | Migration `20261102073908` applied. Production build and TypeScript pass; rollback-only live SQL smoke check passed for unassigned intake, assignment without touch, admin first touch, and imported Lost cleanup timing. Existing lead count remained 1,438. |
 
 When adding a feature later, append a row here and update the relevant behavior
 contract and code-map entry in the same change.
