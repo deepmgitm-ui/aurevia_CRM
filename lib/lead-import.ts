@@ -363,3 +363,8 @@ export function normalizeImportedLeadStatus(value: string): string {
   const canonical = canonicalLeadStatus(value);
   return isLeadStatusOption(canonical) ? canonical : "New";
 }
+
+/** Returns a provenance label only when the uploaded row actually supplied a status. */
+export function importedLeadStatus(value: string): string | null {
+  return value.trim() ? normalizeImportedLeadStatus(value) : null;
+}

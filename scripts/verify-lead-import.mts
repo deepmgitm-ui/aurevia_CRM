@@ -11,6 +11,7 @@ import {
   findLeadImportValue,
   getUnmappedLeadImportValues,
   getRecognizedLeadImportFields,
+  importedLeadStatus,
   isDuplicatePhoneImportError,
   leadImportGridToRecords,
   normalizeImportedLeadStatus,
@@ -54,6 +55,9 @@ assert.equal(canonicalLeadStatus("-"), "New");
 assert.equal(canonicalLeadStatus("Contacted"), "Follow-Up");
 assert.deepEqual(leadStatusStorageValues("IPD Done"), ["IPD Done", "Won", "Surgery Completed"]);
 assert.equal(normalizeImportedLeadStatus("Follow Up"), "Follow-Up");
+assert.equal(importedLeadStatus(" Follow Up "), "Follow-Up");
+assert.equal(importedLeadStatus("DNP"), "DNP");
+assert.equal(importedLeadStatus("  "), null);
 assert.equal(normalizeImportedLeadStatus("Didn't Enquired"), "Didn’t Enquired");
 assert.equal(normalizeImportedLeadStatus("Didn’t Enquired"), "Didn’t Enquired");
 assert.equal(isDuplicatePhoneImportError({ message: "Phone already exists. Search the existing lead" }), true);

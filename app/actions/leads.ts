@@ -45,6 +45,7 @@ import { canonicalLeadStatus, isLeadStatusOption, leadStatusStorageValues } from
 import {
   cleanImportedLeadRemarks,
   findLeadImportValue,
+  importedLeadStatus,
   isDuplicatePhoneImportError,
   normalizeImportedLeadStatus,
 } from "@/lib/lead-import";
@@ -65,6 +66,8 @@ export interface Lead {
   follow_up_date: string;
   source: string;
   status: LeadStatus;
+  /** The status that arrived in the source sheet, before any CRM change. */
+  imported_status?: string | null;
   assigned_to: string | null;
   assigned_at?: string | null;
   assigned_fresh_since?: string | null;
@@ -93,6 +96,7 @@ export interface Lead {
 const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
+  "imported_status",
   "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "first_agent_touch_at", "workflow_bucket",
   "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
@@ -137,6 +141,7 @@ export interface BulkLeadInput {
   follow_up_date: string;
   source: string;
   status: string;
+  imported_status?: string;
   assigned_to: string;
 }
 
@@ -221,6 +226,7 @@ const LEADS_INSERT_COLUMNS = [
   "follow_up_date",
   "source",
   "status",
+  "imported_status",
   "assigned_to",
   // Exported so a clinic can open the sheet and see which patients are
   // booked for OPD/IPD and on what date, without opening the CRM.
@@ -1747,6 +1753,7 @@ export async function bulkInsertLeads(
       // The sheet's own source column wins whenever it has one.
       const importedSource = text("source");
       const importedStatus = text("status");
+      const importedStatusLabel = importedLeadStatus(importedStatus);
       const importedRemarks = cleanImportedLeadRemarks(text("remarks"));
 
       records.push({
@@ -1762,7 +1769,8 @@ export async function bulkInsertLeads(
         lead_date: parseLeadDate(importedDate),
         follow_up_date: dashIfEmpty(toTextField(followUpDate)),
         source: importedSource || batchSource,
-        status: dashIfEmpty(normalizeImportedLeadStatus(importedStatus)),
+        status: dashIfEmpty(importedStatusLabel ?? normalizeImportedLeadStatus(importedStatus)),
+        imported_status: importedStatusLabel ?? "",
         assigned_to: assignedProfileName,
       });
     } catch (rowError) {

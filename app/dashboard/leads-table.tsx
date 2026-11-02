@@ -2673,6 +2673,11 @@ export function LeadsTable({
                         <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
                         <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
                       </Select>
+                      {lead.imported_status && canonicalLeadStatus(lead.imported_status) === canonicalLeadStatus(lead.status) && (
+                        <p className="max-w-[170px] text-[10px] leading-tight text-amber-700" title="This status came from the original import.">
+                          Imported status: {lead.imported_status}
+                        </p>
+                      )}
                       {savingLeadIds.has(lead.id) && (
                         <span className="text-[10px] text-blue-600" aria-live="polite">
                           Saving...
@@ -3639,6 +3644,9 @@ export function LeadsTable({
                 <SelectTrigger id="full-edit-status"><SelectValue /></SelectTrigger>
                 <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
               </Select>
+              {editingLead?.imported_status && canonicalLeadStatus(editingLead.imported_status) === canonicalLeadStatus(editingLead.status) && (
+                <p className="text-[11px] text-amber-700">Imported status: {editingLead.imported_status}</p>
+              )}
             </div>
             <div className="sm:col-span-2 space-y-1"><Label htmlFor="full-edit-remarks">Remarks</Label><Textarea id="full-edit-remarks" rows={3} value={editForm.remarks} onChange={(event) => setEditForm((current) => ({ ...current, remarks: event.target.value }))} /></div>
           </div>
@@ -3679,7 +3687,7 @@ export function LeadsTable({
                   </Button>
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
-                <div className="flex gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span></div>
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">{selectedLead.status}</span>{selectedLead.imported_status && canonicalLeadStatus(selectedLead.imported_status) === canonicalLeadStatus(selectedLead.status) && <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 ring-1 ring-amber-200">Imported status: {selectedLead.imported_status}</span>}</div>
                 <div className="sm:col-span-2">{renderAppointmentDateInput(selectedLead)}</div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
