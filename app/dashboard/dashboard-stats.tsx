@@ -21,24 +21,28 @@ export function DashboardStats({
   summary,
   assignedTo,
   dailyNewLeads,
+  showTotal,
 }: {
   summary: LeadPipelineCardsSummary;
   assignedTo?: string;
   dailyNewLeads?: { count: number | null; day: string };
+  showTotal?: boolean;
 }) {
   const scope = assignedTo ? { assigned: assignedTo } : {};
   const workflowCards = [
-    ...(!dailyNewLeads ? [{ label: "Total Leads", value: summary.total, href: leadsHref({ ...scope, allMonths: true }), tone: "border-slate-200 bg-white text-slate-800" }] : []),
+    ...((showTotal ?? !dailyNewLeads) ? [{ label: "Total Leads", value: summary.total, href: leadsHref({ ...scope, allMonths: true }), tone: "border-slate-200 bg-white text-slate-800" }] : []),
     ...(dailyNewLeads ? [{ label: "New Leads Today", value: dailyNewLeads.count, href: leadsHref({ ...scope, work: "assigned", day: dailyNewLeads.day, allMonths: true }), tone: "border-indigo-200 bg-indigo-50 text-indigo-800" }] : []),
     { label: "Fresh Leads", value: summary.fresh, href: leadsHref({ ...scope, bucket: "fresh", age: "", month: "", allMonths: true }), tone: "border-blue-200 bg-blue-50 text-blue-800" },
     { label: "Follow-up Work", value: summary.followUp, href: leadsHref({ ...scope, bucket: "followup", age: "", month: "", allMonths: true }), tone: "border-sky-200 bg-sky-50 text-sky-800" },
   ];
-  const statusCards = LEAD_STATUS_OPTIONS.map((status) => ({
+  // "New" is a daily assignment bucket in this CRM. Its workflow card above
+  // shows only today's untouched assignments; the raw status label would mix
+  // older Fresh leads into the count and mislead the team.
+  const statusCards = LEAD_STATUS_OPTIONS.filter((status) => status !== "New").map((status) => ({
     label: status,
     value: summary.statuses[status] ?? 0,
     href: leadsHref({ ...scope, status, age: "", month: "", allMonths: true }),
-    tone: status === "New" ? "border-blue-200 bg-blue-50 text-blue-800"
-      : status.includes("OPD") ? (status === "OPD Done" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
+    tone: status.includes("OPD") ? (status === "OPD Done" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
       : status.includes("IPD") ? (status === "IPD Done" ? "border-purple-200 bg-purple-50 text-purple-800" : "border-violet-200 bg-violet-50 text-violet-800")
       : ["Dropped", "Not Interested", "Didn’t Enquired", "Budget Issue", "Location Issue", "Non Surgical", "Invalid Number", "Wrong Number"].includes(status) ? "border-rose-200 bg-rose-50 text-rose-800"
       : status === "Follow-Up" ? "border-sky-200 bg-sky-50 text-sky-800"

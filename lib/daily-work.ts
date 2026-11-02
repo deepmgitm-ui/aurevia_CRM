@@ -46,3 +46,37 @@ export function applyDailyWorkFilter<Q extends DailyQuery<Q>>(query: Q, work: Da
   if (work === "opdDone") return query.eq("opd_done_date", day);
   return query.eq("ipd_done_date", day);
 }
+
+/**
+ * Today's New Leads are the untouched assignment window, not every row whose
+ * disposition happens to still say "New". The same predicate drives counts,
+ * status breakdowns, and the New Leads drill-down.
+ */
+export function applyCurrentNewLeadFilter<Q extends DailyQuery<Q>>(query: Q, day: string): Q {
+  const window = assignmentDayWindow(day);
+  return query
+    .gte("assigned_fresh_since", window.from)
+    .lt("assigned_fresh_since", window.to)
+    .eq("workflow_bucket", "fresh");
+}
+
+export interface LeadWorkflowFields {
+  workflow_bucket?: string | null;
+  assigned_fresh_since?: string | null;
+  assigned_to?: string | null;
+  status?: string | null;
+}
+
+/** Category label used on lead rows so status "New" cannot masquerade as Fresh. */
+export function leadWorkflowLabel(lead: LeadWorkflowFields, today: string): string {
+  const bucket = lead.workflow_bucket ?? "";
+  if (bucket === "fresh") {
+    const window = assignmentDayWindow(today);
+    const since = lead.assigned_fresh_since ?? "";
+    return since >= window.from && since < window.to ? "New" : "Fresh";
+  }
+  const status = (lead.status ?? "").trim();
+  const defaultNewStatus = ["", "-", "--", "new", "new lead"].includes(status.toLowerCase());
+  if (bucket === "followup" && defaultNewStatus && (lead.assigned_to ?? "").trim()) return "Follow-up";
+  return status || "New";
+}

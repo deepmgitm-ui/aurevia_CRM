@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
-import { applyDailyWorkFilter, assignmentDayWindow, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { applyCurrentNewLeadFilter, applyDailyWorkFilter, assignmentDayWindow, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -67,6 +67,9 @@ export interface Lead {
   status: LeadStatus;
   assigned_to: string | null;
   assigned_at?: string | null;
+  assigned_fresh_since?: string | null;
+  first_agent_touch_at?: string | null;
+  workflow_bucket?: string | null;
   created_at: string;
   updated_at: string;
   source_batch_id?: string | null;
@@ -90,7 +93,8 @@ export interface Lead {
 const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
-  "created_at", "updated_at", "assigned_at", "source_batch_id", "source_batch_label",
+  "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "first_agent_touch_at", "workflow_bucket",
+  "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
   "ipd_done_date",
 ].join(", ");
@@ -523,10 +527,8 @@ interface LeadFilterQuery<Q> {
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
+  else if (resolved.work === "assigned" && resolved.day === clinicDate()) filtered = applyCurrentNewLeadFilter(filtered, resolved.day);
   else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
-  if (resolved.work === "assigned" && resolved.day === clinicDate()) {
-    filtered = filtered.eq("workflow_bucket", "fresh");
-  }
   if (resolved.bucket === "dnp") {
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
   } else if (resolved.bucket) {
@@ -862,8 +864,9 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
     for (let offset = 0; ; offset += 500) {
       let query = supabase.from("leads").select("id,status")
         .ilike("assigned_to", escapeLikePattern(viewer.name)).order("id").range(offset, offset + 499);
-      query = applyDailyWorkFilter(query, "assigned", day);
-      if (day === clinicDate()) query = query.eq("workflow_bucket", "fresh");
+      query = day === clinicDate()
+        ? applyCurrentNewLeadFilter(query, day)
+        : applyDailyWorkFilter(query, "assigned", day);
       const { data, error } = await query;
       if (error) return { success: false, error: "Assignment statuses could not be loaded." };
       for (const row of data ?? []) {

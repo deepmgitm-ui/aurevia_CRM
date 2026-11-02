@@ -87,7 +87,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
-import { DAILY_WORK_LABELS } from "@/lib/daily-work";
+import { DAILY_WORK_LABELS, leadWorkflowLabel } from "@/lib/daily-work";
 import { getInitials } from "@/lib/utils";
 
 async function downloadLeadsExcel(leads: Lead[], fileName: string): Promise<void> {
@@ -100,7 +100,6 @@ import {
   ageBucketLabel,
   filterChipLabels,
   hasLeadFilters,
-  isNewLead,
   leadsHref,
   monthFilterLabel,
   prettifyFilterKey,
@@ -445,6 +444,7 @@ export function LeadsTable({
   viewerId = "",
   filters = EMPTY_LEAD_FILTERS,
   initialOpenLeadId = "",
+  today,
 }: {
   leads: Lead[];
   initialTotal: number;
@@ -461,6 +461,8 @@ export function LeadsTable({
   // They travel with EVERY server call so paging/export stays filtered.
   filters?: LeadListFilters;
   initialOpenLeadId?: string;
+  /** Current clinic date supplied by the server so New/Fresh badges use IST. */
+  today: string;
 }) {
   const router = useRouter();
   // Role gates (plain booleans — zero runtime cost, standard conditional rendering).
@@ -2599,25 +2601,30 @@ export function LeadsTable({
                   </TableCell>
                 </TableRow>
               ) : sortedLeads.map((lead) => {
-                // Fresh leads get a green row + NEW pill; every row carries the
-                // "Added yesterday / 2 days ago / 1 week ago" label.
-                const isNew = isNewLead(lead.lead_date);
+                // New/Fresh are assignment workflow categories, not synonyms
+                // for the lead's editable disposition value.
+                const workflowLabel = leadWorkflowLabel(lead, today);
+                const isNew = workflowLabel === "New";
                 const leadStatus = canonicalLeadStatus(lead.status);
-                const statusBadgeClass = leadStatus === "New"
+                const statusBadgeClass = workflowLabel === "New"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : leadStatus.startsWith("OPD")
+                  : workflowLabel === "Fresh"
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : workflowLabel === "Follow-up"
+                      ? "border-sky-200 bg-sky-50 text-sky-700"
+                      : workflowLabel.startsWith("OPD")
                     ? "border-sky-200 bg-sky-50 text-sky-700"
-                    : leadStatus.startsWith("IPD")
+                    : workflowLabel.startsWith("IPD")
                       ? "border-violet-200 bg-violet-50 text-violet-700"
-                      : leadStatus === "Dropped"
+                      : workflowLabel === "Dropped"
                           ? "border-rose-200 bg-rose-50 text-rose-700"
                           : "border-slate-200 bg-slate-50 text-slate-600";
-                const ageLabel = relativeLeadAge(lead.lead_date);
+                const ageLabel = isNew ? "Assigned today" : relativeLeadAge(lead.lead_date);
                 const treatment = treatmentCellData(lead);
                 return (
                 <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-emerald-50/50" : undefined)}>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{leadStatus === "New" ? "Fresh" : leadStatus}</Badge>{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <span className="font-medium tabular-nums">
                       <PhonePreview value={lead.phone} className="text-sm text-slate-700" />

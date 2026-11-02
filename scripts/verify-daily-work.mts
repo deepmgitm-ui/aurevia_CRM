@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyDailyWorkFilter, assignmentDayWindow, isWorkDate } from "../lib/daily-work.ts";
+import { applyCurrentNewLeadFilter, applyDailyWorkFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
 import { clinicDate } from "../lib/attendance.ts";
 import { parseLeadFilters, leadsHref, hasLeadFilters, describeActiveFilters } from "../app/dashboard/lead-filters.ts";
 
@@ -38,6 +38,20 @@ for (const [kind, expected] of [["assigned", "old-created-newly-assigned"], ["op
   assert.ok(describeActiveFilters(filters).some(label => label.includes("2026-10-11")));
 }
 assert.equal(parseLeadFilters({ work: "assigned", day: "2026-02-30" }).work, "");
+const currentNewFilter = applyCurrentNewLeadFilter(new Query(), "2026-10-11");
+const currentNewRows: Row[] = [
+  { id: "today-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:31:00.000Z", workflow_bucket: "fresh" },
+  { id: "yesterday-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
+  { id: "today-touched", assigned_at: "2026-10-10T18:40:00.000Z", assigned_fresh_since: "2026-10-10T18:40:00.000Z", workflow_bucket: "followup" },
+];
+assert.deepEqual(currentNewRows.filter(row => currentNewFilter.matches(row)).map(row => row.id), ["today-untouched"]);
+assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "New");
+for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
+  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "New", `Untouched ${status} imports should retain their workflow bucket`);
+  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-09T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "Fresh", `Older untouched ${status} imports should be Fresh`);
+}
+assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:29:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Fresh");
+assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Follow-up");
 const bookedOnly = { opd_booked_date: "2026-10-11", opd_done_date: null };
 assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(bookedOnly), false);
 const progressed = { status: "IPD Done", opd_done_date: "2026-10-11" };

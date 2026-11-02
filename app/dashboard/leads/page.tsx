@@ -44,7 +44,7 @@ export default async function LeadsPage({
     getLeadPipelineSummary(filters.assigned),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
-  const dailyNewLeadsResult = viewer?.role === "employee" ? await getDailyWorkCounts(today) : null;
+  const dailyNewLeadsResult = await getDailyWorkCounts(today);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
@@ -52,6 +52,9 @@ export default async function LeadsPage({
     ? employeeSummaryResult.data
     : { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
+  const dailyNewLeadsCount = viewer?.role !== "employee" && filters.assigned
+    ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())?.newLeads ?? 0
+    : dailyNewLeadsResult.success ? dailyNewLeadsResult.data.assigned : null;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
   // filtered result — the difference is what the filters are hiding. When that is
@@ -75,7 +78,8 @@ export default async function LeadsPage({
       <DashboardStats
         summary={pipelineSummary}
         assignedTo={cardAssignedTo}
-        dailyNewLeads={viewer?.role === "employee" ? { count: dailyNewLeadsResult?.success ? dailyNewLeadsResult.data.assigned : null, day: today } : undefined}
+        dailyNewLeads={{ count: dailyNewLeadsCount, day: today }}
+        showTotal={viewer?.role !== "employee"}
       />
       {canViewAssignments && team && !filters.assigned && (
         <>
@@ -87,7 +91,7 @@ export default async function LeadsPage({
                 Tap a category to view that agent’s matching leads, or their name to view all assigned leads.
               </p>
             </div>
-            <TeamOverview team={team} filters={filters} />
+            <TeamOverview team={team} filters={filters} today={today} />
           </section>
         </>
       )}
@@ -124,6 +128,7 @@ export default async function LeadsPage({
           leads={leadsPage.leads}
           initialTotal={leadsPage.total}
           initialTotalPages={leadsPage.totalPages}
+          today={today}
           initialOpenLeadId={initialOpenLeadId}
           role={viewer?.role ?? "employee"}
           viewerId={viewer?.id ?? ""}

@@ -18,9 +18,11 @@ function StatChip({ label, value, className, href, name }: { label: string; valu
 export function TeamOverview({
   team,
   filters,
+  today,
 }: {
   team: TeamStats;
   filters?: Pick<LeadListFilters, "assigned">;
+  today: string;
 }) {
   const assignedFilter = filters?.assigned ?? "";
   const employees = assignedFilter
@@ -64,6 +66,7 @@ export function TeamOverview({
           </Link>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name })} label="Total leads" value={employee.total} className="bg-slate-100 text-slate-700" />
+            <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, work: "assigned", day: today, allMonths: true })} label="New today" value={employee.newLeads} className="bg-indigo-50 text-indigo-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "fresh" })} label="Fresh leads" value={employee.fresh} className="bg-blue-50 text-blue-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "followup" })} label="Follow-up" value={employee.followUp} className="bg-sky-50 text-sky-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "lost" })} label="Lost leads" value={employee.lost} className="bg-rose-50 text-rose-700" />

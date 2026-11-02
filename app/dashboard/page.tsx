@@ -75,12 +75,18 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <DashboardStats summary={summary} assignedTo={employeeStats.name} />
+          <DashboardStats
+            summary={summary}
+            assignedTo={employeeStats.name}
+            dailyNewLeads={{ count: employeeStats.newLeads, day: clinicDate() }}
+            showTotal
+          />
 
           <LeadsTable
             leads={leadsPage.leads}
             initialTotal={leadsPage.total}
             initialTotalPages={leadsPage.totalPages}
+            today={clinicDate()}
             assignedTo={employeeStats.name}
             role={viewer?.role ?? "employee"}
             viewerId={viewer?.id ?? ""}
@@ -93,13 +99,15 @@ export default async function DashboardPage({
 
   // ---- Admin/Manager default view: the analytics Overview dashboard ----
   if (isTeamLead) {
-    const [leadsResult, directoryResult, teamResult, pipelineSummaryResult, insightsResult] = await Promise.all([
+    const today = clinicDate();
+    const [leadsResult, directoryResult, teamResult, pipelineSummaryResult, insightsResult, dailyResult] = await Promise.all([
       // Light projection (no `select('*')`) — only the columns the cards read.
       getAnalyticsLeads(query.from, query.to),
       getEmployeeDirectory(),
       getTeamStats(),
       getLeadPipelineSummary(),
       getPipelineInsights(),
+      getDailyWorkCounts(today),
     ]);
     if(!leadsResult.success) throw new Error(leadsResult.error);
     const leads = leadsResult.data;
@@ -122,12 +130,16 @@ export default async function DashboardPage({
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 
-        {pipelineSummaryResult.success && <DashboardStats summary={pipelineSummaryResult.data} />}
+        {pipelineSummaryResult.success && <DashboardStats
+          summary={pipelineSummaryResult.data}
+          dailyNewLeads={{ count: dailyResult.success ? dailyResult.data.assigned : null, day: today }}
+          showTotal
+        />}
 
-        {teamResult.success ? <LeadAssignmentTabs team={team} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
+        {teamResult.success ? <LeadAssignmentTabs team={team} today={today} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
         {insights && <PipelineInsights insights={insights} />}
-        <TeamActivityPanel day={clinicDate()} />
+        <TeamActivityPanel day={today} />
       </div>
     );
   }
@@ -239,7 +251,7 @@ export default async function DashboardPage({
             <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
           </div>
         ) : (
-          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} filters={filters} role={viewer?.role ?? "employee"} viewerId={viewer?.id ?? ""} />
+          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} today={today} filters={filters} role={viewer?.role ?? "employee"} viewerId={viewer?.id ?? ""} />
         )}
       </section>
     </div>
