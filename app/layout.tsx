@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 import { Toaster } from "@/components/ui/toast";
+import { RenderFallbackNotice } from "@/components/render-fallback-notice";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://aureviacrm.vercel.app"),
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         {children}
+        <RenderFallbackNotice />
         <Toaster />
       </body>
     </html>
