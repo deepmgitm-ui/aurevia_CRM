@@ -537,11 +537,15 @@ export function LeadsTable({
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const assignableEmployees = employees.filter(
-    (employee) =>
-      employee.name.trim() !== "" &&
-      employee.name !== "-" &&
-      employee.name !== "Unassigned" &&
-      (isAdmin || employee.role === "employee"),
+    (employee) => {
+      const name = typeof employee?.name === "string" ? employee.name.trim() : "";
+      return (
+        name !== "" &&
+        name !== "-" &&
+        name !== "Unassigned" &&
+        (isAdmin || employee.role === "employee")
+      );
+    },
   );
   // Master data (Settings → Master Data): the DB-backed picklists. Seeded first
   // so the selects are never empty, then upgraded with the admin's lists.

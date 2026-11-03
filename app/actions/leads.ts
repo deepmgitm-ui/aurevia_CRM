@@ -1120,7 +1120,20 @@ export async function getEmployees(): Promise<ActionResult<Employee[]>> {
       .order("name", { ascending: true });
 
     if (error) return { success: false, error: error.message };
-    return { success: true, data: (data ?? []) as Employee[] };
+    const employees = (data ?? []).flatMap((row) => {
+      const name = typeof row.name === "string" ? row.name.trim() : "";
+      const role = row.role;
+      if (
+        !row.id ||
+        !name ||
+        (role !== "admin" && role !== "manager" && role !== "employee")
+      ) {
+        return [];
+      }
+
+      return [{ id: row.id, name, role }];
+    });
+    return { success: true, data: employees };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to fetch employees.") };
   }
