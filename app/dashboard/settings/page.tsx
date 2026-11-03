@@ -1,8 +1,9 @@
 import { CrmOperationsPanel } from "./crm-operations-panel";
 import { getCapacity, getScheduler, getDuplicates, getSchedulerStatus } from "@/app/actions/crm-workflows";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUserSafely } from "@/lib/supabase/server";
 import { getAllUsers } from "@/app/actions/users";
 import { getMasterData } from "@/app/actions/master-data";
+import { redirect } from "next/navigation";
 
 import { AdminUserPanel } from "./admin-user-panel";
 import { AutomationPanel } from "./automation-panel";
@@ -11,9 +12,8 @@ import { SettingsForm } from "./settings-form";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await getUserSafely(supabase);
+  if (!user) redirect("/login");
 
   const { data: profile } = user
     ? await supabase
