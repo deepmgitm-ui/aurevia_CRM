@@ -19,9 +19,6 @@ create index if not exists leads_assignment_batch_id_idx
   on public.leads (assignment_batch_id, assigned_to)
   where assignment_batch_id is not null;
 
-create index if not exists crm_assignment_batches_created_by_idx
-  on public.crm_assignment_batches (created_by);
-
 alter table public.crm_assignment_batches enable row level security;
 revoke all on public.crm_assignment_batches from anon;
 grant select, insert on public.crm_assignment_batches to authenticated;
