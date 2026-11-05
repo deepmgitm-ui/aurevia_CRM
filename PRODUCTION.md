@@ -50,6 +50,9 @@ procedure changes. Keep the implementation and this guide in the same change.
 - Assignment-batch transfer is one database transaction: lead ownership,
   optional Fresh reset, assignment history and the batch roster either all save
   or all roll back. Keep Current Status preserves each lead's disposition.
+- Single-lead and detail-form admin reassignment create the assignment batch
+  and save the lead edit in the same database transaction. A stale edit or a
+  rejected row update leaves both the lead and assignment history unchanged.
 
 ### Status and follow-up
 
@@ -181,6 +184,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-05 | Made single-lead and detail-form admin reassignment atomic with assignment-batch creation; stale edits and rejected updates cannot leave orphan batches or partial lead edits. | Isolated PostgreSQL checks cover status/follow-up retention, Send as Fresh, stale-write rejection, rollback on lead-trigger failure, employee denial, invoker mode and grants. The live migration is applied; live function grants/security verified, lead/activity counts unchanged, `verify:db`, targeted lint, strict TypeScript and production build pass. |
 | 2026-11-05 | Reconcile imported assignment-batch counts and rosters from rows actually inserted, including duplicate and partial-import paths. | Import mapping verifier and the new assignment-batch transaction checks pass; full lint, TypeScript and production build are re-run with this change. |
 | 2026-11-05 | Made adding leads to an existing assignment batch atomic with its distribution and count update; stale leads or a failed target group leave the batch unchanged. | Isolated migration verification covers team-roster checks, status retention, duplicate-in-batch rejection, employee denial and rollback after a later group fails. Existing assignment dialog explains all-or-nothing behavior and blocks an empty team. |
 | 2026-11-05 | Made selected, filtered and unassigned-lead bulk assignment atomic with batch creation, stale-filter guards, per-target distribution and optional Fresh reset. | Isolated migration verification covers success, status preservation/reset, stale unassigned selection rollback, failure on a later employee group, employee denial and grants. Strict TypeScript, lint and production build pass; live function definition, grants and migration version verified. |

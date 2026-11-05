@@ -2979,7 +2979,7 @@ export interface LeadAssignmentBatch {
 }
 
 function assignmentBatchSetupError(message: string): string {
-  return /crm_assignment_batches|crm_transfer_assignment_batch|crm_assign_leads_bulk|crm_add_leads_to_assignment_batch|assignment_batch_id/i.test(message)
+  return /crm_assignment_batches|crm_transfer_assignment_batch|crm_assign_leads_bulk|crm_add_leads_to_assignment_batch|crm_update_lead_details_admin|assignment_batch_id/i.test(message)
     ? "Assignment batches need a database update. Apply the latest Supabase migration, then retry."
     : message;
 }
@@ -3626,22 +3626,14 @@ export async function updateLeadAssignment(
     if (targetError) return { success: false, error: targetError.message };
     const target = targets?.find((profile) => viewerRole === "admin" || profile.role === "employee");
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
-    const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
-    if (!batch.success) return batch;
-
-    const assignmentAt = new Date().toISOString();
-    const freshAssignmentAt = asFresh ? assignmentAt : null;
-    const transferUpdates = asFresh
-      ? { status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
-      : {};
-    const { data, error } = await supabase
-      .from("leads")
-      .update({ assigned_to: target.name, assignment_batch_id: batch.data.id, assigned_at: assignmentAt, ...transferUpdates })
-      .eq("id", leadId)
-      .select()
-      .single();
-
-    if (error) return { success: false, error: error.message };
+    const { data, error } = await supabase.rpc("crm_update_lead_details_admin", {
+      p_lead_id: leadId,
+      p_updates: { assigned_to: target.name },
+      p_expected_updated_at: null,
+      p_send_as_fresh: asFresh,
+    });
+    if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+    if (!data) return { success: false, error: "The assignment could not be confirmed. Refresh the leads list before retrying." };
     revalidatePath("/dashboard", "layout");
     return { success: true, data: data as Lead };
   } catch (error) {
@@ -3750,18 +3742,9 @@ export async function updateLeadDetails(
     }
 
     if (typeof updates.assigned_to === "string" && viewerProfile?.role === "admin") {
-      const { data: currentLead, error: currentLeadError } = await supabase
-        .from("leads")
-        .select("assigned_to")
-        .eq("id", input.id)
-        .single();
-      if (currentLeadError || !currentLead) return { success: false, error: currentLeadError?.message ?? "Lead not found." };
-
       const targetName = updates.assigned_to.trim();
-      if (targetName !== (currentLead.assigned_to ?? "").trim()) {
-        if (!targetName || targetName === "-") {
-          updates.assignment_batch_id = null;
-        } else {
+      if (targetName !== (previousLead.assigned_to ?? "").trim()) {
+        if (targetName && targetName !== "-") {
           const { data: targets, error: targetError } = await supabase
             .from("profiles")
             .select("name, role")
@@ -3769,19 +3752,7 @@ export async function updateLeadDetails(
           if (targetError) return { success: false, error: targetError.message };
           const target = targets?.find((profile) => viewerProfile.role === "admin" || profile.role === "employee");
           if (!target) return { success: false, error: "That team member is unavailable for assignment." };
-          const batch = await createLeadAssignmentBatch(supabase, [target.name], 1);
-          if (!batch.success) return batch;
           updates.assigned_to = target.name;
-          updates.assignment_batch_id = batch.data.id;
-          updates.assigned_at = new Date().toISOString();
-          if (input.transfer_as_fresh === true) {
-            updates.status = "New";
-            updates.follow_up_date = "-";
-            const freshAssignmentAt = new Date().toISOString();
-            updates.assigned_at = freshAssignmentAt;
-            updates.assigned_fresh_since = freshAssignmentAt;
-            updates.first_agent_touch_at = null;
-          }
         }
       }
     }
@@ -3800,12 +3771,28 @@ export async function updateLeadDetails(
       }
     }
 
-    let updateQuery = supabase
-      .from("leads")
-      .update(updates)
-      .eq("id", input.id);
-    if (input.expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", input.expectedUpdatedAt);
-    const { data, error } = await updateQuery.select().maybeSingle();
+    const assignmentChanged = viewerProfile?.role === "admin"
+      && typeof updates.assigned_to === "string"
+      && updates.assigned_to.trim() !== (previousLead.assigned_to ?? "").trim();
+    let data: Lead | null = null;
+    let error: { message: string } | null = null;
+    if (assignmentChanged) {
+      const { data: updated, error: updateError } = await supabase.rpc("crm_update_lead_details_admin", {
+        p_lead_id: input.id,
+        p_updates: updates,
+        p_expected_updated_at: input.expectedUpdatedAt ?? null,
+        p_send_as_fresh: input.transfer_as_fresh === true,
+      });
+      data = (updated as Lead | null) ?? null;
+      error = updateError;
+      if (error) error = { message: assignmentBatchSetupError(error.message) };
+    } else {
+      let updateQuery = supabase.from("leads").update(updates).eq("id", input.id);
+      if (input.expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", input.expectedUpdatedAt);
+      const result = await updateQuery.select().maybeSingle();
+      data = result.data as Lead | null;
+      error = result.error;
+    }
 
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: "This lead changed or is no longer available. Reopen it and try again." };
@@ -3827,7 +3814,7 @@ export async function updateLeadDetails(
     const changedFields = Object.entries(fieldLabels).flatMap(([field, label]) => {
       if (!(field in updates)) return [];
       const before = String(previousLead[field as keyof typeof previousLead] ?? "").trim();
-      const after = String((data as Record<string, unknown>)[field] ?? "").trim();
+      const after = String((data as unknown as Record<string, unknown>)[field] ?? "").trim();
       if (before === after) return [];
       if (field === "status") return [`${label}: ${before || "—"} → ${after || "—"}`];
       if (field === "lead_date" || field === "follow_up_date") {

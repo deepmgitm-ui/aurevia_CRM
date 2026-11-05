@@ -64,6 +64,10 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     has_function_privilege('authenticated','public.crm_assign_leads_bulk(jsonb,text,boolean,boolean,uuid)','execute') as auth_bulk_assign,
     has_function_privilege('anon','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as anon_batch_append,
     has_function_privilege('authenticated','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as auth_batch_append,
+    has_function_privilege('anon','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as anon_admin_lead_edit,
+    has_function_privilege('authenticated','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as auth_admin_lead_edit,
+    (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as invoker_admin_lead_edit,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as empty_admin_lead_edit_path,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
   `)).rows[0];
   assert.deepEqual(hardened, {
@@ -83,6 +87,10 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     auth_bulk_assign: true,
     anon_batch_append: false,
     auth_batch_append: true,
+    anon_admin_lead_edit: false,
+    auth_admin_lead_edit: true,
+    invoker_admin_lead_edit: true,
+    empty_admin_lead_edit_path: true,
     has_meta_id: true,
   });
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -677,6 +685,72 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.exec("reset role;");
   await db.query("delete from leads where id=any($1::uuid[])", [[originalBatchLead, ...appendLeads.map((lead) => lead.id), ...appendRollbackLeads.map((lead) => lead.id)]]);
   await db.query("delete from crm_assignment_batches where id=$1", [appendBatchId]);
+
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
+  const editedLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,follow_up_date) values('Atomic edit','9192222310','Agent A','DNP','2026-11-07') returning id,updated_at",
+  )).rows[0];
+  const editedResult = (await db.query(
+    "select * from public.crm_update_lead_details_admin($1,$2::jsonb,$3,false)",
+    [editedLead.id, JSON.stringify({ assigned_to: "Agent B", status: "RNR", remarks: "Saved with transfer" }), editedLead.updated_at],
+  )).rows[0];
+  assert.deepEqual(
+    { assigned_to: editedResult.assigned_to, status: editedResult.status, remarks: editedResult.remarks, follow_up_date: editedResult.follow_up_date },
+    { assigned_to: "Agent B", status: "RNR", remarks: "Saved with transfer", follow_up_date: "2026-11-07" },
+    "admin detail reassignment saves the edit and preserves status/follow-up in one transaction",
+  );
+  assert.deepEqual((await db.query("select target_names,lead_count from crm_assignment_batches where id=$1", [editedResult.assignment_batch_id])).rows[0],
+    { target_names: ["Agent B"], lead_count: 1 }, "detail reassignment batch matches the saved owner");
+
+  const staleLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Stale edit','9192222311','Agent A','New') returning id")).rows[0];
+  const batchCountBeforeStaleEdit = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
+  await assert.rejects(db.query(
+    "select * from public.crm_update_lead_details_admin($1,$2::jsonb,'2000-01-01T00:00:00Z',false)",
+    [staleLead.id, JSON.stringify({ assigned_to: "Agent B", remarks: "stale" })],
+  ), "a stale detail edit is rejected before any assignment batch is created");
+  assert.equal((await db.query("select assigned_to,remarks from leads where id=$1", [staleLead.id])).rows[0].assigned_to, "Agent A");
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n, batchCountBeforeStaleEdit,
+    "stale detail edits leave no orphan batch");
+
+  const freshEditLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Atomic fresh edit','9192222312','Agent A','DNP','2026-11-08',now()) returning id,updated_at",
+  )).rows[0];
+  const freshEdit = (await db.query(
+    "select * from public.crm_update_lead_details_admin($1,$2::jsonb,$3,true)",
+    [freshEditLead.id, JSON.stringify({ assigned_to: "Agent B" }), freshEditLead.updated_at],
+  )).rows[0];
+  assert.deepEqual({ status: freshEdit.status, follow_up_date: freshEdit.follow_up_date, first_agent_touch_at: freshEdit.first_agent_touch_at },
+    { status: "New", follow_up_date: "-", first_agent_touch_at: null }, "Send as Fresh resets workflow only when ownership changes");
+
+  const rollbackEditLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,remarks) values('Admin edit blocked','9192222313','Agent A','New','Before') returning id,updated_at",
+  )).rows[0];
+  const batchCountBeforeEditFailure = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
+  await db.exec(`reset role;
+    create function public.fixture_block_admin_edit_assignment() returns trigger language plpgsql as $$
+    begin
+      if new.name = 'Admin edit blocked' and new.assigned_to = 'Agent B' then raise exception 'fixture blocks admin detail assignment'; end if;
+      return new;
+    end;$$;
+    create trigger fixture_block_admin_edit_assignment before update of assigned_to on public.leads
+    for each row execute function public.fixture_block_admin_edit_assignment();
+    set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;`);
+  await assert.rejects(db.query(
+    "select * from public.crm_update_lead_details_admin($1,$2::jsonb,$3,false)",
+    [rollbackEditLead.id, JSON.stringify({ assigned_to: "Agent B", remarks: "Must roll back" }), rollbackEditLead.updated_at],
+  ), "a lead-trigger failure rejects and rolls back admin edit and assignment batch together");
+  assert.deepEqual((await db.query("select assigned_to,remarks from leads where id=$1", [rollbackEditLead.id])).rows[0],
+    { assigned_to: "Agent A", remarks: "Before" });
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n, batchCountBeforeEditFailure,
+    "failed admin detail assignment leaves no batch");
+  await db.exec("reset role;drop trigger fixture_block_admin_edit_assignment on public.leads;drop function public.fixture_block_admin_edit_assignment();set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';set role authenticated;");
+  await assert.rejects(db.query(
+    "select * from public.crm_update_lead_details_admin($1,$2::jsonb,null,false)",
+    [editedLead.id, JSON.stringify({ assigned_to: "Agent A" })],
+  ), "employees cannot call the admin reassignment transaction");
+  await db.exec("reset role;");
+  await db.query("delete from leads where id=any($1::uuid[])", [[editedLead.id, staleLead.id, freshEditLead.id, rollbackEditLead.id]]);
+  await db.query("delete from crm_assignment_batches where id=any($1::uuid[])", [[editedResult.assignment_batch_id, freshEdit.assignment_batch_id]]);
 
   const bucketIds = {};
   for (const [key, name, status] of [
