@@ -6,7 +6,7 @@
 // picker on the card (touch/keyboard, where HTML5 drag does not exist).
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Loader2, Phone, UserRound } from "lucide-react";
 
@@ -39,6 +39,7 @@ function BoardCard({
   lead,
   dragging,
   busy,
+  saving,
   onDragStart,
   onDragEnd,
   onOpen,
@@ -48,17 +49,17 @@ function BoardCard({
   lead: BoardLead;
   dragging: boolean;
   busy: boolean;
+  saving: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onOpen: () => void;
   onMove: (status: string) => void;
   stages: { key: string; label: string; status: string }[];
 }) {
-  void stages;
   const targetStatus = stages.some((stage) => stage.status === lead.status) ? lead.status : "New";
   return (
     <div
-      draggable
+      draggable={!saving}
       onDragStart={(event) => {
         event.dataTransfer.setData("text/plain", lead.id);
         event.dataTransfer.effectAllowed = "move";
@@ -117,7 +118,8 @@ function BoardCard({
           value={targetStatus}
           onChange={(event) => onMove(event.target.value)}
           aria-label={`Move ${lead.name || "lead"} to another stage`}
-          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-600"
+          disabled={saving}
+          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {stages.map((stage) => (
             <option key={stage.key} value={stage.status}>
@@ -151,7 +153,6 @@ function BoardSummary({ total, columnCount, role }: { total: number; columnCount
 function BoardColumnView({
   column,
   isDropTarget,
-  cardLimit,
   stageTargets,
   draggingId,
   busyId,
@@ -165,7 +166,6 @@ function BoardColumnView({
 }: {
   column: BoardColumn;
   isDropTarget: boolean;
-  cardLimit: number;
   stageTargets: { key: string; label: string; status: string }[];
   draggingId: string | null;
   busyId: string | null;
@@ -178,7 +178,6 @@ function BoardColumnView({
   onMoveCard: (lead: BoardLead, status: string) => void;
 }) {
   const hidden = Math.max(column.total - column.leads.length, 0);
-  void cardLimit;
   return (
     <section
       onDragOver={(event) => {
@@ -221,6 +220,7 @@ function BoardColumnView({
               stages={stageTargets}
               dragging={draggingId === lead.id}
               busy={busyId === lead.id}
+              saving={busyId !== null}
               onDragStart={() => onDragStartCard(lead.id)}
               onDragEnd={onDragEndCard}
               onOpen={() => onOpenCard(lead.id)}
@@ -248,23 +248,31 @@ export function PipelineBoard({ initialData, role }: { initialData: PipelineBoar
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const busyLeadIdRef = useRef<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
 
   const stageTargets = columns.map(({ key, label, status }) => ({ key, label, status }));
 
   // Re-reads the board from the server, so counts are never guessed.
   async function resync() {
-    const response = await getPipelineBoard();
-    if (!response.success) {
-      toast.add({ title: "Could not refresh the board", description: response.error, type: "error" });
-      return;
+    try {
+      const response = await getPipelineBoard();
+      if (!response.success) {
+        toast.add({ title: "Could not refresh the board", description: response.error, type: "error" });
+        return;
+      }
+      setColumns(response.data.columns);
+    } catch {
+      toast.add({ title: "Could not refresh the board", description: "Refresh the page to confirm the latest lead statuses.", type: "error" });
     }
-    setColumns(response.data.columns);
   }
 
   // Moves one card into `target` (optimistically) and persists the new status.
   async function moveCard(lead: BoardLead, target: BoardColumn, fromKey: string) {
+    if (busyLeadIdRef.current) return;
     const previousColumns = columns;
+    busyLeadIdRef.current = lead.id;
+    setBusyId(lead.id);
     setColumns((current) =>
       current.map((column) => {
         if (column.key === fromKey) {
@@ -285,29 +293,37 @@ export function PipelineBoard({ initialData, role }: { initialData: PipelineBoar
       }),
     );
 
-    setBusyId(lead.id);
-    const response = await updateLeadStatus({ id: lead.id, status: target.status, expectedStatus: lead.status });
-    setBusyId(null);
-
-    if (!response.success) {
-      // The board must never disagree with the database.
+    try {
+      const response = await updateLeadStatus({ id: lead.id, status: target.status, expectedStatus: lead.status });
+      if (!response.success) {
+        // Restore the optimistic move, then reconcile against the saved rows.
+        setColumns(previousColumns);
+        toast.add({ title: "Move failed", description: response.error, type: "error" });
+        await resync();
+        return;
+      }
+      toast.add({
+        title: `${lead.name || "Lead"} → ${target.label}`,
+        description: `Status saved as "${target.status}".`,
+        type: "success",
+      });
+    } catch {
+      // A lost response can happen after the database commits. Re-read before
+      // deciding which status the board should show.
       setColumns(previousColumns);
-      toast.add({ title: "Move failed", description: response.error, type: "error" });
+      toast.add({ title: "Move could not be confirmed", description: "Checking the saved status. Refresh the board if the lead does not move.", type: "error" });
       await resync();
-      return;
+    } finally {
+      busyLeadIdRef.current = null;
+      setBusyId(null);
     }
-    toast.add({
-      title: `${lead.name || "Lead"} → ${target.label}`,
-      description: `Status saved as "${target.status}".`,
-      type: "success",
-    });
   }
 
   function handleDrop(target: BoardColumn) {
     const leadId = draggingId;
     setDragOverKey(null);
     setDraggingId(null);
-    if (!leadId) return;
+    if (!leadId || busyLeadIdRef.current) return;
     const source = columns.find((column) => column.leads.some((lead) => lead.id === leadId));
     if (!source || source.key === target.key) return;
     const lead = source.leads.find((entry) => entry.id === leadId);
@@ -324,7 +340,6 @@ export function PipelineBoard({ initialData, role }: { initialData: PipelineBoar
             key={column.key}
             column={column}
             isDropTarget={dragOverKey === column.key}
-            cardLimit={initialData.cardLimit}
             stageTargets={stageTargets}
             draggingId={draggingId}
             busyId={busyId}
