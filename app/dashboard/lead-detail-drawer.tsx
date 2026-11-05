@@ -176,7 +176,7 @@ export function LeadDetailDrawer({
   async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string, expectedUpdatedAt?: string) {
     if (!lead) return;
     setSaving(true);
-    const optimistic = { ...lead, ...patch, id: lead.id };
+    const optimistic = { ...lead, ...patch, status: patch.status ?? lead.status, id: lead.id };
     setLead(optimistic);
     onMutated?.(optimistic);
     try {
