@@ -2713,7 +2713,7 @@ export function LeadsTable({
                       )}
                       {savingLeadIds.has(lead.id) && (
                         <span className="text-[10px] text-blue-600" aria-live="polite">
-                          Saving...
+                          Saving…
                         </span>
                       )}
                       {/* Won is derived, not stored — reaching an OPD or IPD IS
@@ -2729,7 +2729,7 @@ export function LeadsTable({
                     </div>
                   </TableCell>
                   <TableCell className="w-[180px] py-3"><Select value={lead.assigned_to} onValueChange={(value) => handleAssignmentChange(lead, value)} disabled={!canAssign || savingLeadIds.has(lead.id)}>
-                    <SelectTrigger size="sm" className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                    <SelectTrigger size="sm" aria-label={`Assigned employee for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks === "-" ? "" : lead.remarks}>{lead.remarks === "-" ? "" : lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div></TableCell>

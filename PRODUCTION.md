@@ -188,6 +188,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Added an accessible name to each lead's assignment selector and corrected the live status-save label punctuation; no workflow or layout change. | Full ESLint, TypeScript and production build pass. |
 | 2026-11-06 | Reconciled local Supabase migration filenames and ordering with the applied project history; restored the recorded daily-work and assignment-creator index migration sources so a future CLI push does not mistake applied work for pending migrations. No live migration was run and no CRM data changed. | Exact local/live migration version and name comparison; isolated PostgreSQL migration and role/workflow checks pass. |
 | 2026-11-06 | Aligned the local appointment-transition migration filename with its already-applied Supabase version after matching both live function definitions and grants; no database migration was rerun. | Live migration history records `20261105163805`; both RPCs match the repository SQL and deny `anon` execution. |
 | 2026-11-06 | Harden lead creation, callback, assignment, duplicate-review and call-log Server Actions against malformed or null client inputs so invalid payloads return a clear error instead of crashing on array methods or `.trim()`. | Targeted lead workflow checks, strict TypeScript, ESLint, production build and the isolated transaction/RLS migration checks pass; production deployment is verified Ready. |
