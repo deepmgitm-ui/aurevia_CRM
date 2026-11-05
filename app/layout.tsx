@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
 import "./globals.css";
 
 import { Toaster } from "@/components/ui/toast";
@@ -33,9 +34,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        {children}
-        <RenderFallbackNotice />
-        <Toaster />
+        <AppRouterCacheProvider options={{ enableCssLayer: true }}>
+          {children}
+          <RenderFallbackNotice />
+          <Toaster />
+        </AppRouterCacheProvider>
       </body>
     </html>
   );

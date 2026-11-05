@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Alert from "@mui/material/Alert";
 import { X } from "lucide-react";
 
 import {
@@ -37,14 +38,14 @@ export default async function LeadsPage({
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, viewerResult, teamResult, employeeSummaryResult] = await Promise.all([
+  const [leadsResult, viewerResult, teamResult, employeeSummaryResult, dailyNewLeadsResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getViewer(),
     getTeamStats(),
     getLeadPipelineSummary(filters.assigned),
+    getDailyWorkCounts(today),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
-  const dailyNewLeadsResult = await getDailyWorkCounts(today);
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
@@ -53,7 +54,7 @@ export default async function LeadsPage({
     : { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
   const dailyNewLeadsCount = viewer?.role !== "employee" && filters.assigned
-    ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())?.newLeads ?? 0
+    ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())?.newLeads ?? null
     : dailyNewLeadsResult.success ? dailyNewLeadsResult.data.assigned : null;
 
   // `counts` is the viewer's whole pipeline (unfiltered), `leadsPage.total` is the
@@ -75,12 +76,23 @@ export default async function LeadsPage({
             : "Review and manage every lead in your pipeline."}
         </p>
       </div>
-      <DashboardStats
+      {(!viewer || !leadsResult.success || !employeeSummaryResult.success) && (
+        <Alert severity="error" role="alert">
+          Some lead information could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.
+        </Alert>
+      )}
+      {viewer && employeeSummaryResult.success && <DashboardStats
         summary={pipelineSummary}
         assignedTo={cardAssignedTo}
         dailyNewLeads={{ count: dailyNewLeadsCount, day: today }}
         showTotal={viewer?.role !== "employee"}
-      />
+      />}
+      {viewer && !dailyNewLeadsResult.success && !filters.assigned && (
+        <Alert severity="warning">Today’s new lead count is temporarily unavailable. Reload this page to try again.</Alert>
+      )}
+      {viewer && !teamResult.success && canViewAssignments && (
+        <Alert severity="warning">Team assignment counts are temporarily unavailable. Reload this page to try again.</Alert>
+      )}
       {canViewAssignments && team && !filters.assigned && (
         <>
           <AssignmentFilterTabs team={team} filters={filters} />
@@ -98,7 +110,7 @@ export default async function LeadsPage({
       {/* "Leads 0" scare: a filtered list (from a chart click or a shared link)
           used to look like an empty database. The banner always states how many
           leads exist and how many the filters are hiding. */}
-      {isFiltered && (
+      {isFiltered && leadsResult.success && employeeSummaryResult.success && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <div>
             <p className="text-sm font-semibold text-amber-900">
@@ -122,7 +134,7 @@ export default async function LeadsPage({
       )}
       {/* Key remounts on every filter change so the table drops its loaded page
           and refetches page 1 of the new result set. */}
-      <section id="lead-list" className="scroll-mt-6" aria-label="Matching leads">
+      {viewer && leadsResult.success && <section id="lead-list" className="scroll-mt-6" aria-label="Matching leads">
         <LeadsTable
           key={JSON.stringify(filters)}
           leads={leadsPage.leads}
@@ -134,7 +146,7 @@ export default async function LeadsPage({
           viewerId={viewer?.id ?? ""}
           filters={filters}
         />
-      </section>
+      </section>}
     </div>
   );
 }

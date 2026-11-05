@@ -698,7 +698,7 @@ export async function getLeadsPage(
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      return { success: true, data: { leads: [], total: 0, page: 1, pageSize: safePageSize, totalPages: 1 } };
+      return { success: false, error: "Sign in to view leads." };
     }
 
     const { data: profile, error: profileError } = await supabase
@@ -708,11 +708,11 @@ export async function getLeadsPage(
       .single();
 
     if (profileError || !profile) {
-      return { success: true, data: { leads: [], total: 0, page: 1, pageSize: safePageSize, totalPages: 1 } };
+      return { success: false, error: "Your team profile could not be loaded. Please try again." };
     }
 
     if (profile.role === "employee" && !profile.name?.trim()) {
-      return { success: true, data: { leads: [], total: 0, page: 1, pageSize: safePageSize, totalPages: 1 } };
+      return { success: false, error: "Your team profile needs a name. Please contact an admin." };
     }
 
     const safePage = Math.max(page, 1);
@@ -903,14 +903,13 @@ export interface EmployeeLeadSummary {
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
 export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionResult<EmployeeLeadSummary>> {
-  const empty: EmployeeLeadSummary = { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
   try {
     const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return { success: false, error: "Sign in to view your lead summary." };
     const { data: profile, error: profileError } = await supabase.from("profiles").select("name, role").eq("id", user.id).single();
     if (profileError || !profile || (profile.role === "employee" && !profile.name?.trim())) {
-      return { success: true, data: empty };
+      return { success: false, error: "Your team profile could not be loaded. Please contact an admin." };
     }
 
     const assignedScope = profile.role === "employee" ? profile.name : assignedTo.trim();
@@ -1393,7 +1392,7 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       error: userError,
     } = await supabase.auth.getUser();
     if (userError || !user) {
-      return { success: true, data: { employees: [], unassigned: 0, total: 0 } };
+      return { success: false, error: "Sign in to view team assignments." };
     }
 
     const { data: viewerProfile, error: viewerProfileError } = await supabase
@@ -1401,7 +1400,10 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       .select("role")
       .eq("id", user.id)
       .single();
-    if (viewerProfileError || !viewerProfile || viewerProfile.role === "employee") {
+    if (viewerProfileError || !viewerProfile) {
+      return { success: false, error: "Your team profile could not be loaded. Please try again." };
+    }
+    if (viewerProfile.role === "employee") {
       return { success: true, data: { employees: [], unassigned: 0, total: 0 } };
     }
 

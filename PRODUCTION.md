@@ -9,6 +9,8 @@ procedure changes. Keep the implementation and this guide in the same change.
 - Clinic operations CRM built with Next.js 16, React 19, TypeScript and Supabase.
 - Production hosting is Vercel. Optional CRM help uses Cloudflare Workers AI.
 - The CRM UI is English. The help assistant can respond in English or Hinglish.
+- Material UI alerts use the Next.js App Router cache provider alongside the
+  existing Tailwind and Base UI components.
 - Supabase is the source of truth for leads, assignments, activities, attendance,
   appointments, schedules and recovery snapshots.
 
@@ -29,6 +31,8 @@ procedure changes. Keep the implementation and this guide in the same change.
   across pages and same-scope component remounts in the current browser tab for
   up to 30 minutes. Changing search/filter scope or signing in as another user
   clears that selection. Page-level Select All only adds the visible page.
+- If a lead list or summary cannot load, show a retry message instead of
+  presenting the failure as an empty list or zero counts.
 - Phone duplicates are rejected. Do not silently create a second lead with the
   same normalized phone number.
 

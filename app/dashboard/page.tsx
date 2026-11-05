@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Alert from "@mui/material/Alert";
 import { ArrowLeft, UserPlus, CalendarCheck, BedDouble, ArrowRight, CircleCheck } from "lucide-react";
 
 import {
@@ -37,10 +38,14 @@ export default async function DashboardPage({
   const { employee: selectedEmployee } = query;
   const viewerResult = await getViewer();
   const viewer = viewerResult.success ? viewerResult.data : null;
+  if (!viewer) {
+    return <Alert severity="error">Your account could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>;
+  }
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
   // ---- Admin/Manager drill-down: one employee's leads table ----
   if (isTeamLead && selectedEmployee) {
     const teamResult = await getTeamStats();
+    if (!teamResult.success) return <Alert severity="error">Team details could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>;
     const employeeStats = teamResult.success
       ? teamResult.data.employees.find((member) => member.name === selectedEmployee)
       : undefined;
@@ -75,14 +80,15 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <DashboardStats
+          {(!leadsResult.success || !summaryResult.success) && <Alert severity="error">Some lead information could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>}
+          {summaryResult.success && <DashboardStats
             summary={summary}
             assignedTo={employeeStats.name}
             dailyNewLeads={{ count: employeeStats.newLeads, day: clinicDate() }}
             showTotal
-          />
+          />}
 
-          <LeadsTable
+          {leadsResult.success && <LeadsTable
             leads={leadsPage.leads}
             initialTotal={leadsPage.total}
             initialTotalPages={leadsPage.totalPages}
@@ -90,7 +96,7 @@ export default async function DashboardPage({
             assignedTo={employeeStats.name}
             role={viewer?.role ?? "employee"}
             viewerId={viewer?.id ?? ""}
-          />
+          />}
         </div>
       );
     }
@@ -130,11 +136,11 @@ export default async function DashboardPage({
           viewer={viewer ? { name: viewer.name, role: viewer.role } : undefined}
         />
 
-        {pipelineSummaryResult.success && <DashboardStats
+        {pipelineSummaryResult.success ? <DashboardStats
           summary={pipelineSummaryResult.data}
           dailyNewLeads={{ count: dailyResult.success ? dailyResult.data.assigned : null, day: today }}
           showTotal
-        />}
+        /> : <Alert severity="error">Lead summary could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>}
 
         {teamResult.success ? <LeadAssignmentTabs team={team} today={today} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
@@ -238,14 +244,14 @@ export default async function DashboardPage({
       {(!dailyResult.success || !leadsResult.success) && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Daily work could not be loaded. Please refresh or contact your administrator.</p>}
       <section id="today-leads" className="scroll-mt-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}{selectedStatus ? ` · ${selectedStatus}` : ""}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsPage.total.toLocaleString()} leads</p></div>
+          <div><h2 className="text-xl font-semibold text-slate-950">{selectedCard.label}{selectedStatus ? ` · ${selectedStatus}` : ""}</h2><p className="mt-1 text-sm text-slate-500">{dayLabel} · {leadsResult.success ? `${leadsPage.total.toLocaleString()} leads` : "Lead count unavailable"}</p></div>
           <div className="flex gap-3 text-sm font-medium">
             {!isToday && <Link href="/dashboard" className="text-blue-700 hover:underline">Back to today</Link>}
             <Link href="/dashboard/leads?month=all" className="text-blue-700 hover:underline">All my leads</Link>
           </div>
         </div>
         {work === "assigned" && <p className="text-xs text-slate-500">Assignments are tracked from the daily-work update onwards. Older assignments without a recorded date remain in All my leads.</p>}
-        {leadsResult.success && leadsPage.total === 0 ? (
+        {!leadsResult.success ? null : leadsPage.total === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
             <p className="font-semibold text-slate-800">No {selectedCard.label.toLowerCase()} for this date</p>
             <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
