@@ -22,6 +22,7 @@ import {
   deleteLeadSourceBatches,
   getEmployees,
   getLeadActivities,
+  getLeadById,
   getLeadDeletionBackupForExport,
   getLeadDeletionBackups,
   getUnassignedLeadAssignmentSuggestions,
@@ -741,6 +742,20 @@ export function LeadsTable({
     }
   }
 
+  async function reconcileLeadAfterFailedSave(leadId: string) {
+    try {
+      const response = await getLeadById(leadId);
+      if (response.success) updateLeadLocally(response.data);
+    } catch {
+      // If the connection is still down, keep the existing table data for now.
+    }
+    try {
+      await fetchPage(page);
+    } catch {
+      // The single-row reload above remains the best available state.
+    }
+  }
+
   function applyLeadAssignmentLocally(lead: Lead) {
     const currentAssignee = (assignedTo.trim() || filters.assigned.trim()).toLocaleLowerCase();
     if (currentAssignee && lead.assigned_to?.trim().toLocaleLowerCase() !== currentAssignee) {
@@ -1354,7 +1369,7 @@ export function LeadsTable({
       try {
         const response = await updateLeadAppointment({ id: lead.id, column, value: next });
         if (!response.success) {
-          patchLeadLocally(lead.id, { [column]: current });
+          await reconcileLeadAfterFailedSave(lead.id);
           toast.add({ title: "Date not saved", description: response.error, type: "error" });
           return;
         }
@@ -1365,7 +1380,7 @@ export function LeadsTable({
         if (response.warning) toast.add({ title: "Date saved with a timeline warning", description: response.warning, type: "error" });
         queueSuccessSummary("updated");
       } catch (error) {
-        patchLeadLocally(lead.id, { [column]: current });
+        await reconcileLeadAfterFailedSave(lead.id);
         toast.add({ title: "Date not saved", description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.", type: "error" });
       } finally {
         setLeadSaving(lead.id, false);
@@ -2062,8 +2077,7 @@ export function LeadsTable({
     try {
       const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits, expectedUpdatedAt: leadEditsVersionRef.current });
       if (!response.success) {
-        updateLeadLocally(previousLead);
-        void fetchPage(page);
+        await reconcileLeadAfterFailedSave(previousLead.id);
         toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
       } else {
         const updated = response.data;
@@ -2074,7 +2088,7 @@ export function LeadsTable({
         queueSuccessSummary("updated");
       }
     } catch (error) {
-      updateLeadLocally(previousLead);
+      await reconcileLeadAfterFailedSave(previousLead.id);
       toast.add({
         title: "Unable to save changes",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
@@ -2166,8 +2180,7 @@ export function LeadsTable({
     try {
       const response = await updateLeadDetails(payload);
       if (!response.success) {
-        updateLeadLocally(editingLead);
-        void fetchPage(page);
+        await reconcileLeadAfterFailedSave(editingLead.id);
         toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
       } else {
         const updated = response.data;
@@ -2183,7 +2196,7 @@ export function LeadsTable({
         else router.refresh();
       }
     } catch (error) {
-      updateLeadLocally(editingLead);
+      await reconcileLeadAfterFailedSave(editingLead.id);
       toast.add({
         title: "Unable to save changes",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",

@@ -12,6 +12,7 @@ import { CalendarDays, Loader2, MessageSquareText, PhoneCall, TimerReset, X } fr
 import {
   addLeadActivity,
   getLeadActivities,
+  getLeadById,
   getLeadsPage,
   getViewer,
   logLeadCall,
@@ -51,6 +52,20 @@ function toDateInput(value: string | null | undefined): string {
   const iso = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
   return "";
+}
+
+function leadEditValues(lead: Lead) {
+  return {
+    name: lead.name,
+    phone: lead.phone ?? "",
+    email: lead.email && lead.email !== "-" ? lead.email : "",
+    gender: lead.gender && lead.gender !== "-" ? lead.gender : "",
+    city: lead.city && lead.city !== "-" ? lead.city : "",
+    insurance: lead.insurance_status && lead.insurance_status !== "-" ? lead.insurance_status : "",
+    status: canonicalLeadStatus(lead.status),
+    treatment: lead.disease && lead.disease !== "-" ? lead.disease : "",
+    followUpDate: toDateInput(lead.follow_up_date),
+  };
 }
 
 /** Zoho-style record view: tap anywhere → full patient journey + edit. */
@@ -116,17 +131,7 @@ export function LeadDetailDrawer({
       setLead(fresh);
       editVersionRef.current = fresh.updated_at;
       setActiveTab(tab);
-      setEdits({
-        name: fresh.name,
-        phone: fresh.phone ?? "",
-        email: fresh.email && fresh.email !== "-" ? fresh.email : "",
-        gender: fresh.gender && fresh.gender !== "-" ? fresh.gender : "",
-        city: fresh.city && fresh.city !== "-" ? fresh.city : "",
-        insurance: fresh.insurance_status && fresh.insurance_status !== "-" ? fresh.insurance_status : "",
-        status: canonicalLeadStatus(fresh.status),
-        treatment: fresh.disease && fresh.disease !== "-" ? fresh.disease : "",
-        followUpDate: toDateInput(fresh.follow_up_date),
-      });
+      setEdits(leadEditValues(fresh));
       setNote("");
       setCallDraft(emptyCallDraft());
       setLoadingActivities(true);
@@ -177,9 +182,11 @@ export function LeadDetailDrawer({
     try {
       const update = await updateLeadDetails({ ...patch, id: lead.id, expectedUpdatedAt });
       if (!update.success) {
-        setLead(lead);
-        onMutated?.(lead);
-        toast.add({ title: "Could not save", description: update.error, type: "error" });
+        const latestLead = await reloadLeadOrKeepCurrent(lead);
+        setLead(latestLead);
+        editVersionRef.current = latestLead.updated_at;
+        onMutated?.(latestLead);
+        toast.add({ title: "Could not save", description: latestLead === lead ? update.error : `${update.error} Latest saved details have been reloaded.`, type: "error" });
         return;
       }
       setLead(update.data);
@@ -193,15 +200,37 @@ export function LeadDetailDrawer({
         toast.add({ title: successTitle });
       }
     } catch (error) {
-      setLead(lead);
-      onMutated?.(lead);
+      const latestLead = await reloadLeadOrKeepCurrent(lead);
+      setLead(latestLead);
+      editVersionRef.current = latestLead.updated_at;
+      onMutated?.(latestLead);
       toast.add({
-        title: "Could not save",
-        description: error instanceof Error ? error.message : "The server could not be reached. Your changes are still here; try again.",
+        title: latestLead !== lead ? "Latest lead data reloaded" : "Save could not be confirmed",
+        description: latestLead !== lead
+          ? "The server response was interrupted. The latest saved record is shown; check it before retrying."
+          : error instanceof Error ? `${error.message} Refresh the lead before retrying.` : "The server could not be reached. Refresh the lead before retrying.",
         type: "error",
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function reloadLeadOrKeepCurrent(current: Lead): Promise<Lead> {
+    try {
+      const refreshed = await getLeadById(current.id);
+      if (!refreshed.success) return current;
+      const fresh = refreshed.data;
+      setEdits(leadEditValues(fresh));
+      try {
+        const timeline = await getLeadActivities(current.id);
+        if (timeline.success) setActivities(timeline.data);
+      } catch {
+        // The lead state is still useful if the timeline request is unavailable.
+      }
+      return fresh;
+    } catch {
+      return current;
     }
   }
 

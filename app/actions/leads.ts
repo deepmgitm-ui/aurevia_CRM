@@ -1093,6 +1093,23 @@ export async function getLeadActivities(
   }
 }
 
+export async function getLeadById(leadId: string): Promise<ActionResult<Lead>> {
+  if (typeof leadId !== "string" || !leadId.trim()) return { success: false, error: "Lead ID is required." };
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Sign in to reload this lead." };
+
+    const { data, error } = await supabase.from("leads").select("*").eq("id", leadId).maybeSingle();
+    if (error) return { success: false, error: error.message };
+    if (!data) return { success: false, error: "Lead not found or you do not have access." };
+    return { success: true, data: data as Lead };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to reload this lead.") };
+  }
+}
+
 export async function getEmployees(): Promise<ActionResult<Employee[]>> {
   try {
     const supabase = await createClient();
