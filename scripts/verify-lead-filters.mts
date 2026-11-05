@@ -29,11 +29,10 @@ import {
   relativeLeadAge,
   shortLeadAge,
   stageFilterKeys,
-  tallyTreatments,
   treatmentOrExpression,
   type LeadListFilters,
 } from "../app/dashboard/lead-filters.ts";
-import type { AnalyticsLead, StageKey } from "../app/dashboard/overview/analytics.ts";
+import type { StageKey } from "../app/dashboard/overview/analytics.ts";
 import { assignmentOrExpression } from "../lib/lead-assignment-filter.ts";
 import { LEAD_STATUS_OPTIONS, leadStatusStorageValues } from "../lib/lead-status.ts";
 import { STAGE_TARGET_STATUS, stageForStatus } from "../app/dashboard/overview/analytics.ts";
@@ -328,62 +327,6 @@ assert.equal(isNewLead("28/09/2026", reference), true);
 assert.equal(isNewLead("26/09/2026", reference), true);
 assert.equal(isNewLead("25/09/2026", reference), false);
 assert.equal(isNewLead("-", reference), false);
-
-// ---------------------------------------------------------------------------
-// 7. Treatment tally — one count per treatment for the current selection.
-// ---------------------------------------------------------------------------
-function tallyRow(partial: Partial<AnalyticsLead> & { id: string }): AnalyticsLead {
-  return {
-    name: "",
-    city: "",
-    disease: "",
-    treatment: "",
-    source: "",
-    status: "New",
-    assigned_to: "",
-    lead_date: "28/09/2026",
-    ...partial,
-  };
-}
-
-const tallyRows = [
-  tallyRow({ id: "1", name: "A", city: "Mumbai", disease: "LASIK", treatment: "LASIK" }),
-  tallyRow({
-    id: "2",
-    name: "B",
-    city: "Mumbai",
-    disease: "Catract",
-    treatment: "Cataract",
-    status: "Consultation Booked",
-    lead_date: "20/09/2026",
-  }),
-  tallyRow({ id: "3", name: "C", city: "Pune", disease: "lasik", treatment: "LASIK", status: "New" }),
-  tallyRow({ id: "4", name: "D", city: "Pune", disease: "-", treatment: "-", status: "New" }),
-];
-
-assert.deepEqual(
-  tallyTreatments(tallyRows, EMPTY_LEAD_FILTERS, reference).map((tally) => [tally.key, tally.count]),
-  [
-    ["lasik", 2],
-    ["cataract", 1],
-    ["unrecorded", 1], // always last — a data-quality hint, not a first click
-  ],
-);
-assert.deepEqual(
-  tallyTreatments(tallyRows, { ...EMPTY_LEAD_FILTERS, city: "Mumbai" }, reference).map(
-    (tally) => [tally.key, tally.count],
-  ),
-  [
-    ["cataract", 1],
-    ["lasik", 1],
-  ],
-);
-assert.deepEqual(
-  tallyTreatments(tallyRows, { ...EMPTY_LEAD_FILTERS, stage: "booked" }, reference).map(
-    (tally) => [tally.key, tally.count],
-  ),
-  [["cataract", 1]],
-);
 
 console.log("✓ all lead filter assertions passed");
 console.log(`  href round trip: ${href}`);

@@ -116,7 +116,7 @@ Graph API 190 error logs me dikhega.
    ke baad batata hai. Aage: "Paste from Excel" preview me hi bata do ki kitni rows
    duplicate hain, taaki Add dabane se pehle pata chal jaye.
 7. **Monthly rollup job** — table 10k cross kare tab `lead_rollup` se ek summary
-   table + `getTreatmentTally` ko usi pe shift karo.
+   table for treatment summaries if those reports are needed again.
 8. **meta_lead_id column** — `leads` me ek `meta_lead_id text unique` jodo; webhook
    exact-ID dedupe karega (abhi phone+24h rule hai, kaafi hai jab tak form volume
    chhota hai).

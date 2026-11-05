@@ -3,15 +3,9 @@
 import {
   PIPELINE_STAGES,
   TREATMENT_LABELS,
-  UNRECORDED_TREATMENT_KEY,
-  canonicalTreatment,
-  analyticsWeight,
-  stageForStatus,
-  type AnalyticsLead,
   type StageKey,
 } from "./overview/analytics.ts";
 import { DAILY_WORK_LABELS, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "../../lib/daily-work.ts";
-import { canonicalLeadStatus } from "../../lib/lead-status.ts";
 
 // ---------------------------------------------------------------------------
 // Aurevia CRM — Lead list filters + age buckets.
@@ -555,84 +549,4 @@ export function blankColumnClause(column: string): string {
 export function andClauses(clauses: string[]): string {
   if (clauses.length === 0) return "";
   return clauses.length === 1 ? clauses[0] : `and(${clauses.join(",")})`;
-}
-
-// ---------------------------------------------------------------------------
-// Treatment-wise tally — "which lead wants which treatment / disease"
-// ---------------------------------------------------------------------------
-
-export interface TreatmentTally {
-  /** Exactly the key the charts (and the drill-down URL) use. */
-  key: string;
-  label: string;
-  count: number;
-}
-
-/**
- * Mirrors the SQL drill-down filters for everything EXCEPT `treatment` itself, so
- * the chips can show "LASIK 41 · Cataract 22" for the current stage / city / age
- * selection and still be one click away from each other.
- */
-function matchesTallyFilters(row: AnalyticsLead, filters: LeadListFilters, today: Date): boolean {
-  const stages = stageFilterKeys(filters.stage);
-  if (stages.length > 0 && !stages.includes(stageForStatus(row.status))) return false;
-
-  const equals = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
-  if (filters.city && !equals(row.city, filters.city)) return false;
-  if (filters.source && !equals(row.source, filters.source)) return false;
-  if (filters.status && canonicalLeadStatus(row.status) !== canonicalLeadStatus(filters.status)) return false;
-  if (filters.assigned && !equals(row.assigned_to, filters.assigned)) return false;
-
-  if (filters.age) {
-    // Same bucket ladder the SQL window enforces; `lead_date` already falls back
-    // to `created_at` inside toAnalyticsLead().
-    if (ageBucketFor(parseLeadDateValue(row.lead_date), today) !== filters.age) return false;
-  }
-
-  if (filters.month) {
-    // The month picker's client-side twin of the SQL window. An undated lead can
-    // never satisfy a month selection, so it drops out rather than showing up in
-    // every month at once.
-    const date = parseLeadDateValue(row.lead_date);
-    if (!date || monthFilterKey(date) !== filters.month) return false;
-  }
-
-  if (filters.q) {
-    const needle = filters.q.trim().toLowerCase();
-    const haystack = `${row.name} ${row.disease} ${row.treatment} ${row.city}`.toLowerCase();
-    if (!haystack.includes(needle)) return false;
-  }
-
-  return true;
-}
-
-/**
- * Counts leads per treatment for the current filter set. Free-text treatments
- * keep their own row (the same `canonicalTreatment` grouping the pipeline chart
- * uses), placeholders collapse into "Not Recorded", and the biggest treatment
- * always leads so the eye lands on it first.
- */
-export function tallyTreatments(
-  rows: AnalyticsLead[],
-  filters: LeadListFilters = EMPTY_LEAD_FILTERS,
-  today = new Date(),
-): TreatmentTally[] {
-  const counts = new Map<string, TreatmentTally>();
-  for (const row of rows) {
-    if (!matchesTallyFilters(row, filters, today)) continue;
-    // `treatment` is the fully resolved text (all plausible columns + a remarks
-    // fallback); `disease` is the second safety net.
-    const { key, label } = canonicalTreatment(row.treatment || row.disease);
-    const existing = counts.get(key);
-    if (existing) existing.count += analyticsWeight(row);
-    else counts.set(key, { key, label, count: analyticsWeight(row) });
-  }
-
-  return [...counts.values()].sort((left, right) => {
-    // "Not Recorded" always sinks to the bottom — it is a data-quality hint, not
-    // a treatment anyone would click first.
-    if (left.key === UNRECORDED_TREATMENT_KEY) return 1;
-    if (right.key === UNRECORDED_TREATMENT_KEY) return -1;
-    return right.count - left.count || left.label.localeCompare(right.label);
-  });
 }

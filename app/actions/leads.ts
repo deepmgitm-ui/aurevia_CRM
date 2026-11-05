@@ -9,17 +9,14 @@ import { applyCurrentNewLeadFilter, applyDailyWorkFilter, olderFreshLeadFilter, 
 
 import {
   ageBucketWindow,
-  EMPTY_LEAD_FILTERS,
   escapeLikePattern,
   monthWindow,
   inListExpression,
   isLeadBucketKey,
   isUnrecordedTreatment,
   stageFilterKeys,
-  tallyTreatments,
   type AgeWindow,
   type LeadListFilters,
-  type TreatmentTally,
 } from "@/app/dashboard/lead-filters";
 import {
   PIPELINE_STAGES,
@@ -835,27 +832,6 @@ export async function getLeadsForExport(
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to export leads.") };
   }
-}
-
-// Lightweight stat counters for the dashboard cards. Uses head-only exact
-// counts instead of loading every lead row, so it stays fast at 1k+ leads.
-/**
- * Treatment-wise tally for the leads page — "which lead wants which treatment
- * or disease" at a glance.
- *
- * Reuses the LIGHT analytics projection (no `select('*')`) and groups in JS with
- * the exact helpers the pipeline chart uses, so the chip counts and the chart
- * bars can never disagree. At a few hundred / few thousand rows this is one cheap
- * query; past that, move it into a Postgres aggregate (see
- * docs/GROWTH-AND-COSTS.md → "lead_rollup").
- */
-export async function getTreatmentTally(filters?:Partial<LeadListFilters>):Promise<ActionResult<TreatmentTally[]>>{
- try{const supabase=await createClient();const resolved={...EMPTY_LEAD_FILTERS,...filters};const p:Record<string,unknown>={...resolved};
- const age=ageBucketWindow(resolved.age);if(age?.fromIso)p.from_created=age.fromIso;if(age?.toIso)p.to_created=age.toIso;
- if(resolved.month){p.from_day=resolved.month+"-01";p.to_day=new Date(Number(resolved.month.slice(0,4)),Number(resolved.month.slice(5)),0).toLocaleDateString("en-CA");}
- const keys=stageFilterKeys(resolved.stage);if(keys.length)p.statuses=(await getDistinctStatuses(supabase)??[]).filter(status=>keys.includes(stageForStatus(status)));
- const rows:Lead[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_treatment_groups",{p}).range(offset,offset+499);if(error)return {success:false,error:"Treatment counts could not be loaded."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<500)break;}
- return {success:true,data:tallyTreatments(rows.map(toAnalyticsLead))};}catch(error){return {success:false,error:getErrorMessage(error,"Treatment counts unavailable.")};}
 }
 
 export async function getDailyWorkCounts(day=clinicDate()):Promise<ActionResult<Record<DailyWorkKind,number>>>{if(!isWorkDate(day))return {success:false,error:"Invalid work date."};const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to see daily work."};const supabase=await createClient();const {data,error}=await supabase.rpc("crm_daily_work_counts",{p_day:day});return error?{success:false,error:"Daily work could not be loaded."}:{success:true,data:data as Record<DailyWorkKind,number>};}
@@ -3339,39 +3315,6 @@ function applyAssignmentCriteria<Q>(query: Q, criteria: LeadAssignmentCriteria):
   const assignmentFilter = assignmentOrExpression(criteria.includeAssigned === true, criteria.excludeBatchId);
   if (assignmentFilter) filtered = filtered.or(assignmentFilter);
   return filtered as unknown as Q;
-}
-
-/** Returns the number of leads matching an explicit admin assignment filter. */
-export async function getLeadAssignmentPreview(
-  criteria: LeadAssignmentCriteria,
-): Promise<ActionResult<{ count: number }>> {
-  if (!criteria || typeof criteria !== "object") {
-    return { success: false, error: "Enter a search, treatment or city filter." };
-  }
-  const normalized = {
-    search: typeof criteria.search === "string" ? criteria.search.trim() : "",
-    treatment: typeof criteria.treatment === "string" ? criteria.treatment.trim() : "",
-    city: typeof criteria.city === "string" ? criteria.city.trim() : "",
-    status: typeof criteria.status === "string" ? criteria.status.trim() : "",
-    includeAssigned: criteria.includeAssigned === true,
-    excludeBatchId: criteria.excludeBatchId,
-  };
-  try {
-    const supabase = await createClient();
-    const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
-    }
-    const query = applyAssignmentCriteria(
-      supabase.from("leads").select("id", { count: "exact", head: true }),
-      normalized,
-    );
-    const { count, error } = await query;
-    if (error) return { success: false, error: error.message };
-    return { success: true, data: { count: count ?? 0 } };
-  } catch (error) {
-    return { success: false, error: getErrorMessage(error, "Unable to preview matching leads.") };
-  }
 }
 
 /** Assigns selected or filtered leads equally among explicitly selected team members. */

@@ -20,21 +20,6 @@ export const MASTER_DATA_SEED: Record<MasterDataListKey, string[]> = {
   cities: ["Mumbai", "Pune", "Delhi", "Nagpur", "Thane", "Nashik"],
 };
 
-/**
- * A lead-stage status that exists on the BOARD even if an admin deletes it
- * from the list: dropping a card writes one of the stage target statuses, so
- * the board merge logic always offers the current list PLUS these (same
- * round-trip guarantee as `stageForStatus` — see verify:lead-filters).
- */
-export const BOARD_FALLBACK_STATUSES = [
-  "New",
-  "Follow-Up",
-  "OPD Booked",
-  "OPD Done",
-  "IPD Done",
-  "Dropped",
-] as const;
-
 export interface MasterDataSnapshot {
   lists: Record<MasterDataListKey, string[]>;
   /** True when the snapshot came from the DB (admin edits are live). */
@@ -52,11 +37,6 @@ export interface MasterDataSaveResponse {
   error?: string;
 }
 
-export const EMPTY_MASTER_DATA: MasterDataSnapshot = {
-  lists: { statuses: [], treatments: [], sources: [], cities: [] },
-  fromDatabase: false,
-};
-
 /** Seed every list — used when the migration has not been applied yet. */
 export function seedMasterData(): MasterDataSnapshot {
   return {
@@ -68,36 +48,4 @@ export function seedMasterData(): MasterDataSnapshot {
     },
     fromDatabase: false,
   };
-}
-
-/**
- * Merge a stored/current value into a list so an already-saved lead always
- * stays selectable, even after an admin removes that option. Never mutates.
- */
-export function withCurrentValue(options: readonly string[], current: string | null | undefined): string[] {
-  const cleaned = String(current ?? "").trim();
-  if (!cleaned || cleaned === "-") return [...options];
-  return options.some((option) => option.toLowerCase() === cleaned.toLowerCase())
-    ? [...options]
-    : [...options, cleaned];
-}
-
-/** Merge a whole row set (e.g. statuses found in the DB) with the seed. */
-export function mergeMasterDataLists(
-  snapshot: MasterDataSnapshot,
-  extra: Partial<Record<MasterDataListKey, string[]>>,
-): MasterDataSnapshot {
-  const lists = { ...snapshot.lists };
-  for (const key of MASTER_DATA_LISTS) {
-    const additions = extra[key] ?? [];
-    const seen = new Set(lists[key].map((value) => value.toLowerCase()));
-    for (const value of additions) {
-      const cleaned = String(value ?? "").trim();
-      if (cleaned && cleaned !== "-" && !seen.has(cleaned.toLowerCase())) {
-        seen.add(cleaned.toLowerCase());
-        lists[key] = [...lists[key], cleaned];
-      }
-    }
-  }
-  return { lists, fromDatabase: snapshot.fromDatabase };
 }

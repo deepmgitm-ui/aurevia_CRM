@@ -20,9 +20,7 @@ import {
 } from "../lib/automation.ts";
 import {
   MASTER_DATA_SEED,
-  mergeMasterDataLists,
   seedMasterData,
-  withCurrentValue,
 } from "../lib/master-data.ts";
 
 const NOW = new Date(2026, 8, 29, 10, 0, 0); // 29 Sep 2026, local
@@ -187,29 +185,6 @@ assert.equal(isStaleFollowUp("29/09/2026", TODAY), false);
   assert.equal(first.fromDatabase, false);
   first.lists.statuses.push("Mutated");
   assert.equal(second.lists.statuses.includes("Mutated"), false);
-}
-
-// 10. withCurrentValue keeps a stored value selectable, case-insensitively, and
-//     ignores the "-" placeholder every empty cell carries.
-{
-  const options = ["New", "Contacted"];
-  assert.deepEqual(withCurrentValue(options, "contacted"), options);
-  assert.deepEqual(withCurrentValue(options, "  Legacy Value "), ["New", "Contacted", "Legacy Value"]);
-  assert.deepEqual(withCurrentValue(options, "-"), options);
-  assert.deepEqual(withCurrentValue(options, ""), options);
-  assert.deepEqual(options, ["New", "Contacted"]); // never mutated
-}
-
-// 11. mergeMasterDataLists appends DB rows without duplicating the seed.
-{
-  const merged = mergeMasterDataLists(seedMasterData(), {
-    statuses: ["new", "OPD Booked", "-", "  "],
-    cities: ["Indore"],
-  });
-  assert.equal(merged.lists.statuses.filter((value) => value.toLowerCase() === "new").length, 1);
-  assert.equal(merged.lists.statuses.includes("OPD Booked"), true);
-  assert.equal(merged.lists.statuses.includes("-"), false);
-  assert.deepEqual(merged.lists.cities.slice(-1), ["Indore"]);
 }
 
 console.log("✓ all automation + master data assertions passed");
