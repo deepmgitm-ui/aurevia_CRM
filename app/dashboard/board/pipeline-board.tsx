@@ -286,7 +286,7 @@ export function PipelineBoard({ initialData, role }: { initialData: PipelineBoar
     );
 
     setBusyId(lead.id);
-    const response = await updateLeadStatus({ id: lead.id, status: target.status });
+    const response = await updateLeadStatus({ id: lead.id, status: target.status, expectedStatus: lead.status });
     setBusyId(null);
 
     if (!response.success) {

@@ -495,6 +495,7 @@ export function LeadsTable({
   const [isCreatingLead, setIsCreatingLead] = useState(false);
   const [savingLeadIds, setSavingLeadIds] = useState<Set<string>>(() => new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const leadEditsVersionRef = useRef<string | undefined>(undefined);
   const autoOpenedLeadIdRef = useRef<string | null>(null);
   const [leadEdits, setLeadEdits] = useState({ city: "", disease: "", insurance_status: "", remarks: "" });
   const [isSavingEdits, setIsSavingEdits] = useState(false);
@@ -1291,9 +1292,10 @@ export function LeadsTable({
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { status });
     try {
-      const response = await updateLeadStatus({ id: lead.id, status });
+      const response = await updateLeadStatus({ id: lead.id, status, expectedStatus: lead.status });
       if (!response.success) {
         updateLeadLocally(lead);
+        void fetchPage(page);
         toast.add({ title: "Status update failed", description: response.error, type: "error" });
       } else {
         updateLeadLocally(response.data);
@@ -1311,6 +1313,7 @@ export function LeadsTable({
       }
     } catch (error) {
       updateLeadLocally(lead);
+      void fetchPage(page);
       toast.add({
         title: "Status update failed",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
@@ -2011,6 +2014,7 @@ export function LeadsTable({
 
   async function handleViewLead(lead: Lead) {
     setSelectedLead(lead);
+    leadEditsVersionRef.current = lead.updated_at;
     setLeadEdits({
       city: lead.city === "-" ? "" : lead.city,
       disease: lead.disease === "-" ? "" : lead.disease,
@@ -2053,12 +2057,14 @@ export function LeadsTable({
       : { ...selectedLead, remarks: leadEdits.remarks || "-" };
     updateLeadLocally(optimisticLead);
     try {
-      const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits });
+      const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits, expectedUpdatedAt: leadEditsVersionRef.current });
       if (!response.success) {
         updateLeadLocally(previousLead);
+        void fetchPage(page);
         toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
       } else {
         const updated = response.data;
+        leadEditsVersionRef.current = updated.updated_at;
         updateLeadLocally(updated);
         await refreshLeadTimeline(updated.id);
         if (response.warning) toast.add({ title: "Changes saved with a timeline warning", description: response.warning, type: "error" });
@@ -2107,9 +2113,10 @@ export function LeadsTable({
     // Patient details are editable for employees; only source and assignment
     // remain server-side protected for their role.
     const payload = canEditCore
-      ? { id: editingLead.id, ...editForm, status: statusChanged ? editForm.status : undefined, transfer_as_fresh: transferAsFresh }
+      ? { id: editingLead.id, ...editForm, expectedUpdatedAt: editingLead.updated_at, assigned_to: assignmentChanged ? editForm.assigned_to : undefined, status: statusChanged ? editForm.status : undefined, transfer_as_fresh: transferAsFresh }
       : {
           id: editingLead.id,
+          expectedUpdatedAt: editingLead.updated_at,
           name: editForm.name,
           phone: editForm.phone,
           email: editForm.email,
@@ -2157,6 +2164,7 @@ export function LeadsTable({
       const response = await updateLeadDetails(payload);
       if (!response.success) {
         updateLeadLocally(editingLead);
+        void fetchPage(page);
         toast.add({ title: "Unable to save changes", description: response.error, type: "error" });
       } else {
         const updated = response.data;

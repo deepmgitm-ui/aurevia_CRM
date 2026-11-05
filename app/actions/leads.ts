@@ -155,6 +155,7 @@ export interface Employee {
 export interface UpdateLeadStatusInput {
   id: string;
   status: string;
+  expectedStatus: string | null;
 }
 
 export interface AddLeadActivityInput {
@@ -2016,29 +2017,35 @@ export async function updateLeadStatus(
     if (beforeError || !before) {
       return { success: false, error: beforeError?.message ?? "Lead not found or you do not have access." };
     }
+    if (before.status !== input.expectedStatus) {
+      return { success: false, error: "This lead's status changed. Refresh and try again." };
+    }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("leads")
       .update({
         status,
       })
-      .eq("id", input.id)
-      .select()
-      .single();
+      .eq("id", input.id);
+    query = before.status === null ? query.is("status", null) : query.eq("status", before.status);
+    const { data, error } = await query.select().maybeSingle();
 
     if (error) {
       return { success: false, error: error.message };
     }
+    if (!data) return { success: false, error: "This lead changed or is no longer available. Refresh and try again." };
 
     const previousStatus = (before.status ?? "").trim();
-    const activityRecorded = !previousStatus || previousStatus === status
+    const activityRecorded = previousStatus === status
       ? true
-      : await recordLeadActivity(supabase, input.id, user.id, "Status changed", `${previousStatus} → ${status}`);
+      : await recordLeadActivity(supabase, input.id, user.id, "Status changed", `${previousStatus || "—"} → ${status}`);
+
+    const { data: latest } = await supabase.from("leads").select().eq("id", input.id).maybeSingle();
 
     revalidatePath("/dashboard", "layout");
     return {
       success: true,
-      data: data as Lead,
+      data: (latest ?? data) as Lead,
       ...(!activityRecorded ? { warning: "Status saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
     };
   } catch (error) {
@@ -3738,6 +3745,7 @@ export async function updateLeadAssignment(
 
 export interface UpdateLeadDetailsInput {
   id: string;
+  expectedUpdatedAt?: string;
   name?: string;
   phone?: string;
   email?: string;
@@ -3803,11 +3811,14 @@ export async function updateLeadDetails(
 
     const { data: previousLead, error: previousLeadError } = await supabase
       .from("leads")
-      .select("name, phone, email, gender, city, disease, insurance_status, remarks, status, assigned_to, lead_date, follow_up_date, source")
+      .select("name, phone, email, gender, city, disease, insurance_status, remarks, status, assigned_to, lead_date, follow_up_date, source, updated_at")
       .eq("id", input.id)
       .single();
     if (previousLeadError || !previousLead) {
       return { success: false, error: previousLeadError?.message ?? "Lead not found." };
+    }
+    if (input.expectedUpdatedAt && previousLead.updated_at !== input.expectedUpdatedAt) {
+      return { success: false, error: "This lead changed while you were editing. Reopen it and try again." };
     }
 
     // Employees can edit patient details on rows RLS scopes to their own
@@ -3883,14 +3894,15 @@ export async function updateLeadDetails(
       }
     }
 
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from("leads")
       .update(updates)
-      .eq("id", input.id)
-      .select()
-      .single();
+      .eq("id", input.id);
+    if (input.expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", input.expectedUpdatedAt);
+    const { data, error } = await updateQuery.select().maybeSingle();
 
     if (error) return { success: false, error: error.message };
+    if (!data) return { success: false, error: "This lead changed or is no longer available. Reopen it and try again." };
     const fieldLabels: Record<string, string> = {
       name: "Patient name",
       phone: "Phone number",
@@ -3926,10 +3938,11 @@ export async function updateLeadDetails(
         "Lead details updated",
         `Changed: ${changedFields.join("; ")}.`,
       );
+    const { data: latest } = await supabase.from("leads").select().eq("id", input.id).maybeSingle();
     revalidatePath("/dashboard", "layout");
     return {
       success: true,
-      data: data as Lead,
+      data: (latest ?? data) as Lead,
       ...(!activityRecorded ? { warning: "Lead changes were saved, but the timeline entry could not be recorded. Please tell an admin." } : {}),
     };
   } catch (error) {

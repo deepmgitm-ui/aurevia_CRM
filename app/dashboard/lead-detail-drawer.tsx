@@ -5,7 +5,7 @@
 "use client";
 
 import { trackLeadMutations } from "./lead-mutation-tracker";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CalendarDays, Loader2, MessageSquareText, PhoneCall, TimerReset, X } from "lucide-react";
 
@@ -73,6 +73,7 @@ export function LeadDetailDrawer({
   onMutated?: (lead: Lead) => void;
 }) {
   const [lead, setLead] = useState<Lead | null>(null);
+  const editVersionRef = useRef<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<LeadDetailTab>(tab);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -113,6 +114,7 @@ export function LeadDetailDrawer({
       }
       const fresh = response.data.leads[0];
       setLead(fresh);
+      editVersionRef.current = fresh.updated_at;
       setActiveTab(tab);
       setEdits({
         name: fresh.name,
@@ -166,14 +168,14 @@ export function LeadDetailDrawer({
 
   if (!open) return null;
 
-  async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string) {
+  async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string, expectedUpdatedAt?: string) {
     if (!lead) return;
     setSaving(true);
     const optimistic = { ...lead, ...patch, id: lead.id };
     setLead(optimistic);
     onMutated?.(optimistic);
     try {
-      const update = await updateLeadDetails({ ...patch, id: lead.id });
+      const update = await updateLeadDetails({ ...patch, id: lead.id, expectedUpdatedAt });
       if (!update.success) {
         setLead(lead);
         onMutated?.(lead);
@@ -181,6 +183,7 @@ export function LeadDetailDrawer({
         return;
       }
       setLead(update.data);
+      if (expectedUpdatedAt) editVersionRef.current = update.data.updated_at;
       onMutated?.(update.data);
       const refreshed = await getLeadActivities(lead.id);
       if (refreshed.success) setActivities(refreshed.data);
@@ -223,6 +226,7 @@ export function LeadDetailDrawer({
           : {}),
       },
       "Patient updated",
+      editVersionRef.current,
     );
   }
 

@@ -386,6 +386,16 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.equal(importedLead.status, 'DNP');
   assert.notEqual(importedLead.workflow_bucket, 'fresh', 'CRM work ends the untouched state');
   await db.query("delete from leads where id=$1", [importedLeadId]);
+  const concurrentLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Concurrent edit','9192222298','Agent A','New') returning id,updated_at::text")).rows[0];
+  await db.query("update leads set status='DNP' where id=$1", [concurrentLead.id]);
+  const staleEdit = await db.query("update leads set remarks='Stale note',assigned_to='Agent B' where id=$1 and updated_at=$2::timestamptz returning id", [concurrentLead.id, concurrentLead.updated_at]);
+  assert.equal(staleEdit.rows.length, 0, 'an old form version cannot overwrite a newer lead');
+  const staleStatus = await db.query("update leads set status='Follow-Up' where id=$1 and status='New' returning id", [concurrentLead.id]);
+  assert.equal(staleStatus.rows.length, 0, 'an old status cannot replace a newer disposition');
+  const currentLead = (await db.query("select status,assigned_to from leads where id=$1", [concurrentLead.id])).rows[0];
+  assert.equal(currentLead.status, 'DNP');
+  assert.equal(currentLead.assigned_to, 'Agent A');
+  await db.query("delete from leads where id=$1", [concurrentLead.id]);
   const newAssignmentId = (await db.query(
     "insert into leads(name,phone,assigned_to,status) values('New assignment check','9192222200','-','New') returning id",
   )).rows[0].id;
