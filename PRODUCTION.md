@@ -188,6 +188,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Harden lead creation, callback, assignment, duplicate-review and call-log Server Actions against malformed or null client inputs so invalid payloads return a clear error instead of crashing on array methods or `.trim()`. | Targeted lead workflow checks, strict TypeScript, ESLint, production build and the isolated transaction/RLS migration checks pass; production deployment is verified Ready. |
 | 2026-11-05 | Validate lead search, create, status, detail-edit and activity Server Action inputs before trimming or saving, so malformed or stale clients return a readable error instead of a Server Components render exception. | Full lint, strict TypeScript, focused lead checks and production build pass; production runtime errors are checked after deployment. |
 | 2026-11-05 | On ambiguous lead-edit or appointment-save responses, reload the RLS-scoped current row before showing the previous value; preserve the current status in the drawer while unrelated edits save. | Strict TypeScript, targeted and full lint, lead/appointment checks, isolated CRM migration and production build pass. Authenticated browser verification remains unavailable. |
 | 2026-11-05 | Validated appointment Server Action inputs at runtime, restricted writes to the three appointment date columns, and required an authenticated user before updating a date. | Appointment assertions, strict TypeScript, targeted ESLint and production build pass. |

@@ -1498,6 +1498,9 @@ export async function createLead(
   if (!input || typeof input !== "object" || typeof input.name !== "string" || !input.name.trim()) {
     return { success: false, error: "Lead name is required." };
   }
+  if (input.remarks !== undefined && input.remarks !== null && typeof input.remarks !== "string") {
+    return { success: false, error: "Lead remarks must be text." };
+  }
   const status = canonicalLeadStatus(input.status);
   if (!isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
 
@@ -1617,7 +1620,16 @@ export async function resolveDuplicateLeadReviews(input: {
   targetName?: string;
   asFresh?: boolean;
 }): Promise<ActionResult<{ action: "assign" | "keep" | "delete"; affected: number; backupId: string | null }>> {
-  const reviewIds = [...new Set((input.reviewIds ?? []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!input || typeof input !== "object" || !Array.isArray(input.reviewIds)) {
+    return { success: false, error: "Select duplicate leads to review." };
+  }
+  if (input.targetName !== undefined && typeof input.targetName !== "string") {
+    return { success: false, error: "Choose a valid employee." };
+  }
+  if (input.asFresh !== undefined && typeof input.asFresh !== "boolean") {
+    return { success: false, error: "Choose whether to keep the status or send these leads as fresh." };
+  }
+  const reviewIds = [...new Set(input.reviewIds.filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
   if (!reviewIds.length || reviewIds.length > 500) return { success: false, error: "Select between 1 and 500 duplicate leads." };
   if (!["assign", "keep", "delete"].includes(input.action)) return { success: false, error: "Choose an available review action." };
   if (input.action === "assign" && !input.targetName?.trim()) return { success: false, error: "Choose an employee to assign these leads to." };
@@ -1642,7 +1654,8 @@ export async function resolveDuplicateLeadReviews(input: {
 
 /** Exact selected duplicate rows for the pre-delete Excel safety copy. */
 export async function getDuplicateReviewLeadsForExport(reviewIds: string[]): Promise<ActionResult<Lead[]>> {
-  const ids = [...new Set((reviewIds ?? []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!Array.isArray(reviewIds)) return { success: false, error: "Select duplicate leads to export." };
+  const ids = [...new Set(reviewIds.filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))];
   if (!ids.length || ids.length > 500) return { success: false, error: "Select between 1 and 500 duplicate leads to export." };
   try {
     const supabase = await createClient();
@@ -2169,7 +2182,8 @@ export async function updateLeadFollowUpDate(
   leadId: string,
   followUpDate: string,
 ): Promise<ActionResult<Lead>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
+  if (typeof leadId !== "string" || !leadId.trim()) return { success: false, error: "Lead ID is required." };
+  if (typeof followUpDate !== "string") return { success: false, error: "Enter a valid follow-up date." };
 
   try {
     const supabase = await createClient();
@@ -3147,7 +3161,7 @@ export async function transferLeadAssignmentBatch(input: {
   employeeName: string;
   asFresh?: boolean;
 }): Promise<ActionResult<{ transferred: number }>> {
-  if (!input || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.batchId ?? "") || !input.employeeName?.trim()) {
+  if (!input || typeof input !== "object" || typeof input.batchId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.batchId) || typeof input.employeeName !== "string" || !input.employeeName.trim()) {
     return { success: false, error: "Select a valid batch and team member." };
   }
   if (input.asFresh !== undefined && typeof input.asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send these leads as fresh." };
@@ -3362,6 +3376,7 @@ export async function assignLeadsToEmployees(input: {
     return { success: false, error: "Select employees and leads to assign." };
   }
   if (input.asFresh !== undefined && typeof input.asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send these leads as fresh." };
+  if (input.batchLabel !== undefined && typeof input.batchLabel !== "string") return { success: false, error: "Enter a valid assignment label." };
   const employeeNames = Array.from(
     new Set((input.employeeNames ?? []).map((name) => (typeof name === "string" ? name.trim() : "")).filter(Boolean)),
   );
@@ -3536,6 +3551,7 @@ export async function assignUnassignedLeads(
   count: number,
   employeeNames: string[],
 ): Promise<ActionResult<SmartAssignmentResult>> {
+  if (!Array.isArray(employeeNames)) return { success: false, error: "Select at least one employee to assign leads to." };
   const targetCount = Math.floor(Number(count) || 0);
   const selectedNames = Array.from(
     new Set(
@@ -3622,7 +3638,8 @@ export async function updateLeadAssignment(
   employeeName: string,
   asFresh = false,
 ): Promise<ActionResult<Lead>> {
-  if (!leadId) return { success: false, error: "A lead is required." };
+  if (typeof leadId !== "string" || !leadId.trim()) return { success: false, error: "A lead is required." };
+  if (typeof employeeName !== "string") return { success: false, error: "Choose a valid team member." };
   if (typeof asFresh !== "boolean") return { success: false, error: "Choose whether to keep the status or send this lead as fresh." };
 
   try {
@@ -4024,7 +4041,7 @@ export async function rescheduleFollowUp(
   leadId: string,
   followUpDate: string,
 ): Promise<ActionResult<Lead>> {
-  if (!leadId || !followUpDate) {
+  if (typeof leadId !== "string" || !leadId.trim() || typeof followUpDate !== "string" || !followUpDate) {
     return { success: false, error: "Lead and follow-up date are required." };
   }
 
@@ -4069,12 +4086,37 @@ export async function rescheduleFollowUp(
 export async function logLeadCall(
   input: { lead_id: string; outcome: string; notes?: string | null; next_follow_up_date?: string | null; next_follow_up_time?: string | null },
 ): Promise<ActionResult<LeadActivity>> {
-  try{const outcome=normaliseCallOutcome(input.outcome);if(!input.lead_id||!outcome)return {success:false,error:"Choose a valid call outcome."};
- const date=input.next_follow_up_date?parseStoredDateKey(input.next_follow_up_date):null;if(date&&!isWorkDate(date))return {success:false,error:"Choose a valid callback date."};
- const time=input.next_follow_up_time?.trim()||null;if(time&&(!date||!isCallTime(time)))return {success:false,error:"Choose a callback date and time."};
- const supabase=await createClient();const {data,error}=await supabase.rpc("crm_log_call",{p_lead:input.lead_id,p_outcome:outcome,p_notes:input.notes?.trim()||"",p_next:date,p_time:time});if(error)return {success:false,error:error.message};
- revalidatePath("/dashboard");revalidatePath("/dashboard/tasks");revalidatePath("/dashboard/follow-up-calendar");return {success:true,data:data as LeadActivity};
- }catch(error){return {success:false,error:getErrorMessage(error,"Unable to log call.")};}
+  if (!input || typeof input !== "object" || typeof input.lead_id !== "string" || !input.lead_id.trim() || typeof input.outcome !== "string") {
+    return { success: false, error: "Choose a valid call outcome." };
+  }
+  if ([input.notes, input.next_follow_up_date, input.next_follow_up_time].some((value) => value !== undefined && value !== null && typeof value !== "string")) {
+    return { success: false, error: "Call notes and callback details must be text." };
+  }
+
+  try {
+    const outcome = normaliseCallOutcome(input.outcome);
+    if (!outcome) return { success: false, error: "Choose a valid call outcome." };
+    const date = input.next_follow_up_date ? parseStoredDateKey(input.next_follow_up_date) : null;
+    if (date && !isWorkDate(date)) return { success: false, error: "Choose a valid callback date." };
+    const time = input.next_follow_up_time?.trim() || null;
+    if (time && (!date || !isCallTime(time))) return { success: false, error: "Choose a callback date and time." };
+
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("crm_log_call", {
+      p_lead: input.lead_id,
+      p_outcome: outcome,
+      p_notes: input.notes?.trim() || "",
+      p_next: date,
+      p_time: time,
+    });
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/tasks");
+    revalidatePath("/dashboard/follow-up-calendar");
+    return { success: true, data: data as LeadActivity };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to log call.") };
+  }
 }
 
 export async function getPipelineInsights(): Promise<ActionResult<PipelineInsights>> {
