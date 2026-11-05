@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const RENDER_URL = "https://aurevia-crm.onrender.com";
+const subscribe = () => () => {};
 
 export function RenderFallbackNotice() {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    setShow(window.location.hostname.toLowerCase().endsWith(".vercel.app"));
-  }, []);
+  const show = useSyncExternalStore(subscribe, () => window.location.hostname.toLowerCase().endsWith(".vercel.app"), () => false);
 
   if (!show) return null;
 

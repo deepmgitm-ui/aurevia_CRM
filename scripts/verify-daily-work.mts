@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyCurrentNewLeadFilter, applyDailyWorkFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
+import { applyCurrentNewLeadFilter, applyDailyWorkFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
 import { clinicDate } from "../lib/attendance.ts";
 import { parseLeadFilters, leadsHref, hasLeadFilters, describeActiveFilters } from "../app/dashboard/lead-filters.ts";
 
@@ -16,6 +16,15 @@ class Query {
   lt(column: string, value: string) { this.predicates.push(row => row[column] !== null && (row[column] ?? "") < value); return this; }
   eq(column: string, value: string) { this.predicates.push(row => row[column] === value); return this; }
   or(expression: string) {
+    const olderFresh = expression.match(/^assigned_fresh_since\.lt\.([^,]+),and\(assigned_fresh_since\.is\.null,fresh_pending_since\.lt\.([^,]+)\)$/);
+    if (olderFresh) {
+      const [, assignedBefore, pendingBefore] = olderFresh;
+      this.predicates.push(row => Boolean(
+        (row.assigned_fresh_since && row.assigned_fresh_since < assignedBefore) ||
+        (row.assigned_fresh_since == null && row.fresh_pending_since && row.fresh_pending_since < pendingBefore),
+      ));
+      return this;
+    }
     const freshWindow = expression.match(/^and\(assigned_fresh_since\.gte\.([^,]+),assigned_fresh_since\.lt\.([^,]+)\),and\(fresh_pending_since\.gte\.([^,]+),fresh_pending_since\.lt\.([^,]+),or\(assigned_to\.is\.null,assigned_to\.eq\.-,assigned_to\.eq\.unassigned\)\)$/);
     if (freshWindow) {
       const [, assignedFrom, assignedTo, pendingFrom, pendingTo] = freshWindow;
@@ -56,6 +65,8 @@ const currentNewRows: Row[] = [
   { id: "yesterday-unassigned", assigned_to: "-", fresh_pending_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
 ];
 assert.deepEqual(currentNewRows.filter(row => currentNewFilter.matches(row)).map(row => row.id), ["today-untouched", "today-unassigned"]);
+const olderFreshFilter = new Query().eq("workflow_bucket", "fresh").or(olderFreshLeadFilter("2026-10-11"));
+assert.deepEqual(currentNewRows.filter(row => olderFreshFilter.matches(row)).map(row => row.id), ["yesterday-untouched", "yesterday-unassigned"]);
 assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "New");
 for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
   assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "New", `Untouched ${status} imports should retain their workflow bucket`);

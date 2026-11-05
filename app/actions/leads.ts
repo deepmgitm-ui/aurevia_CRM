@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
-import { applyCurrentNewLeadFilter, applyDailyWorkFilter, assignmentDayWindow, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { applyCurrentNewLeadFilter, applyDailyWorkFilter, olderFreshLeadFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -550,7 +550,7 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
     }
   }
   if (resolved.bucket === "fresh") {
-    filtered = filtered.lt("assigned_fresh_since", assignmentDayWindow(clinicDate()).from);
+    filtered = filtered.or(olderFreshLeadFilter(clinicDate()));
   }
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
@@ -914,15 +914,19 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     }
 
     const assignedScope = profile.role === "employee" ? profile.name : assignedTo.trim();
-    const { data, error } = await supabase.rpc("crm_lead_bucket_summary", {
+    const summaryQuery = supabase.rpc("crm_lead_bucket_summary", {
       p_assigned_to: assignedScope || null,
     });
-    if (error) return { success: false, error: "Your lead summary could not be loaded." };
     let dnpQuery = supabase.from("leads").select("id", { count: "exact", head: true })
       .in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
     if (assignedScope) dnpQuery = dnpQuery.ilike("assigned_to", escapeLikePattern(assignedScope));
-    const { count: dnpCount, error: dnpError } = await dnpQuery;
+    const freshQuery = !assignedScope
+      ? supabase.from("leads").select("id", { count: "exact", head: true }).eq("workflow_bucket", "fresh").or(olderFreshLeadFilter(clinicDate()))
+      : null;
+    const [{ data, error }, { count: dnpCount, error: dnpError }, freshResult] = await Promise.all([summaryQuery, dnpQuery, freshQuery]);
+    if (error) return { success: false, error: "Your lead summary could not be loaded." };
     if (dnpError) return { success: false, error: "Your DNP lead count could not be loaded." };
+    if (freshResult?.error) return { success: false, error: "Your Fresh lead count could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
     const statusCounts = row.statuses && typeof row.statuses === "object" ? row.statuses : {};
     const normalizedCounts: Record<string, number> = {};
@@ -932,7 +936,7 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     }
     return { success: true, data: {
       total: Number(row.total ?? 0),
-      fresh: Number(row.fresh ?? 0),
+      fresh: freshResult ? (freshResult.count ?? 0) : Number(row.fresh ?? 0),
       followUp: Number(row.followUp ?? 0),
       dnp: dnpCount ?? 0,
       lost: Number(row.lost ?? 0),

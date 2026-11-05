@@ -46,11 +46,15 @@ procedure changes. Keep the implementation and this guide in the same change.
   leads after their intake/assignment day). New imported rows start untouched
   regardless of their source status or whether they have an assignee. Preserve
   the uploaded disposition as provenance until a CRM user changes that status.
+- Older unassigned untouched leads use their intake date for the Fresh card and
+  its drill-down; assigned untouched leads use their latest assignment date.
 - Assignment by itself does not count as a touch. An employee's note, call,
   field/status edit, or an admin/manager action on a lead ends its New/Fresh
   state; route it to the bucket for its actual CRM status. Keep this pending
   first-touch marker separate from the assignment timestamp so employee daily
   counts still mean leads assigned to that employee that day.
+- Transfer history is recorded without counting the transfer as agent work or
+  recursively updating the lead during its assignment change.
 - A source-file Lost/closed label is not a real closed workflow until a CRM user
   first works the lead. Start its existing 7-day lost review only after it enters
   the actual Closed bucket.

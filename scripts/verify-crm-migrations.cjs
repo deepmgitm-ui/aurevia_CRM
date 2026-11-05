@@ -376,6 +376,16 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.deepEqual(visibleFollowUps.map((row) => row.id), [followUpA], "employee follow-up calendar cannot read another agent's lead");
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   await db.query("delete from leads where id=any($1::uuid[])", [[followUpA, followUpB]]);
+  const importedLeadId = (await db.query("insert into leads(name,phone,assigned_to,status) values('Untouched import','9192222299','-','DNP') returning id")).rows[0].id;
+  await db.query("update leads set assigned_to='Agent A' where id=$1", [importedLeadId]);
+  let importedLead = (await db.query("select status,workflow_bucket from leads where id=$1", [importedLeadId])).rows[0];
+  assert.equal(importedLead.status, 'DNP', 'assignment preserves the imported disposition');
+  assert.equal(importedLead.workflow_bucket, 'fresh', 'assignment alone keeps the imported lead untouched');
+  await db.query("update leads set remarks='First CRM update' where id=$1", [importedLeadId]);
+  importedLead = (await db.query("select status,workflow_bucket from leads where id=$1", [importedLeadId])).rows[0];
+  assert.equal(importedLead.status, 'DNP');
+  assert.notEqual(importedLead.workflow_bucket, 'fresh', 'CRM work ends the untouched state');
+  await db.query("delete from leads where id=$1", [importedLeadId]);
   const newAssignmentId = (await db.query(
     "insert into leads(name,phone,assigned_to,status) values('New assignment check','9192222200','-','New') returning id",
   )).rows[0].id;
@@ -408,6 +418,13 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.query("update leads set remarks='Agent B note' where id=$1", [newAssignmentId]);
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0].workflow_bucket, "followup", "receiving agent's edit removes the lead from New Today");
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  await db.query("update leads set status='DNP' where id=$1", [newAssignmentId]);
+  await db.query("update leads set assigned_to='Agent A' where id=$1", [newAssignmentId]);
+  const keptStatus = (await db.query("select assigned_to,status,first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(keptStatus.assigned_to, 'Agent A');
+  assert.equal(keptStatus.status, 'DNP', 'transfer without fresh keeps the disposition');
+  assert.ok(keptStatus.first_agent_touch_at, 'transfer preserves the earlier touch');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Transfer'", [newAssignmentId])).rows[0].n, 2, 'both transfers retain history');
   await db.query("delete from leads where id=$1", [newAssignmentId]);
   const bucketIds = {};
   for (const [key, name, status] of [
@@ -420,20 +437,21 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
     ["lost", "Bucket lost", "Dropped"],
   ]) {
     bucketIds[key] = (await db.query(
-      "insert into leads(name,phone,assigned_to,status) values($1,$2,'Agent A',$3) returning id",
-      [name, String(9100000000 + Object.keys(bucketIds).length), status],
+      "insert into leads(name,phone,assigned_to,status,first_agent_touch_at) values($1,$2,'Agent A',$3,case when $4 then now() else null end) returning id",
+      [name, String(9100000000 + Object.keys(bucketIds).length), status, !['edited', 'activity'].includes(key)],
     )).rows[0].id;
   }
   const oldFreshId = (await db.query(
     "insert into leads(name,phone,assigned_to,status,assigned_at) values('Bucket old fresh','9191000000','Agent A','New',(date_trunc('day',now() at time zone 'Asia/Kolkata') - interval '1 day') at time zone 'Asia/Kolkata') returning id",
   )).rows[0].id;
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [oldFreshId])).rows[0].workflow_bucket, "fresh");
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "fresh");
   const initialGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
   assert.ok(initialGroups.some((row) => row.bucket === "new" && Number(row.lead_count) >= 2), "today's untouched assignments are grouped as New Today");
   assert.ok(initialGroups.some((row) => row.bucket === "fresh" && Number(row.lead_count) >= 1), "untouched assignments from earlier days are grouped as Fresh");
   assert.ok(initialGroups.some((row) => row.bucket === "lost" && Number(row.lead_count) >= 1), "closed outcomes are grouped as Lost");
-  const dailyBeforeTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  const dailyBeforeTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
   await db.query("update leads set remarks='First agent edit' where id=$1", [bucketIds.edited]);
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,auth.uid(),'Note','First agent activity')", [bucketIds.activity]);
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "followup");
@@ -494,10 +512,14 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.exec("reset role;");
 
   // Reviews appear during the seven-day window; admin Keep prevents cleanup.
-  await db.exec("reset role;");
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   const keepLead = (await db.query(
     "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','Not Interested',now()-interval '2 days') returning id",
   )).rows[0].id;
+  await db.query("update leads set remarks='Reviewed' where id=$1", [keepLead]);
+  await db.exec("alter table leads disable trigger crm_track_agent_lead_workflow");
+  await db.query("update leads set closed_status_since=now()-interval '2 days' where id=$1", [keepLead]);
+  await db.exec("alter table leads enable trigger crm_track_agent_lead_workflow");
   await db.query("select crm_private.daily_lost_lead_reviews()");
   const keepReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [keepLead])).rows[0].id;
   assert.equal((await db.query("select count(*)::int n from leads where id=$1", [keepLead])).rows[0].n, 1, "leads younger than seven closed days are retained");
@@ -519,6 +541,9 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
     "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Purge','9190000002','Agent A','Wrong Number',now()-interval '8 days') returning id",
   )).rows[0].id;
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000002','Note','Private patient note')", [purgeLead]);
+  await db.exec("alter table leads disable trigger crm_track_agent_lead_workflow");
+  await db.query("update leads set closed_status_since=now()-interval '8 days' where id=$1", [purgeLead]);
+  await db.exec("alter table leads enable trigger crm_track_agent_lead_workflow");
   const purgeAppointment = (await db.query("insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id", [purgeLead, today])).rows[0].id;
   await db.query("insert into lead_deletion_backups(scope,search,row_count,activity_count,lead_rows,activity_rows) values('selected','',1,1,jsonb_build_array(jsonb_build_object('id',$1::text,'name','Review Purge')),jsonb_build_array(jsonb_build_object('lead_id',$1::text,'description','Private patient note')))", [purgeLead]);
   await db.query("select crm_private.daily_lost_lead_reviews()");
@@ -564,7 +589,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
     "Isolated migration checks passed: CRM workflows, appointment owner RLS and reassignment, agent buckets, deletion reviews, and linked-data cleanup",
   );
 })().catch(async (e) => {
-  console.error(e.message);
+  console.error(e);
   await db?.close();
   process.exitCode = 1;
 });

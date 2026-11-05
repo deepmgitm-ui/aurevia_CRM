@@ -2628,7 +2628,7 @@ export function LeadsTable({
                       : workflowLabel === "Dropped"
                           ? "border-rose-200 bg-rose-50 text-rose-700"
                           : "border-slate-200 bg-slate-50 text-slate-600";
-                const ageLabel = isNew ? "Assigned today" : relativeLeadAge(lead.lead_date);
+                const ageLabel = isNew ? (lead.assigned_at ? "Assigned today" : "Added today") : relativeLeadAge(lead.lead_date);
                 const treatment = treatmentCellData(lead);
                 return (
                 <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-emerald-50/50" : undefined)}>

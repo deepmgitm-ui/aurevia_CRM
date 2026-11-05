@@ -63,6 +63,12 @@ export function applyCurrentNewLeadFilter<Q extends DailyQuery<Q>>(query: Q, day
     );
 }
 
+/** Older untouched leads use their assignment date, or intake date if unassigned. */
+export function olderFreshLeadFilter(day: string): string {
+  const start = assignmentDayWindow(day).from;
+  return `assigned_fresh_since.lt.${start},and(assigned_fresh_since.is.null,fresh_pending_since.lt.${start})`;
+}
+
 export interface LeadWorkflowFields {
   workflow_bucket?: string | null;
   assigned_fresh_since?: string | null;
