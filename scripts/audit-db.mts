@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { stageForStatus } from "../app/dashboard/overview/analytics.ts";
+import { canonicalTreatment, stageForStatus } from "../app/dashboard/overview/analytics.ts";
 
 function loadEnv(): Record<string, string> {
   const env: Record<string, string> = {};
@@ -33,8 +33,8 @@ function ok(label: string, pass: boolean, detail = "") {
 }
 
 async function main() {
-  // Profiles are needed by more than one check, so they load first and the
-  // attendance rows can be printed with a real name instead of a UUID.
+  // Profiles are needed by more than one check, so they load once and the
+  // audit can report aggregate ownership checks without exposing names.
   const { data: profileRows } = await supabase.from("profiles").select("id, name, role");
   const people = (profileRows ?? []) as { id: string; name: string; role: string }[];
 
@@ -49,9 +49,10 @@ async function main() {
   ok("attendance.auto_marked", await probe("attendance", "auto_marked"));
 
   console.log("\n=== 2. Attendance rows actually being written ===");
-  const { data: att } = await supabase
+  const { data: att, error: attendanceReadError } = await supabase
     .from("attendance")
-    .select("id, employee_id, attendance_date, status, check_in_at, auto_marked, marked_by, created_at, note");
+    .select("auto_marked, check_in_at, marked_by");
+  if (attendanceReadError) throw new Error(`Attendance audit query failed: ${attendanceReadError.message}`);
   const attRows = (att ?? []) as Record<string, string | boolean | null>[];
   ok("attendance has rows", attRows.length > 0, `${attRows.length} rows`);
   // Only an AUTO mark can have a sign-in time. A row an admin added by hand from
@@ -70,12 +71,7 @@ async function main() {
     `${manualRows.filter((row) => !row.marked_by).length} without marked_by`,
   );
 
-  for (const row of attRows) {
-    const who = people.find((p) => p.id === row.employee_id);
-    console.log(
-      `    ${String(row.attendance_date)}  ${who?.name ?? row.employee_id}  status=${row.status}  check_in=${row.check_in_at ?? "NULL"}  auto=${row.auto_marked}  marked_by=${row.marked_by ?? "null"}  note=${row.note ?? "null"}`,
-    );
-  }
+  console.log("  INFO  attendance row details are omitted (privacy-safe summary only)");
 
   console.log("\n=== 3. Profiles / roles ===");
   console.log(`  people: ${people.length}`);
@@ -85,10 +81,23 @@ async function main() {
   ok("at least one admin/manager exists", people.some((p) => p.role === "admin" || p.role === "manager"));
 
   console.log("\n=== 4. Data quality (what breaks charts) ===");
-  const { data: leads } = await supabase
+  const rows: Record<string, string | null>[] = [];
+  const leadPageSize = 1000;
+  for (let offset = 0; ; offset += leadPageSize) {
+    const { data: page, error } = await supabase
+      .from("leads")
+      .select("id, phone, city, disease, source, status, assigned_to, lead_date, created_at")
+      .order("id", { ascending: true })
+      .range(offset, offset + leadPageSize - 1);
+    if (error) throw new Error(`Lead audit query failed at row ${offset}: ${error.message}`);
+    rows.push(...((page ?? []) as Record<string, string | null>[]));
+    if (!page || page.length < leadPageSize) break;
+  }
+  const { count: exactLeadCount, error: exactCountError } = await supabase
     .from("leads")
-    .select("id, name, phone, city, disease, source, status, assigned_to, lead_date, created_at");
-  const rows = (leads ?? []) as Record<string, string | null>[];
+    .select("id", { count: "exact", head: true });
+  if (exactCountError) throw new Error(`Lead count query failed: ${exactCountError.message}`);
+  ok("all lead pages loaded", rows.length === (exactLeadCount ?? 0), `${rows.length} of ${exactLeadCount ?? "?"}`);
   const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const count = (pick: (row: Record<string, string | null>) => string) => {
     const map = new Map<string, number>();
@@ -106,22 +115,7 @@ async function main() {
   ok("every lead has a lead_date", noDate === 0, `${noDate} missing`);
   console.log(`  INFO  leads with no treatment/disease: ${noDisease}`);
 
-  console.log("\n  treatments (top 12):");
-  for (const [value, n] of count((r) => text(r.disease)).slice(0, 12)) {
-    console.log(`    ${String(n).padStart(3)} × ${value}`);
-  }
-  console.log("\n  cities (top 12):");
-  for (const [value, n] of count((r) => text(r.city)).slice(0, 12)) {
-    console.log(`    ${String(n).padStart(3)} × ${value}`);
-  }
-  console.log("\n  sources:");
-  for (const [value, n] of count((r) => text(r.source))) {
-    console.log(`    ${String(n).padStart(3)} × ${value}`);
-  }
-  console.log("\n  statuses:");
-  for (const [value, n] of count((r) => text(r.status)).slice(0, 20)) {
-    console.log(`    ${String(n).padStart(3)} × ${value}`);
-  }
+  console.log(`  INFO  distinct treatment, city and source values: ${count((r) => text(r.disease)).length}, ${count((r) => text(r.city)).length}, ${count((r) => text(r.source)).length}`);
 
   console.log("\n=== 5. Assigned agents vs real people ===");
   const assigned = new Set(
@@ -129,7 +123,7 @@ async function main() {
   );
   const names = new Set(people.map((p) => text(p.name)));
   const ghosts = [...assigned].filter((a) => !names.has(a));
-  ok("every assigned_to is a real profile", ghosts.length === 0, ghosts.join(", "));
+  ok("every assigned_to is a real profile", ghosts.length === 0, `${ghosts.length} unmatched assignment names`);
   const unassigned = rows.filter((r) => !text(r.assigned_to) || text(r.assigned_to) === "-").length;
   console.log(`  INFO  unassigned leads: ${unassigned}/${rows.length}`);
 
@@ -159,27 +153,28 @@ async function main() {
     console.log(`    ${stage.padEnd(12)} ${n}`);
   }
 
-  // Treatment spellings split one treatment across two chart bars.
-  console.log("\n=== 7. Treatment values that are really the same thing ===");
-  const diseases = count((r) => text(r.disease)).filter(([v]) => v && v !== "-");
-  const canon = new Map<string, string[]>();
-  for (const [value] of diseases) {
-    const key = value.toLowerCase().replace(/[\s_-]+/g, "");
-    canon.set(key, [...(canon.get(key) ?? []), value]);
+  // Match the dashboard's canonicalizer so harmless case/spelling variants
+  // that already share a chart bucket do not become false audit failures.
+  console.log("\n=== 7. Treatment grouping ===");
+  const rawTreatments = count((r) => text(r.disease)).filter(([value]) => value && value !== "-");
+  const treatmentBuckets = new Map<string, number>();
+  for (const [value] of rawTreatments) {
+    const key = canonicalTreatment(value).key;
+    treatmentBuckets.set(key, (treatmentBuckets.get(key) ?? 0) + 1);
   }
-  const splits = [...canon.values()].filter((group) => group.length > 1);
-  ok("no treatment is spelled two different ways", splits.length === 0);
-  for (const group of splits) console.log(`    ${group.join("  +  ")}`);
+  const normalizedVariants = [...treatmentBuckets.values()].filter((variants) => variants > 1).length;
+  console.log(`  INFO  ${normalizedVariants} canonical groups merge multiple source spellings; raw values are omitted`);
 
   // Duplicate numbers break the Meta dedupe and double-count a person.
   console.log("\n=== 8. Duplicate phone numbers ===");
   const phones = new Map<string, number>();
   for (const row of rows) {
-    const phone = text(row.phone);
+    const digits = text(row.phone).replace(/\D/g, "");
+    const phone = digits.length >= 10 ? digits.slice(-10) : "";
     if (phone) phones.set(phone, (phones.get(phone) ?? 0) + 1);
   }
   const dupes = [...phones].filter(([, n]) => n > 1);
-  ok("no duplicate phone numbers", dupes.length === 0, `${dupes.length} duplicated`);
+  ok("no duplicate normalized phone numbers", dupes.length === 0, `${dupes.length} duplicate groups; phone values are omitted`);
 
   // The timeline is a real feature; zero rows means nobody has logged a call.
   const { count: activityCount } = await supabase
