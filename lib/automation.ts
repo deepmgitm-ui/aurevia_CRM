@@ -14,7 +14,7 @@ export interface AutomationChange {
   name: string;
   phone: string | null;
   assignedTo: string | null;
-  patch: { status?: string; assignedTo?: string; followUpDate?: string; note?: string };
+  patch: { assignedTo?: string; followUpDate?: string; note?: string };
   reason: string;
 }
 
