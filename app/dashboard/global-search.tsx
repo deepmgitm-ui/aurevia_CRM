@@ -68,7 +68,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
       <Button
         type="button"
         variant="ghost"
-        className="h-9 gap-2 rounded-xl border border-emerald-900/10 bg-white/80 px-3 text-slate-600 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+        className="h-9 gap-2 rounded-xl border border-emerald-900/10 bg-white/80 px-3 text-slate-600 shadow-sm transition-[color,background-color,border-color,box-shadow] hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
         aria-label="Search leads and CRM sections"
         onClick={() => setOpen(true)}
       >

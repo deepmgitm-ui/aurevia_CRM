@@ -65,7 +65,7 @@ function BoardCard({
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      className={`group cursor-grab rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md ${
+      className={`group cursor-grab rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md ${
         dragging ? "opacity-50" : ""
       }`}
     >

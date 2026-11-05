@@ -166,8 +166,8 @@ export function AutomationPanel() {
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
-                      rule.enabled ? "left-[22px]" : "left-0.5"
+                    className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                      rule.enabled ? "translate-x-5" : "translate-x-0"
                     }`}
                   />
                 </button>

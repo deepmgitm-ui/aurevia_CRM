@@ -60,7 +60,7 @@ export function TeamOverview({
               </div>
             </div>
             <ArrowRight
-              className="size-4 shrink-0 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600"
+              className="size-4 shrink-0 text-slate-300 transition-[color,transform] group-hover:translate-x-0.5 group-hover:text-slate-600"
               aria-hidden="true"
             />
           </Link>

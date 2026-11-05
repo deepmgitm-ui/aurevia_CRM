@@ -165,7 +165,7 @@ export function AttendanceTeam({
                   type="button"
                   onClick={() => onSelect(isSelected ? null : card.employeeId)}
                   aria-pressed={isSelected}
-                  className={`flex h-full w-full flex-col rounded-xl border bg-white p-4 text-left shadow-sm transition-all hover:shadow-md focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${
+                  className={`flex h-full w-full flex-col rounded-xl border bg-white p-4 text-left shadow-sm transition-[border-color,box-shadow] hover:shadow-md focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none ${
                     isSelected
                       ? "border-indigo-400 ring-2 ring-indigo-100"
                       : "border-slate-200 hover:border-slate-300"
