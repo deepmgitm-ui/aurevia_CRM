@@ -58,6 +58,10 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.current_user_role()'::regprocedure) as empty_role_path,
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_scheduler_status()'::regprocedure) as empty_scheduler_path,
     (select proconfig @> array['search_path=pg_catalog'] from pg_proc where oid='public.set_updated_at()'::regprocedure) as pinned_updated_path,
+    has_function_privilege('anon','public.crm_transfer_assignment_batch(uuid,text,boolean)','execute') as anon_batch_transfer,
+    has_function_privilege('authenticated','public.crm_transfer_assignment_batch(uuid,text,boolean)','execute') as auth_batch_transfer,
+    has_function_privilege('anon','public.crm_assign_leads_bulk(jsonb,text,boolean,boolean,uuid)','execute') as anon_bulk_assign,
+    has_function_privilege('authenticated','public.crm_assign_leads_bulk(jsonb,text,boolean,boolean,uuid)','execute') as auth_bulk_assign,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
   `)).rows[0];
   assert.deepEqual(hardened, {
@@ -71,6 +75,10 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     empty_role_path: true,
     empty_scheduler_path: true,
     pinned_updated_path: true,
+    anon_batch_transfer: false,
+    auth_batch_transfer: true,
+    anon_bulk_assign: false,
+    auth_bulk_assign: true,
     has_meta_id: true,
   });
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -448,6 +456,163 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.ok(keptStatus.first_agent_touch_at, 'transfer preserves the earlier touch');
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Transfer'", [newAssignmentId])).rows[0].n, 3, 'transfer, unassignment, and reassignment retain history');
   await db.query("delete from leads where id=$1", [newAssignmentId]);
+
+  const keepBatchId = (await db.query(
+    "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Keep status transfer',auth.uid(),'Admin',array['Agent A'],2) returning id",
+  )).rows[0].id;
+  const keepBatchLeads = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Keep status DNP','9192222281','Agent A','DNP',$1),('Keep status OPD','9192222282','Agent A','OPD Booked',$1) returning id,status",
+    [keepBatchId],
+  )).rows;
+  await db.exec("set role authenticated;");
+  const keepTransfer = (await db.query(
+    "select public.crm_transfer_assignment_batch($1,'Agent B',false) as transferred",
+    [keepBatchId],
+  )).rows[0].transferred;
+  assert.equal(Number(keepTransfer), 2, "batch transfer moves all matching leads in one operation");
+  assert.deepEqual(
+    (await db.query("select assigned_to,status from leads where id=any($1::uuid[]) order by name", [keepBatchLeads.map((lead) => lead.id)])).rows,
+    [{ assigned_to: "Agent B", status: "DNP" }, { assigned_to: "Agent B", status: "OPD Booked" }],
+    "Keep Current Status preserves each disposition during batch transfer",
+  );
+  assert.deepEqual((await db.query("select target_names from crm_assignment_batches where id=$1", [keepBatchId])).rows[0].target_names, ["Agent B"]);
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await assert.rejects(
+    db.query("select public.crm_transfer_assignment_batch($1,'Agent A',false)", [keepBatchId]),
+    "employees cannot transfer assignment batches",
+  );
+  await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
+  assert.equal((await db.query("select assigned_to from leads where id=$1", [keepBatchLeads[0].id])).rows[0].assigned_to, "Agent B",
+    "denied employee transfer leaves the owner unchanged");
+
+  const freshBatchId = (await db.query(
+    "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Fresh transfer',auth.uid(),'Admin',array['Agent A'],1) returning id",
+  )).rows[0].id;
+  const freshBatchLeadId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,follow_up_date,assignment_batch_id,first_agent_touch_at) values('Fresh transfer lead','9192222283','Agent A','DNP','2026-11-06',$1,now()) returning id",
+    [freshBatchId],
+  )).rows[0].id;
+  assert.equal(Number((await db.query(
+    "select public.crm_transfer_assignment_batch($1,'Agent B',true) as transferred",
+    [freshBatchId],
+  )).rows[0].transferred), 1);
+  const freshBatchLead = (await db.query("select assigned_to,status,follow_up_date,first_agent_touch_at from leads where id=$1", [freshBatchLeadId])).rows[0];
+  assert.equal(freshBatchLead.assigned_to, "Agent B");
+  assert.equal(freshBatchLead.status, "New", "Send as Fresh deliberately resets the disposition");
+  assert.equal(freshBatchLead.follow_up_date, "-");
+  assert.equal(freshBatchLead.first_agent_touch_at, null);
+  assert.deepEqual((await db.query("select target_names from crm_assignment_batches where id=$1", [freshBatchId])).rows[0].target_names, ["Agent B"]);
+
+  const atomicBatchId = (await db.query(
+    "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Atomic transfer',auth.uid(),'Admin',array['Agent A'],2) returning id",
+  )).rows[0].id;
+  const atomicLeadIds = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Batch allowed','9192222284','Agent A','New',$1),('Batch blocked','9192222285','Agent A','DNP',$1) returning id",
+    [atomicBatchId],
+  )).rows.map((lead) => lead.id);
+  const atomicHistoryBefore = (await db.query(
+    "select count(*)::int n from crm_assignment_events where lead_id=any($1::uuid[])", [atomicLeadIds],
+  )).rows[0].n;
+  await db.exec(`reset role;
+    create function public.fixture_block_batch_transfer() returns trigger language plpgsql as $$
+    begin
+      if new.name = 'Batch blocked' and new.assigned_to = 'Agent B' then raise exception 'fixture blocks the second lead'; end if;
+      return new;
+    end;$$;
+    create trigger fixture_block_batch_transfer before update of assigned_to on public.leads
+    for each row execute function public.fixture_block_batch_transfer();
+    set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;`);
+  await assert.rejects(
+    db.query("select public.crm_transfer_assignment_batch($1,'Agent B',false)", [atomicBatchId]),
+    "a failed row rolls back the complete batch transfer",
+  );
+  assert.deepEqual(
+    (await db.query("select assigned_to from leads where id=any($1::uuid[]) order by name", [atomicLeadIds])).rows,
+    [{ assigned_to: "Agent A" }, { assigned_to: "Agent A" }],
+    "failed batch transfer leaves every lead with its original owner",
+  );
+  assert.deepEqual((await db.query("select target_names from crm_assignment_batches where id=$1", [atomicBatchId])).rows[0].target_names, ["Agent A"]);
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_events where lead_id=any($1::uuid[])", [atomicLeadIds])).rows[0].n, atomicHistoryBefore,
+    "failed batch transfer leaves no partial assignment history");
+  await db.exec("reset role;drop trigger fixture_block_batch_transfer on public.leads;drop function public.fixture_block_batch_transfer();");
+  await db.query("delete from leads where id=any($1::uuid[])", [[...keepBatchLeads.map((lead) => lead.id), freshBatchLeadId, ...atomicLeadIds]]);
+  await db.query("delete from crm_assignment_batches where id=any($1::uuid[])", [[keepBatchId, freshBatchId, atomicBatchId]]);
+
+  const bulkLeads = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Bulk DNP','9192222290','-','DNP'),('Bulk New','9192222291','-','New') returning id,name,status",
+  )).rows;
+  const bulkResult = (await db.query(
+    "select public.crm_assign_leads_bulk($1::jsonb,'Bulk assignment',false,true,null) as result",
+    [JSON.stringify(bulkLeads.map((lead) => ({ id: lead.id, name: 'Agent A' })))],
+  )).rows[0].result;
+  assert.equal(Number(bulkResult.assigned), 2, "bulk RPC assigns the full selected set atomically");
+  assert.deepEqual(bulkResult.perEmployee, [{ name: "Agent A", count: 2 }]);
+  const bulkBatchId = bulkResult.batchId;
+  assert.deepEqual(
+    (await db.query("select assigned_to,status from leads where id=any($1::uuid[]) order by name", [bulkLeads.map((lead) => lead.id)])).rows,
+    [{ assigned_to: "Agent A", status: "DNP" }, { assigned_to: "Agent A", status: "New" }],
+    "keep-status bulk assignment preserves each lead disposition",
+  );
+  assert.deepEqual((await db.query("select target_names,lead_count from crm_assignment_batches where id=$1", [bulkBatchId])).rows[0],
+    { target_names: ["Agent A"], lead_count: 2 });
+
+  const freshLeadId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Bulk Fresh','9192222292','-','DNP','2026-11-06',now()) returning id",
+  )).rows[0].id;
+  const freshResult = (await db.query(
+    "select public.crm_assign_leads_bulk($1::jsonb,'Fresh bulk',true,true,null) as result",
+    [JSON.stringify([{ id: freshLeadId, name: "Agent B" }])],
+  )).rows[0].result;
+  assert.equal(Number(freshResult.assigned), 1);
+  assert.deepEqual((await db.query("select assigned_to,status,follow_up_date,first_agent_touch_at from leads where id=$1", [freshLeadId])).rows[0],
+    { assigned_to: "Agent B", status: "New", follow_up_date: "-", first_agent_touch_at: null },
+    "Send as Fresh deliberately resets disposition and touch state");
+
+  const guardedLeadId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Bulk guard','9192222293','Agent B','New') returning id",
+  )).rows[0].id;
+  const batchCountBeforeStale = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
+  await assert.rejects(db.query(
+    "select public.crm_assign_leads_bulk($1::jsonb,'Stale bulk',false,true,null)",
+    [JSON.stringify([{ id: guardedLeadId, name: "Agent A" }])],
+  ), "a stale unassigned selection is rejected");
+  assert.equal((await db.query("select assigned_to from leads where id=$1", [guardedLeadId])).rows[0].assigned_to, "Agent B",
+    "stale bulk assignment leaves the current owner unchanged");
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n, batchCountBeforeStale,
+    "stale bulk assignment does not leave an empty batch");
+
+  const rollbackLeads = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Bulk allowed','9192222294','-','New'),('Bulk blocked','9192222295','-','DNP') returning id,name",
+  )).rows;
+  const batchCountBeforeFailure = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
+  await db.exec(`reset role;
+    create function public.fixture_block_bulk_assignment() returns trigger language plpgsql as $$
+    begin
+      if new.name = 'Bulk blocked' and new.assigned_to = 'Agent B' then raise exception 'fixture blocks second assignment group'; end if;
+      return new;
+    end;$$;
+    create trigger fixture_block_bulk_assignment before update of assigned_to on public.leads
+    for each row execute function public.fixture_block_bulk_assignment();
+    set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;`);
+  await assert.rejects(db.query(
+    "select public.crm_assign_leads_bulk($1::jsonb,'Rollback bulk',false,false,null)",
+    [JSON.stringify(rollbackLeads.map((lead) => ({ id: lead.id, name: lead.name === 'Bulk allowed' ? 'Agent A' : 'Agent B' })))],
+  ), "a failed target group rolls back the entire bulk assignment");
+  assert.deepEqual((await db.query("select assigned_to from leads where id=any($1::uuid[]) order by name", [rollbackLeads.map((lead) => lead.id)])).rows,
+    [{ assigned_to: "-" }, { assigned_to: "-" }], "failed bulk assignment leaves all lead owners unchanged");
+  assert.equal((await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n, batchCountBeforeFailure,
+    "failed bulk assignment removes its batch row transactionally");
+  await db.exec("reset role;drop trigger fixture_block_bulk_assignment on public.leads;drop function public.fixture_block_bulk_assignment();");
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await assert.rejects(db.query(
+    "select public.crm_assign_leads_bulk($1::jsonb,'Denied bulk',false,false,null)",
+    [JSON.stringify([{ id: freshLeadId, name: "Agent A" }])],
+  ), "employees cannot invoke admin bulk assignment");
+  await db.exec("reset role;");
+  await db.query("delete from leads where id=any($1::uuid[])", [[...bulkLeads.map((lead) => lead.id), freshLeadId, guardedLeadId, ...rollbackLeads.map((lead) => lead.id)]]);
+  await db.query("delete from crm_assignment_batches where id=$1", [bulkBatchId]);
+  await db.query("delete from crm_assignment_batches where label='Fresh bulk'");
+
   const bucketIds = {};
   for (const [key, name, status] of [
     ["edited", "Bucket edited", "New"],

@@ -37,6 +37,15 @@ procedure changes. Keep the implementation and this guide in the same change.
   same normalized phone number.
 - Assignment history records assignment, transfer and unassignment events,
   including the prior owner and acting user when available.
+- Bulk admin assignment (selected IDs, Assign by Filters, unassigned-lead
+  distribution) creates its batch and changes all owners in one database
+  transaction. If a selected lead no longer matches the unassigned/batch
+  guard, or any lead update fails, neither the leads nor the batch are partly
+  saved. Keep Current Status preserves dispositions; Send as Fresh resets the
+  selected leads to New and clears their prior follow-up/touch state.
+- Assignment-batch transfer is one database transaction: lead ownership,
+  optional Fresh reset, assignment history and the batch roster either all save
+  or all roll back. Keep Current Status preserves each lead's disposition.
 
 ### Status and follow-up
 
@@ -168,6 +177,8 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-05 | Made selected, filtered and unassigned-lead bulk assignment atomic with batch creation, stale-filter guards, per-target distribution and optional Fresh reset. | Isolated migration verification covers success, status preservation/reset, stale unassigned selection rollback, failure on a later employee group, employee denial and grants. Strict TypeScript, lint and production build pass; live function definition, grants and migration version verified. |
+| 2026-11-05 | Made assignment-batch transfer atomic across all leads and its roster; a failed update leaves ownership and history unchanged. | Isolated migration check covers Keep Current Status, Send as Fresh, employee denial, all-or-nothing rollback and function grants. Strict TypeScript, lint and production build pass; live RPC definition and grants verified. |
 | 2026-11-05 | Record lead unassignments in the admin assignment history and distinguish assignment actions with compact, readable badges. | Isolated migration verification covers assign → transfer → unassign → assign and actor/previous-owner fields; targeted lint, strict TypeScript and production build pass. |
 | 2026-11-05 | Tightened dashboard, shared button/tab/badge, search and switch transitions to animate only intended visual properties. Re-audited lead status compare-and-save and stale edit guards; no workflow or schema changes. | Analytics, lead filters, daily work, automation, calendar, appointments, attendance, team activity, Meta, lead import and isolated CRM migration checks pass. Strict TypeScript, lint and production build pass. Live migration and timeline round-trip checks pass; no runtime errors in the selected 24-hour Vercel window. |
 | 2026-10-30 | Lead selection accumulates across pages; header select applies only to the current page. Note/Remarks and status edits refresh the row and timeline. Timeline entries include actor and time. | Webpack production build and lead-filter assertions pass. Live Supabase activity round-trip was verified and its temporary row removed. Targeted ESLint did not finish in the local environment. |

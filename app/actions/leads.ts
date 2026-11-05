@@ -2805,7 +2805,11 @@ export async function restoreLeadDeletionBackup(
 export async function randomAssignLeads(
   leadIds: string[],
 ): Promise<ActionResult<{ assigned: number }>> {
-  if (leadIds.length === 0) return { success: false, error: "No leads selected." };
+  if (!Array.isArray(leadIds) || leadIds.length === 0) return { success: false, error: "No leads selected." };
+  if (leadIds.length > BULK_ASSIGNMENT_LIMIT || leadIds.some((id) => typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    return { success: false, error: `Select between 1 and ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} valid leads.` };
+  }
+  const uniqueLeadIds = Array.from(new Set(leadIds));
 
   try {
     const supabase = await createClient();
@@ -2831,19 +2835,13 @@ export async function randomAssignLeads(
     );
     if (validUsers.length === 0) return { success: false, error: "No valid users are available for assignment." };
 
-    const distribution = validUsers.map((user) => ({ name: user.name, ids: [] as string[] }));
-    leadIds.forEach((id, index) => distribution[index % distribution.length].ids.push(id));
-    const batch = await createLeadAssignmentBatch(supabase, distribution.filter((entry) => entry.ids.length > 0).map((entry) => entry.name), leadIds.length);
-    if (!batch.success) return batch;
-    for (const entry of distribution) {
-      for (let offset = 0; offset < entry.ids.length; offset += 500) {
-        const { error } = await supabase.from("leads").update({ assigned_to: entry.name, assignment_batch_id: batch.data.id, assigned_at: new Date().toISOString() }).in("id", entry.ids.slice(offset, offset + 500));
-        if (error) return { success: false, error: `Assigned some leads before failing: ${assignmentBatchSetupError(error.message)}` };
-      }
-    }
+    const distribution = validUsers.map((user) => ({ name: user.name, leadIds: [] as string[] }));
+    uniqueLeadIds.forEach((id, index) => distribution[index % distribution.length].leadIds.push(id));
+    const assigned = await assignLeadGroupsAtomically(supabase, distribution, {});
+    if (!assigned.success) return assigned;
 
     revalidatePath("/dashboard", "layout");
-    return { success: true, data: { assigned: leadIds.length } };
+    return { success: true, data: { assigned: uniqueLeadIds.length } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to assign leads.") };
   }
@@ -2958,9 +2956,33 @@ export interface LeadAssignmentBatch {
 }
 
 function assignmentBatchSetupError(message: string): string {
-  return /crm_assignment_batches|assignment_batch_id/i.test(message)
+  return /crm_assignment_batches|crm_transfer_assignment_batch|crm_assign_leads_bulk|assignment_batch_id/i.test(message)
     ? "Assignment batches need a database update. Apply the latest Supabase migration, then retry."
     : message;
+}
+
+async function assignLeadGroupsAtomically(
+  supabase: LeadsSupabaseClient,
+  groups: { name: string; leadIds: string[] }[],
+  options: { batchLabel?: string; asFresh?: boolean; onlyUnassigned?: boolean; excludeBatchId?: string | null },
+): Promise<ActionResult<{ assigned: number }>> {
+  const assignments = groups.flatMap(({ name, leadIds }) => leadIds.map((id) => ({ id, name })));
+  if (assignments.length === 0 || assignments.length > BULK_ASSIGNMENT_LIMIT) {
+    return { success: false, error: `Select between 1 and ${BULK_ASSIGNMENT_LIMIT.toLocaleString()} leads.` };
+  }
+  const { data, error } = await supabase.rpc("crm_assign_leads_bulk", {
+    p_assignments: assignments,
+    p_batch_label: options.batchLabel?.trim() || null,
+    p_as_fresh: options.asFresh === true,
+    p_only_unassigned: options.onlyUnassigned === true,
+    p_exclude_batch_id: options.excludeBatchId ?? null,
+  });
+  if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+  const result = data as { assigned?: number } | null;
+  if (Number(result?.assigned) !== assignments.length) {
+    return { success: false, error: "The assignment could not be confirmed. Refresh the leads list before retrying." };
+  }
+  return { success: true, data: { assigned: assignments.length } };
 }
 
 async function createLeadAssignmentBatch(
@@ -3089,37 +3111,14 @@ export async function transferLeadAssignmentBatch(input: {
     if (profileError) return { success: false, error: profileError.message };
     const target = profiles?.find((profile) => profile.role === "employee" || viewerRole === "admin");
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
-    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
-    if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
-    let transferred = 0;
-    const assignmentAt = new Date().toISOString();
-    const freshAssignmentAt = input.asFresh === true ? assignmentAt : null;
-    for (;;) {
-      const { data: leads, error: fetchError } = await supabase
-        .from("leads")
-        .select("id")
-        .eq("assignment_batch_id", input.batchId)
-        .neq("assigned_to", target.name)
-        .limit(500);
-      if (fetchError) return { success: false, error: assignmentBatchSetupError(fetchError.message) };
-      const ids = (leads ?? []).map((lead) => lead.id);
-      if (ids.length === 0) break;
-      const updatePayload = input.asFresh === true
-        ? { assigned_to: target.name, status: "New", follow_up_date: "-", assigned_at: freshAssignmentAt, assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
-        : { assigned_to: target.name, assigned_at: assignmentAt };
-      const { data: updated, error: updateError } = await supabase
-        .from("leads")
-        .update(updatePayload)
-        .in("id", ids)
-        .select("id");
-      if (updateError) return { success: false, error: `Transferred ${transferred} leads before the remaining update failed. ${updateError.message}` };
-      const changed = updated?.length ?? 0;
-      transferred += changed;
-      if (changed < ids.length) break;
-    }
+    const { data, error: transferError } = await supabase.rpc("crm_transfer_assignment_batch", {
+      p_batch_id: input.batchId,
+      p_target_name: target.name,
+      p_as_fresh: input.asFresh === true,
+    });
+    if (transferError) return { success: false, error: assignmentBatchSetupError(transferError.message) };
+    const transferred = Number(data ?? 0);
     if (transferred === 0) return { success: false, error: "This batch has no leads that need transferring." };
-    const { error: rosterError } = await supabase.from("crm_assignment_batches").update({ target_names: [target.name] }).eq("id", input.batchId);
-    if (rosterError) return { success: false, error: `Leads transferred, but the batch roster could not be updated: ${rosterError.message}` };
     revalidatePath("/dashboard", "layout");
     return { success: true, data: { transferred } };
   } catch (error) {
@@ -3448,52 +3447,27 @@ export async function assignLeadsToEmployees(input: {
       perEmployee.push({ name, count: ids.length, leadIds: ids });
     });
 
-    const activeTargets = perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name);
-    const batchResult = await createLeadAssignmentBatch(supabase, activeTargets, matchingIds.length, input.batchLabel);
-    if (!batchResult.success) return batchResult;
-    const assignmentBatchId = batchResult.data.id;
-    const assignmentAt = new Date().toISOString();
-    const freshAssignmentAt = input.asFresh === true ? assignmentAt : null;
-
-    let assigned = 0;
-    for (const entry of perEmployee) {
-      let employeeAssigned = 0;
-      for (let offset = 0; offset < entry.leadIds.length; offset += 500) {
-        const ids = entry.leadIds.slice(offset, offset + 500);
-        if (ids.length === 0) continue;
-        const updatePayload = input.asFresh === true
-          ? { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, assigned_at: assignmentAt, status: "New", follow_up_date: "-", assigned_fresh_since: freshAssignmentAt, first_agent_touch_at: null }
-          : { assigned_to: entry.name, assignment_batch_id: assignmentBatchId, assigned_at: assignmentAt };
-        let updateQuery = supabase
-          .from("leads")
-          .update(updatePayload)
-          .in("id", ids);
-        if (assignmentByFilter && criteria) {
-          const assignmentFilter = assignmentOrExpression(criteria.includeAssigned === true, criteria.excludeBatchId);
-          if (assignmentFilter) updateQuery = updateQuery.or(assignmentFilter);
-        }
-        const { data: updatedRows, error } = await updateQuery.select("id");
-        if (error) {
-          return { success: false, error: `Assigned ${assigned} leads before failing: ${error.message}` };
-        }
-        const updatedCount = updatedRows?.length ?? 0;
-        assigned += updatedCount;
-        employeeAssigned += updatedCount;
+    const assignment = await assignLeadGroupsAtomically(supabase, perEmployee, {
+      batchLabel: input.batchLabel,
+      asFresh: input.asFresh === true,
+      onlyUnassigned: assignmentByFilter && criteria?.includeAssigned !== true,
+      excludeBatchId: assignmentByFilter && criteria?.excludeBatchId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(criteria.excludeBatchId)
+        ? criteria.excludeBatchId
+        : null,
+    });
+    if (!assignment.success) {
+      if (/database update|crm_assign_leads_bulk/i.test(assignment.error)) return assignment;
+      if (assignmentByFilter) {
+        return {
+          success: false,
+          error: "No leads were assigned. Some matching leads changed while you were assigning; refresh the list and retry.",
+        };
       }
-      entry.count = employeeAssigned;
+      return assignment;
     }
-
-    if (assigned !== matchingIds.length) {
-      const actualTargets = perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name);
-      const { error: countError } = assigned === 0
-        ? await supabase.from("crm_assignment_batches").delete().eq("id", assignmentBatchId)
-        : await supabase
-            .from("crm_assignment_batches")
-            .update({ lead_count: assigned, target_names: actualTargets })
-            .eq("id", assignmentBatchId);
-      if (countError) {
-        console.error("[assignLeadsToEmployees] Could not reconcile batch count", countError.message);
-      }
+    const assigned = assignment.data.assigned;
+    for (const entry of perEmployee) {
+      entry.count = entry.leadIds.length;
     }
 
     if (assigned === 0) {
@@ -3592,29 +3566,9 @@ export async function assignUnassignedLeads(
       perEmployee.push({ name, count: ids.length, leadIds: ids });
     });
 
-    const batch = await createLeadAssignmentBatch(supabase, perEmployee.filter((entry) => entry.count > 0).map((entry) => entry.name), leadIds.length);
-    if (!batch.success) return batch;
-
-    // Bulk update per employee, chunked so `.in()` never exceeds URL limits.
-    const chunkSize = 500;
-    let assigned = 0;
-    for (const entry of perEmployee) {
-      for (let index = 0; index < entry.leadIds.length; index += chunkSize) {
-        const chunk = entry.leadIds.slice(index, index + chunkSize);
-        if (chunk.length === 0) continue;
-        const { error } = await supabase
-          .from("leads")
-          .update({ assigned_to: entry.name, assignment_batch_id: batch.data.id })
-          .in("id", chunk);
-        if (error) {
-          return {
-            success: false,
-            error: `Assigned ${assigned} leads before failing: ${error.message}`,
-          };
-        }
-        assigned += chunk.length;
-      }
-    }
+    const assignment = await assignLeadGroupsAtomically(supabase, perEmployee, { onlyUnassigned: true });
+    if (!assignment.success) return assignment;
+    const assigned = assignment.data.assigned;
 
     revalidatePath("/dashboard", "layout");
     return {

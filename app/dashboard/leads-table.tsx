@@ -3245,7 +3245,7 @@ export function LeadsTable({
             <DialogDescription>
               {assignmentBatchAction?.kind === "delete"
                 ? `${assignmentBatchAction.batch.activeLeadCount.toLocaleString()} active leads from “${assignmentBatchAction.batch.label}” will be deleted. A recovery snapshot must be saved first.`
-                : `${assignmentBatchAction?.batch.activeLeadCount.toLocaleString() ?? 0} active leads from “${assignmentBatchAction?.batch.label ?? ""}” will be assigned to ${assignmentBatchTargets[assignmentBatchAction?.batch.id ?? ""] ?? "the selected employee"}.`}
+                : `${assignmentBatchAction?.batch.activeLeadCount.toLocaleString() ?? 0} active leads from “${assignmentBatchAction?.batch.label ?? ""}” will be assigned to ${assignmentBatchTargets[assignmentBatchAction?.batch.id ?? ""] ?? "the selected employee"}. All leads move together; if the save fails, none of them move.`}
             </DialogDescription>
           </DialogHeader>
           {assignmentBatchAction?.kind === "transfer" && <TransferDispositionChoices value={transferDisposition} onChange={setTransferDisposition} disabled={isAssignmentBatchActionPending} idPrefix="batch-transfer-disposition" />}
