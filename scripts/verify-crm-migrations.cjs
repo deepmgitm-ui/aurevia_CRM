@@ -323,6 +323,22 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
   await db.query("select crm_change_appointment_status($1,'completed')", [
     saved.appointmentId,
   ]);
+  const appointmentStatusActivity = (
+    await db.query(
+      "select user_id::text, description from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc, id desc limit 1",
+      [id],
+    )
+  ).rows[0];
+  assert.equal(
+    appointmentStatusActivity.description,
+    "New → OPD Done",
+    "appointment completion records the exact lead status transition",
+  );
+  assert.equal(
+    appointmentStatusActivity.user_id,
+    "00000000-0000-4000-8000-000000000002",
+    "appointment status transition records the acting employee",
+  );
   await db.exec(
     `set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';`,
   );
@@ -342,6 +358,8 @@ let daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0]
 assert.equal(daily.ipd,1);assert.equal(daily.ipdDone,0,'booking is not IPD completion');
 await db.query("select crm_change_appointment_status($1,'completed')",[ipd.appointmentId]);
 daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;assert.equal(daily.ipdDone,1);
+const ipdTransition=(await db.query("select description from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc,id desc limit 1",[id])).rows[0].description;
+assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and completion both record status transitions');
 // A recovered legacy duplicate can be merged only with fresh versions and phone confirmation.
   await db.exec(
     `reset role;alter table leads disable trigger crm_phone_guard;`,
