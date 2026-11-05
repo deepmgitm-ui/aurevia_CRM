@@ -421,6 +421,18 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.equal(assignmentEvent.assigned_to, "Agent B");
   assert.equal(assignmentEvent.event_kind, "transfer");
   assert.equal(assignmentEvent.actor_id, "00000000-0000-4000-8000-000000000001");
+  await db.query("update leads set assigned_to='-' where id=$1", [newAssignmentId]);
+  assignmentEvent = (await db.query("select assigned_to, previous_assigned_to, event_kind, actor_id from crm_assignment_events where lead_id=$1 order by id desc limit 1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentEvent.assigned_to, "Unassigned");
+  assert.equal(assignmentEvent.previous_assigned_to, "Agent B");
+  assert.equal(assignmentEvent.event_kind, "unassignment");
+  assert.equal(assignmentEvent.actor_id, "00000000-0000-4000-8000-000000000001");
+  await db.query("update leads set assigned_to='Agent B' where id=$1", [newAssignmentId]);
+  assignmentEvent = (await db.query("select assigned_to, previous_assigned_to, event_kind, actor_id from crm_assignment_events where lead_id=$1 order by id desc limit 1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentEvent.assigned_to, "Agent B");
+  assert.equal(assignmentEvent.previous_assigned_to, null);
+  assert.equal(assignmentEvent.event_kind, "assignment");
+  assert.equal(assignmentEvent.actor_id, "00000000-0000-4000-8000-000000000001");
   assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
   assert.equal(assignmentState.workflow_bucket, "fresh", "fresh transfer stays fresh for the receiving agent");
   assert.equal(assignmentState.first_agent_touch_at, null);
@@ -434,7 +446,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   assert.equal(keptStatus.assigned_to, 'Agent A');
   assert.equal(keptStatus.status, 'DNP', 'transfer without fresh keeps the disposition');
   assert.ok(keptStatus.first_agent_touch_at, 'transfer preserves the earlier touch');
-  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Transfer'", [newAssignmentId])).rows[0].n, 2, 'both transfers retain history');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Transfer'", [newAssignmentId])).rows[0].n, 3, 'transfer, unassignment, and reassignment retain history');
   await db.query("delete from leads where id=$1", [newAssignmentId]);
   const bucketIds = {};
   for (const [key, name, status] of [

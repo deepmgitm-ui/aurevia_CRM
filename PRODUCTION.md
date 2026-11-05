@@ -35,6 +35,8 @@ procedure changes. Keep the implementation and this guide in the same change.
   presenting the failure as an empty list or zero counts.
 - Phone duplicates are rejected. Do not silently create a second lead with the
   same normalized phone number.
+- Assignment history records assignment, transfer and unassignment events,
+  including the prior owner and acting user when available.
 
 ### Status and follow-up
 
@@ -166,6 +168,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-05 | Record lead unassignments in the admin assignment history and distinguish assignment actions with compact, readable badges. | Isolated migration verification covers assign → transfer → unassign → assign and actor/previous-owner fields; targeted lint, strict TypeScript and production build pass. |
 | 2026-11-05 | Tightened dashboard, shared button/tab/badge, search and switch transitions to animate only intended visual properties. Re-audited lead status compare-and-save and stale edit guards; no workflow or schema changes. | Analytics, lead filters, daily work, automation, calendar, appointments, attendance, team activity, Meta, lead import and isolated CRM migration checks pass. Strict TypeScript, lint and production build pass. Live migration and timeline round-trip checks pass; no runtime errors in the selected 24-hour Vercel window. |
 | 2026-10-30 | Lead selection accumulates across pages; header select applies only to the current page. Note/Remarks and status edits refresh the row and timeline. Timeline entries include actor and time. | Webpack production build and lead-filter assertions pass. Live Supabase activity round-trip was verified and its temporary row removed. Targeted ESLint did not finish in the local environment. |
 | 2026-10-30 | Hardened multi-page lead selection: IDs restore after same-scope remounts for 30 minutes in the current tab, scoped to the signed-in viewer and filters, and cleared when scope changes. Added an explicit “selected across pages” count. | Webpack production build, TypeScript check, lead-filter assertions and `git diff --check` pass. Targeted ESLint did not finish in the local environment; no lead rows or database schema changed. |

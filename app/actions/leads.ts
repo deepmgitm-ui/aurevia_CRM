@@ -1051,17 +1051,19 @@ export async function getLeadActivities(
     const role = await getViewerRole(supabase);
     const { data: assignmentEvents } = role === "employee" ? { data: [] } : await supabase
       .from("crm_assignment_events")
-      .select("id, actor_id, assigned_to, assigned_at")
+      .select("id, actor_id, assigned_to, assigned_at, previous_assigned_to, event_kind")
       .eq("lead_id", leadId)
       .order("assigned_at", { ascending: false });
-    const assignmentActivities: LeadActivity[] = (assignmentEvents ?? []).map((event) => ({
-      id: `assignment-${event.id}`,
-      lead_id: leadId,
-      user_id: event.actor_id ?? "",
-      action_type: "Assignment",
-      description: `Assigned to ${event.assigned_to || "Unassigned"}`,
-      created_at: event.assigned_at,
-    }));
+    const assignmentActivities: LeadActivity[] = (assignmentEvents ?? [])
+      .filter((event) => event.event_kind !== "unassignment")
+      .map((event) => ({
+        id: `assignment-${event.id}`,
+        lead_id: leadId,
+        user_id: event.actor_id ?? "",
+        action_type: "Assignment",
+        description: `Assigned to ${event.assigned_to || "Unassigned"}`,
+        created_at: event.assigned_at,
+      }));
     const allActivities = [...activities, ...assignmentActivities];
     const actorIds = [...new Set(allActivities.map((activity) => activity.user_id).filter(Boolean))];
     const actorNames = new Map<string, string>();

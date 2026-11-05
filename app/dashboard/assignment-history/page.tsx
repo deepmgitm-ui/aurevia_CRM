@@ -39,7 +39,7 @@ export default async function AssignmentHistoryPage({
     <div className="mx-auto w-full max-w-6xl space-y-5 p-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Assignment History</h1>
-        <p className="mt-2 text-sm text-slate-500">Review when leads were assigned or transferred, who made the change, and the receiving team member.</p>
+        <p className="mt-2 text-sm text-slate-500">Review when leads were assigned, transferred or unassigned, who made the change, and who owned the lead before and after.</p>
         <p className="mt-1 text-xs text-slate-500">Previous owner and action type are recorded for new events. Older entries may not include them. Deleted leads and their history follow the existing deletion rules.</p>
       </div>
       {error ? (
@@ -51,7 +51,30 @@ export default async function AssignmentHistoryPage({
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Date &amp; time</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">From</th><th className="px-4 py-3">To</th><th className="px-4 py-3">Changed by</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {events.map((event) => <tr key={event.id}><td className="px-4 py-3 text-slate-600">{dateFormat.format(new Date(event.assigned_at))}</td><td className="px-4 py-3 font-medium text-slate-900">{leadNames.get(event.lead_id) || "Unavailable"}</td><td className="px-4 py-3 text-slate-700">{event.event_kind === "transfer" ? "Transfer" : event.event_kind === "assignment" ? "Assignment" : "Not recorded"}</td><td className="px-4 py-3 text-slate-700">{event.previous_assigned_to || (event.event_kind === "assignment" ? "Unassigned" : "Not recorded")}</td><td className="px-4 py-3 text-slate-700">{event.assigned_to || "Unavailable"}</td><td className="px-4 py-3 text-slate-700">{event.actor_id ? actorNames.get(event.actor_id) || "Unavailable" : "System / unavailable"}</td></tr>)}
+                {events.map((event) => {
+                  const actionLabel = event.event_kind === "unassignment"
+                    ? "Unassignment"
+                    : event.event_kind === "transfer"
+                      ? "Transfer"
+                      : event.event_kind === "assignment"
+                        ? "Assignment"
+                        : "Not recorded";
+                  const actionClass = event.event_kind === "unassignment"
+                    ? "border-slate-200 bg-slate-50 text-slate-700"
+                    : event.event_kind === "transfer"
+                      ? "border-blue-200 bg-blue-50 text-blue-800"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-800";
+                  return (
+                    <tr key={event.id}>
+                      <td className="px-4 py-3 text-slate-600">{dateFormat.format(new Date(event.assigned_at))}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{leadNames.get(event.lead_id) || "Unavailable"}</td>
+                      <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${actionClass}`}>{actionLabel}</span></td>
+                      <td className="px-4 py-3 text-slate-700">{event.previous_assigned_to || (event.event_kind === "assignment" ? "Unassigned" : "Not recorded")}</td>
+                      <td className="px-4 py-3 text-slate-700">{event.assigned_to || "Unavailable"}</td>
+                      <td className="px-4 py-3 text-slate-700">{event.actor_id ? actorNames.get(event.actor_id) || "Unavailable" : "System / unavailable"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
