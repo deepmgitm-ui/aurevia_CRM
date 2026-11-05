@@ -425,6 +425,7 @@ export interface GlobalLeadSearchResult {
 export async function searchLeadsForGlobalSearch(
   search: string,
 ): Promise<ActionResult<GlobalLeadSearchResult[]>> {
+  if (typeof search !== "string") return { success: false, error: "Enter a valid search term." };
   const term = search.trim().slice(0, 100);
   if (term.length < 2) return { success: true, data: [] };
 
@@ -1494,7 +1495,7 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
 export async function createLead(
   input: CreateLeadInput,
 ): Promise<ActionResult<Lead>> {
-  if (!input.name.trim()) {
+  if (!input || typeof input !== "object" || typeof input.name !== "string" || !input.name.trim()) {
     return { success: false, error: "Lead name is required." };
   }
   const status = canonicalLeadStatus(input.status);
@@ -2013,8 +2014,11 @@ async function recordLeadActivity(
 export async function updateLeadStatus(
   input: UpdateLeadStatusInput,
 ): Promise<ActionResult<Lead>> {
-  if (!input.id) {
+  if (!input || typeof input !== "object" || typeof input.id !== "string" || !input.id.trim()) {
     return { success: false, error: "Lead ID is required." };
+  }
+  if (typeof input.status !== "string" || (input.expectedStatus !== null && typeof input.expectedStatus !== "string")) {
+    return { success: false, error: "Choose a valid lead status." };
   }
   const status = canonicalLeadStatus(input.status);
   if (!isLeadStatusOption(status)) return { success: false, error: "Choose one of the available lead statuses." };
@@ -3687,8 +3691,15 @@ export interface UpdateLeadDetailsInput {
 export async function updateLeadDetails(
   input: UpdateLeadDetailsInput,
 ): Promise<ActionResult<Lead>> {
-  if (!input.id) {
+  if (!input || typeof input !== "object" || typeof input.id !== "string" || !input.id.trim()) {
     return { success: false, error: "Lead ID is required." };
+  }
+  const textFields = ["name", "phone", "email", "gender", "city", "disease", "insurance_status", "remarks", "status", "assigned_to", "lead_date", "follow_up_date", "source"] as const;
+  if (textFields.some((field) => input[field] !== undefined && typeof input[field] !== "string")) {
+    return { success: false, error: "Lead details must be valid text." };
+  }
+  if (input.expectedUpdatedAt !== undefined && typeof input.expectedUpdatedAt !== "string") {
+    return { success: false, error: "Reopen the lead before saving changes." };
   }
   if (input.transfer_as_fresh !== undefined && typeof input.transfer_as_fresh !== "boolean") {
     return { success: false, error: "Choose whether to keep the status or send this lead as fresh." };
@@ -3870,8 +3881,11 @@ export async function updateLeadDetails(
 export async function addLeadActivity(
   input: AddLeadActivityInput,
 ): Promise<ActionResult<LeadActivity | null>> {
-  if (!input.lead_id || !input.action_type.trim()) {
+  if (!input || typeof input !== "object" || typeof input.lead_id !== "string" || !input.lead_id.trim() || typeof input.action_type !== "string" || !input.action_type.trim()) {
     return { success: false, error: "Lead and activity type are required." };
+  }
+  if (input.description !== undefined && input.description !== null && typeof input.description !== "string") {
+    return { success: false, error: "Activity description must be text." };
   }
 
   try {
