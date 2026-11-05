@@ -16,6 +16,15 @@ class Query {
   lt(column: string, value: string) { this.predicates.push(row => row[column] !== null && (row[column] ?? "") < value); return this; }
   eq(column: string, value: string) { this.predicates.push(row => row[column] === value); return this; }
   or(expression: string) {
+    const freshWindow = expression.match(/^and\(assigned_fresh_since\.gte\.([^,]+),assigned_fresh_since\.lt\.([^,]+)\),and\(fresh_pending_since\.gte\.([^,]+),fresh_pending_since\.lt\.([^,]+),or\(assigned_to\.is\.null,assigned_to\.eq\.-,assigned_to\.eq\.unassigned\)\)$/);
+    if (freshWindow) {
+      const [, assignedFrom, assignedTo, pendingFrom, pendingTo] = freshWindow;
+      this.predicates.push(row => Boolean(
+        (row.assigned_fresh_since && row.assigned_fresh_since >= assignedFrom && row.assigned_fresh_since < assignedTo) ||
+        (row.fresh_pending_since && row.fresh_pending_since >= pendingFrom && row.fresh_pending_since < pendingTo && (row.assigned_to == null || row.assigned_to === "-" || row.assigned_to === "unassigned")),
+      ));
+      return this;
+    }
     const alternatives = expression.split(",").map(part => part.split(".eq."));
     this.predicates.push(row => alternatives.some(([column, value]) => row[column] === value));
     return this;
@@ -43,8 +52,10 @@ const currentNewRows: Row[] = [
   { id: "today-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:31:00.000Z", workflow_bucket: "fresh" },
   { id: "yesterday-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
   { id: "today-touched", assigned_at: "2026-10-10T18:40:00.000Z", assigned_fresh_since: "2026-10-10T18:40:00.000Z", workflow_bucket: "followup" },
+  { id: "today-unassigned", assigned_to: "-", fresh_pending_since: "2026-10-10T18:40:00.000Z", workflow_bucket: "fresh" },
+  { id: "yesterday-unassigned", assigned_to: "-", fresh_pending_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
 ];
-assert.deepEqual(currentNewRows.filter(row => currentNewFilter.matches(row)).map(row => row.id), ["today-untouched"]);
+assert.deepEqual(currentNewRows.filter(row => currentNewFilter.matches(row)).map(row => row.id), ["today-untouched", "today-unassigned"]);
 assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "New");
 for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
   assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "New", `Untouched ${status} imports should retain their workflow bucket`);
@@ -52,6 +63,7 @@ for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
 }
 assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:29:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Fresh");
 assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Follow-up");
+assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "DNP" }, "2026-10-11"), "DNP");
 const bookedOnly = { opd_booked_date: "2026-10-11", opd_done_date: null };
 assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(bookedOnly), false);
 const progressed = { status: "IPD Done", opd_done_date: "2026-10-11" };

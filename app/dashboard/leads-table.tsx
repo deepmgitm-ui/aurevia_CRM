@@ -1285,6 +1285,8 @@ export function LeadsTable({
 
   async function handleStatusChange(lead: Lead, status: string | null) {
     if (!status || status === lead.status || savingLeadIds.has(lead.id)) return;
+    ++fetchSequenceRef.current;
+    setIsPaging(false);
     trackLeadMutations(lead.id);
     setLeadSaving(lead.id, true);
     patchLeadLocally(lead.id, { status });
@@ -1300,6 +1302,8 @@ export function LeadsTable({
         }
         if (response.warning) toast.add({ title: "Status saved with a timeline warning", description: response.warning, type: "error" });
         queueSuccessSummary("updated");
+        void fetchPage(page);
+        router.refresh();
         // Celebrate only when entering a completed surgery status.
         if (stageForStatus(status) === "surgery" && stageForStatus(lead.status) !== "surgery") {
           celebrateLeadWin({ name: response.data.name || lead.name, status });
@@ -2099,10 +2103,11 @@ export function LeadsTable({
     setIsSavingEdit(true);
     const assignmentChanged = editForm.assigned_to !== (editingLead.assigned_to && editingLead.assigned_to !== "-" ? editingLead.assigned_to : "");
     const transferAsFresh = canEditCore && assignmentChanged && Boolean(editForm.assigned_to) && editTransferAsFresh;
+    const statusChanged = editForm.status !== canonicalLeadStatus(editingLead.status);
     // Patient details are editable for employees; only source and assignment
     // remain server-side protected for their role.
     const payload = canEditCore
-      ? { id: editingLead.id, ...editForm, transfer_as_fresh: transferAsFresh }
+      ? { id: editingLead.id, ...editForm, status: statusChanged ? editForm.status : undefined, transfer_as_fresh: transferAsFresh }
       : {
           id: editingLead.id,
           name: editForm.name,
@@ -2115,7 +2120,7 @@ export function LeadsTable({
           lead_date: editForm.lead_date,
           follow_up_date: editForm.follow_up_date,
           remarks: editForm.remarks,
-          status: editForm.status,
+          status: statusChanged ? editForm.status : undefined,
         };
     const optimisticLead: Lead = canEditCore
       ? {

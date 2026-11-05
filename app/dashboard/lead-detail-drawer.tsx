@@ -208,7 +208,7 @@ export function LeadDetailDrawer({
       {
         name: edits.name.trim() || lead.name,
         phone: edits.phone.trim(),
-        status: edits.status,
+        status: edits.status !== canonicalLeadStatus(lead.status) ? edits.status : undefined,
         disease: edits.treatment.trim() || "-",
         follow_up_date: edits.followUpDate || "-",
         // Core fields are ignored server-side for employees — send them only
