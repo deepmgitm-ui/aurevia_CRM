@@ -1076,7 +1076,7 @@ export function LeadsTable({
         return;
       }
 
-      const { leads: importedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError } = response.data;
+      const { leads: importedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError, assignmentBatchWarning } = response.data;
       // Mark imported rows as self-mutations so realtime notifications don't
       // toast the admin about their own bulk import.
       trackLeadMutations(importedLeads.map((lead) => lead.id));
@@ -1112,6 +1112,9 @@ export function LeadsTable({
       if (skippedDuplicates > 0 && !duplicateReviewCaptureError) await refreshDuplicateReviews(true);
       if (duplicateReviewCaptureError) {
         toast.add({ title: "Duplicate review could not be saved", description: duplicateReviewCaptureError, type: "error" });
+      }
+      if (assignmentBatchWarning) {
+        toast.add({ title: "Assignment batch needs attention", description: assignmentBatchWarning, type: "error" });
       }
 
       router.refresh();
@@ -2829,7 +2832,7 @@ export function LeadsTable({
             </DialogTitle>
             <DialogDescription>
               {assignmentMode === "add-to-batch"
-                ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}.`
+                ? `Selected leads will be distributed across this batch’s team: ${assignmentBatchTarget?.targetNames.join(", ") || "no active team members"}. All leads and the batch count save together; if one lead fails, none are added.`
                 : assignmentMode === "transfer-selected"
                   ? `${selectedLeads.length.toLocaleString()} selected leads will move to the team member or members you choose. Their phone numbers and lead details will stay unchanged.`
                   : assignmentMode === "selected"
@@ -3176,7 +3179,7 @@ export function LeadsTable({
                   : assignmentMode === "selected"
                   ? selectedLeads.length === 0
                   : assignmentMode === "add-to-batch"
-                    ? selectedAssignmentLeads.length === 0
+                    ? selectedAssignmentLeads.length === 0 || !assignmentBatchTarget?.targetNames.length
                     : selectedAssignmentLeads.length === 0 && !selectAllAssignmentMatches)
               }
               onClick={() => void handleAssignAmongSelectedEmployees()}

@@ -1554,6 +1554,7 @@ export interface ImportResult {
   // employee until an admin/manager assigns them — the UI must say so.
   unassigned: number;
   duplicateReviewCaptureError?: string;
+  assignmentBatchWarning?: string;
 }
 
 export interface DuplicateLeadReviewItem {
@@ -1911,11 +1912,12 @@ export async function bulkInsertLeads(
             }
             if (rowError) {
               await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
+              const batchWarning = await reconcileImportedAssignmentBatch(supabase, assignmentBatchId, insertedLeads);
               const rowNumber = index + rowOffset + 1;
               const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved; ` : "";
               return {
                 success: false,
-                error: `${saved}${skippedDuplicates} duplicate rows were skipped. Row ${rowNumber} failed: ${sourceBatchMigrationError(rowError)}`,
+                error: `${saved}${skippedDuplicates} duplicate rows were skipped. Row ${rowNumber} failed: ${sourceBatchMigrationError(rowError)}${batchWarning ? ` Assignment batch update also failed: ${batchWarning}` : ""}`,
               };
             }
             if (rowData) insertedLeads.push(rowData as Lead);
@@ -1926,10 +1928,11 @@ export async function bulkInsertLeads(
         const from = index + 1;
         const to = Math.min(index + chunkSize, freshRecords.length);
         await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
+        const batchWarning = await reconcileImportedAssignmentBatch(supabase, assignmentBatchId, insertedLeads);
         const saved = insertedLeads.length > 0 ? `${insertedLeads.length} leads were saved before the failure. ` : "";
         return {
           success: false,
-          error: `${saved}Rows ${from}-${to} failed: ${sourceBatchMigrationError(error)}`,
+          error: `${saved}Rows ${from}-${to} failed: ${sourceBatchMigrationError(error)}${batchWarning ? ` Assignment batch update also failed: ${batchWarning}` : ""}`,
         };
       }
 
@@ -1937,13 +1940,33 @@ export async function bulkInsertLeads(
     }
 
     const duplicateReviewCaptureError = await captureDuplicateReviewCandidates(supabase, duplicateCandidates, batchSource);
+    const assignmentBatchWarning = await reconcileImportedAssignmentBatch(supabase, assignmentBatchId, insertedLeads);
     revalidatePath("/dashboard");
-    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError: duplicateReviewCaptureError ?? undefined } };
+    return { success: true, data: { leads: insertedLeads, skippedDuplicates, skippedRows, unassigned, duplicateReviewCaptureError: duplicateReviewCaptureError ?? undefined, assignmentBatchWarning: assignmentBatchWarning ?? undefined } };
   } catch (error) {
+    const batchWarning = await reconcileImportedAssignmentBatch(supabase, assignmentBatchId, insertedLeads);
     return {
       success: false,
-      error: getErrorMessage(error, "Unable to import leads."),
+      error: `${getErrorMessage(error, "Unable to import leads.")}${batchWarning ? ` Assignment batch update also failed: ${batchWarning}` : ""}`,
     };
+  }
+}
+
+async function reconcileImportedAssignmentBatch(
+  supabase: LeadsSupabaseClient,
+  batchId: string | null,
+  inserted: Lead[],
+): Promise<string | null> {
+  if (!batchId) return null;
+  try {
+    const assigned = inserted.filter((lead) => lead.assignment_batch_id === batchId && lead.assigned_to && lead.assigned_to !== "-");
+    const targetNames = [...new Set(assigned.map((lead) => lead.assigned_to).filter((name): name is string => Boolean(name)))];
+    const { error } = await supabase.from("crm_assignment_batches")
+      .update({ lead_count: assigned.length, target_names: targetNames })
+      .eq("id", batchId);
+    return error?.message ?? null;
+  } catch (error) {
+    return getErrorMessage(error, "Unable to update the assignment batch.");
   }
 }
 
@@ -2956,7 +2979,7 @@ export interface LeadAssignmentBatch {
 }
 
 function assignmentBatchSetupError(message: string): string {
-  return /crm_assignment_batches|crm_transfer_assignment_batch|crm_assign_leads_bulk|assignment_batch_id/i.test(message)
+  return /crm_assignment_batches|crm_transfer_assignment_batch|crm_assign_leads_bulk|crm_add_leads_to_assignment_batch|assignment_batch_id/i.test(message)
     ? "Assignment batches need a database update. Apply the latest Supabase migration, then retry."
     : message;
 }
@@ -3141,7 +3164,7 @@ export async function addLeadsToAssignmentBatch(input: {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
     if (viewerRole !== "admin") return { success: false, error: "Only admins can add leads to assignment batches (403 Forbidden)." };
-    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names, lead_count").eq("id", input.batchId).single();
+    const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     const targetNames = Array.isArray(batch.target_names) ? batch.target_names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
     if (targetNames.length === 0) return { success: false, error: "This batch has no active team members. Transfer the batch first." };
@@ -3149,35 +3172,19 @@ export async function addLeadsToAssignmentBatch(input: {
     if (profilesError) return { success: false, error: profilesError.message };
     const validTargets = [...new Set((profiles ?? []).filter((profile) => viewerRole === "admin" || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
     if (validTargets.length === 0) return { success: false, error: "The batch team is no longer available. Transfer the batch to an active employee first." };
-    const existing: Array<{ id: string; assignment_batch_id: string | null }> = [];
-    for (let offset = 0; offset < ids.length; offset += 500) {
-      const { data, error: existingError } = await supabase.from("leads").select("id, assignment_batch_id").in("id", ids.slice(offset, offset + 500));
-      if (existingError) return { success: false, error: existingError.message };
-      existing.push(...(data ?? []));
-    }
-    const availableIds = existing.filter((lead) => lead.assignment_batch_id !== input.batchId).map((lead) => lead.id);
-    if (availableIds.length !== ids.length) return { success: false, error: "Some selected leads already belong to this batch or are no longer available. Refresh and try again." };
-    const perEmployee = validTargets.map((name) => ({ name, count: 0 }));
-    const buckets = validTargets.map(() => [] as string[]);
-    availableIds.forEach((id, index) => {
-      const targetIndex = index % validTargets.length;
-      buckets[targetIndex].push(id);
-      perEmployee[targetIndex].count += 1;
+    const assignments = ids.map((id, index) => ({ id, name: validTargets[index % validTargets.length] }));
+    const { data, error } = await supabase.rpc("crm_add_leads_to_assignment_batch", {
+      p_batch_id: input.batchId,
+      p_assignments: assignments,
     });
-    let added = 0;
-    const addedAt = new Date().toISOString();
-    for (let targetIndex = 0; targetIndex < buckets.length; targetIndex++) {
-      const name = validTargets[targetIndex];
-      for (let offset = 0; offset < buckets[targetIndex].length; offset += 500) {
-        const { data, error } = await supabase.from("leads").update({ assigned_to: name, assignment_batch_id: input.batchId, assigned_at: addedAt }).in("id", buckets[targetIndex].slice(offset, offset + 500)).select("id");
-        if (error) return { success: false, error: `Added ${added} leads before the remaining update failed: ${error.message}` };
-        added += data?.length ?? 0;
-      }
+    if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+    const result = data as { added?: number; perEmployee?: { name: string; count: number }[] } | null;
+    const added = Number(result?.added);
+    if (added !== ids.length || !Array.isArray(result?.perEmployee)) {
+      return { success: false, error: "The batch update could not be confirmed. Refresh the batch before retrying." };
     }
-    const { error: countError } = await supabase.from("crm_assignment_batches").update({ lead_count: Number(batch.lead_count ?? 0) + added }).eq("id", input.batchId);
-    if (countError) return { success: false, error: `Added ${added} leads, but the batch count could not be updated: ${countError.message}` };
     revalidatePath("/dashboard", "layout");
-    return { success: true, data: { added, perEmployee: perEmployee.filter((item) => item.count > 0) } };
+    return { success: true, data: { added, perEmployee: result.perEmployee } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to add leads to this assignment batch.") };
   }

@@ -62,6 +62,8 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     has_function_privilege('authenticated','public.crm_transfer_assignment_batch(uuid,text,boolean)','execute') as auth_batch_transfer,
     has_function_privilege('anon','public.crm_assign_leads_bulk(jsonb,text,boolean,boolean,uuid)','execute') as anon_bulk_assign,
     has_function_privilege('authenticated','public.crm_assign_leads_bulk(jsonb,text,boolean,boolean,uuid)','execute') as auth_bulk_assign,
+    has_function_privilege('anon','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as anon_batch_append,
+    has_function_privilege('authenticated','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as auth_batch_append,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
   `)).rows[0];
   assert.deepEqual(hardened, {
@@ -79,6 +81,8 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     auth_batch_transfer: true,
     anon_bulk_assign: false,
     auth_bulk_assign: true,
+    anon_batch_append: false,
+    auth_batch_append: true,
     has_meta_id: true,
   });
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -612,6 +616,67 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
   await db.query("delete from leads where id=any($1::uuid[])", [[...bulkLeads.map((lead) => lead.id), freshLeadId, guardedLeadId, ...rollbackLeads.map((lead) => lead.id)]]);
   await db.query("delete from crm_assignment_batches where id=$1", [bulkBatchId]);
   await db.query("delete from crm_assignment_batches where label='Fresh bulk'");
+
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
+  const appendBatchId = (await db.query(
+    "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Append fixture',auth.uid(),'Admin',array['Agent A','Agent B'],1) returning id",
+  )).rows[0].id;
+  const originalBatchLead = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Append original','9192222300','Agent A','DNP',$1) returning id",
+    [appendBatchId],
+  )).rows[0].id;
+  const appendLeads = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Append A','9192222301','-','Follow-Up'),('Append B','9192222302','-','OPD Booked') returning id,name,status",
+  )).rows;
+  const appendResult = (await db.query(
+    "select public.crm_add_leads_to_assignment_batch($1,$2::jsonb) as result",
+    [appendBatchId, JSON.stringify(appendLeads.map((lead,index) => ({ id: lead.id, name: index === 0 ? 'Agent A' : 'Agent B' })))],
+  )).rows[0].result;
+  assert.equal(Number(appendResult.added), 2, "existing batch append adds every selected lead");
+  assert.deepEqual(appendResult.perEmployee, [{ name: "Agent A", count: 1 }, { name: "Agent B", count: 1 }]);
+  assert.deepEqual((await db.query("select assigned_to,status,assignment_batch_id from leads where id=any($1::uuid[]) order by name", [appendLeads.map((lead) => lead.id)])).rows,
+    [{ assigned_to: "Agent A", status: "Follow-Up", assignment_batch_id: appendBatchId }, { assigned_to: "Agent B", status: "OPD Booked", assignment_batch_id: appendBatchId }],
+    "batch append preserves lead statuses and distributes to the current roster");
+  assert.equal((await db.query("select lead_count from crm_assignment_batches where id=$1", [appendBatchId])).rows[0].lead_count, 3,
+    "batch count increments in the same transaction as appended leads");
+
+  const appendCountBeforeStale = (await db.query("select lead_count from crm_assignment_batches where id=$1", [appendBatchId])).rows[0].lead_count;
+  await assert.rejects(db.query(
+    "select public.crm_add_leads_to_assignment_batch($1,$2::jsonb)",
+    [appendBatchId, JSON.stringify([{ id: originalBatchLead, name: "Agent A" }])],
+  ), "a lead already in the batch cannot be appended twice");
+  assert.equal((await db.query("select lead_count from crm_assignment_batches where id=$1", [appendBatchId])).rows[0].lead_count, appendCountBeforeStale,
+    "rejected batch append leaves the batch count unchanged");
+
+  const appendRollbackLeads = (await db.query(
+    "insert into leads(name,phone,assigned_to,status) values('Append allowed','9192222303','-','New'),('Append blocked','9192222304','-','DNP') returning id,name",
+  )).rows;
+  await db.exec(`reset role;
+    create function public.fixture_block_batch_append() returns trigger language plpgsql as $$
+    begin
+      if new.name = 'Append blocked' and new.assigned_to = 'Agent B' then raise exception 'fixture blocks the second append target'; end if;
+      return new;
+    end;$$;
+    create trigger fixture_block_batch_append before update of assigned_to on public.leads
+    for each row execute function public.fixture_block_batch_append();
+    set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;`);
+  await assert.rejects(db.query(
+    "select public.crm_add_leads_to_assignment_batch($1,$2::jsonb)",
+    [appendBatchId, JSON.stringify(appendRollbackLeads.map((lead) => ({ id: lead.id, name: lead.name === 'Append allowed' ? 'Agent A' : 'Agent B' })))],
+  ), "a later target failure rolls back the whole append");
+  assert.deepEqual((await db.query("select assigned_to,assignment_batch_id from leads where id=any($1::uuid[]) order by name", [appendRollbackLeads.map((lead) => lead.id)])).rows,
+    [{ assigned_to: "-", assignment_batch_id: null }, { assigned_to: "-", assignment_batch_id: null }],
+    "failed batch append leaves all candidate leads unchanged");
+  assert.equal((await db.query("select lead_count from crm_assignment_batches where id=$1", [appendBatchId])).rows[0].lead_count, appendCountBeforeStale,
+    "failed batch append leaves the batch count unchanged");
+  await db.exec("reset role;drop trigger fixture_block_batch_append on public.leads;drop function public.fixture_block_batch_append();set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';set role authenticated;");
+  await assert.rejects(db.query(
+    "select public.crm_add_leads_to_assignment_batch($1,$2::jsonb)",
+    [appendBatchId, JSON.stringify([{ id: originalBatchLead, name: "Agent A" }])],
+  ), "employees cannot append leads to an assignment batch");
+  await db.exec("reset role;");
+  await db.query("delete from leads where id=any($1::uuid[])", [[originalBatchLead, ...appendLeads.map((lead) => lead.id), ...appendRollbackLeads.map((lead) => lead.id)]]);
+  await db.query("delete from crm_assignment_batches where id=$1", [appendBatchId]);
 
   const bucketIds = {};
   for (const [key, name, status] of [
