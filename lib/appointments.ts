@@ -116,6 +116,10 @@ export const APPOINTMENT_COLUMNS = [
   "ipd_done_date",
 ] as const;
 
+export function isAppointmentColumn(value: unknown): value is (typeof APPOINTMENT_COLUMNS)[number] {
+  return typeof value === "string" && APPOINTMENT_COLUMNS.some((column) => column === value);
+}
+
 /** Local-calendar yyyy-mm-dd, or "" for the placeholders the table stores. */
 export function normaliseAppointmentDate(value: string | null | undefined): string {
   const text = (value ?? "").trim();

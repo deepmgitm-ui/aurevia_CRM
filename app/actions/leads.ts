@@ -34,7 +34,7 @@ import {
   LEAD_DELETION_BACKUP_SETUP_HINT,
   type LeadDeletionBackup,
 } from "@/lib/lead-deletion";
-import { isWonStatus, normaliseAppointmentDate } from "@/lib/appointments";
+import { isAppointmentColumn, isWonStatus, normaliseAppointmentDate } from "@/lib/appointments";
 import { assignmentOrExpression } from "@/lib/lead-assignment-filter";
 import { createClient } from "@/lib/supabase/server";
 import { getErrorMessage } from "@/lib/utils";
@@ -2073,13 +2073,17 @@ export async function updateLeadAppointment(input: {
   column: "opd_booked_date" | "opd_done_date" | "ipd_done_date";
   value: string;
 }): Promise<ActionResult<Lead>> {
-  if (!input.id) return { success: false, error: "Lead ID is required." };
+  if (!input || typeof input !== "object") return { success: false, error: "Appointment details are required." };
+  if (typeof input.id !== "string" || !input.id.trim()) return { success: false, error: "Lead ID is required." };
+  if (!isAppointmentColumn(input.column)) return { success: false, error: "Choose a valid appointment date field." };
+  if (typeof input.value !== "string") return { success: false, error: "Enter a valid appointment date." };
 
   try {
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Sign in before changing an appointment date." };
 
     const value = normaliseAppointmentDate(input.value);
     const { data: previousLead, error: previousLeadError } = await supabase

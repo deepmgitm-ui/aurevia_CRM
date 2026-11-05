@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   APPOINTMENT_COLUMNS,
   appointmentForStatus,
+  isAppointmentColumn,
   selectCurrentStatusAppointments,
   isWonStatus,
   normaliseAppointmentDate,
@@ -34,6 +35,10 @@ assert.deepEqual(
   ["opd_booked_date", "opd_done_date", "ipd_done_date"],
   "each status writes to its own column",
 );
+for (const column of APPOINTMENT_COLUMNS) assert.equal(isAppointmentColumn(column), true, `${column} is allowed`);
+for (const column of ["status", "assigned_to", "source", null, 4]) {
+  assert.equal(isAppointmentColumn(column), false, `${String(column)} cannot be written through appointment updates`);
+}
 assert.equal(
   new Set(APPOINTMENT_COLUMNS).size,
   3,
