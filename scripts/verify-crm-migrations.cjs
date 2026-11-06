@@ -487,8 +487,17 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(assignmentState.workflow_bucket, "fresh", "fresh transfer stays fresh for the receiving agent");
   assert.equal(assignmentState.first_agent_touch_at, null);
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  await db.query("update leads set status='RNR' where id=$1", [newAssignmentId]);
+  let employeeStatus = (await db.query("select status,workflow_bucket,first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(employeeStatus.status, "RNR", "assigned employee can save a disposition through lead RLS");
+  assert.equal(employeeStatus.workflow_bucket, "followup", "employee status change ends the fresh bucket");
+  assert.ok(employeeStatus.first_agent_touch_at, "employee status change records first CRM touch");
   await db.query("update leads set remarks='Agent B note' where id=$1", [newAssignmentId]);
-  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0].workflow_bucket, "followup", "receiving agent's edit removes the lead from New Today");
+  employeeStatus = (await db.query("select status,workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(employeeStatus.status, "RNR", "a later employee remarks edit does not revert the saved disposition");
+  assert.equal(employeeStatus.workflow_bucket, "followup", "receiving agent's edit removes the lead from New Today");
+  const staleEmployeeStatus = await db.query("update leads set status='New' where id=$1 and status='New' returning id", [newAssignmentId]);
+  assert.equal(staleEmployeeStatus.rows.length, 0, "a stale employee status cannot replace the saved disposition");
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   await db.query("update leads set status='DNP' where id=$1", [newAssignmentId]);
   await db.query("update leads set assigned_to='Agent A' where id=$1", [newAssignmentId]);
