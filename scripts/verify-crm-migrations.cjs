@@ -1130,6 +1130,11 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("select crm_change_lead_status($1,'Follow-Up','New')", [otherOwnerStatusLead]);
   assert.equal((await db.query("select status from leads where id=$1", [otherOwnerStatusLead])).rows[0].status, 'Follow-Up',
     'admin can change a team lead disposition');
+  await db.exec("reset role; update profiles set role='manager' where id='00000000-0000-4000-8000-000000000003'; set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  await db.query("select crm_change_lead_status($1,'DNP','Follow-Up')", [otherOwnerStatusLead]);
+  assert.equal((await db.query("select user_id from lead_activities where lead_id=$1 and action_type='Status changed' and description='Follow-Up → DNP'", [otherOwnerStatusLead])).rows[0].user_id,
+    '00000000-0000-4000-8000-000000000003', 'manager can update a team lead and is recorded as the actor');
+  await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec(`reset role; create function public.reject_status_activity() returns trigger language plpgsql as $$
     begin if new.action_type = 'Status changed' then raise exception 'fixture status timeline rejection'; end if; return new; end $$;
     create trigger reject_status_activity before insert on public.lead_activities for each row execute function public.reject_status_activity();
