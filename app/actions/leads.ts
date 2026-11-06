@@ -2016,47 +2016,16 @@ export async function updateLeadStatus(
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "Sign in before changing a lead status." };
-
-    // Capture the previous status so the timeline can show the real transition.
-    const { data: before, error: beforeError } = await supabase
-      .from("leads")
-      .select("status")
-      .eq("id", input.id)
-      .single();
-    if (beforeError || !before) {
-      return { success: false, error: beforeError?.message ?? "Lead not found or you do not have access." };
-    }
-    if (before.status !== input.expectedStatus) {
-      return { success: false, error: "This lead's status changed. Refresh and try again." };
-    }
-
-    let query = supabase
-      .from("leads")
-      .update({
-        status,
-      })
-      .eq("id", input.id);
-    query = before.status === null ? query.is("status", null) : query.eq("status", before.status);
-    const { data, error } = await query.select().maybeSingle();
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-    if (!data) return { success: false, error: "This lead changed or is no longer available. Refresh and try again." };
-
-    const previousStatus = (before.status ?? "").trim();
-    const activityRecorded = previousStatus === status
-      ? true
-      : await recordLeadActivity(supabase, input.id, user.id, "Status changed", `${previousStatus || "—"} → ${status}`);
-
-    const { data: latest } = await supabase.from("leads").select().eq("id", input.id).maybeSingle();
+    const { data, error } = await supabase.rpc("crm_change_lead_status", {
+      p_lead: input.id,
+      p_status: status,
+      p_expected_status: input.expectedStatus,
+    });
+    if (error) return { success: false, error: error.message };
+    if (!data) return { success: false, error: "The saved lead status could not be confirmed. Refresh and try again." };
 
     revalidatePath("/dashboard", "layout");
-    return {
-      success: true,
-      data: (latest ?? data) as Lead,
-      ...(!activityRecorded ? { warning: "Status saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
-    };
+    return { success: true, data: data as Lead };
   } catch (error) {
     return {
       success: false,

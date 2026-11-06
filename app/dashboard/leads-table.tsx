@@ -1313,7 +1313,7 @@ export function LeadsTable({
       const response = await updateLeadStatus({ id: lead.id, status, expectedStatus: lead.status });
       if (!response.success) {
         updateLeadLocally(lead);
-        void fetchPage(page);
+        await fetchPage(page);
         toast.add({ title: "Status update failed", description: response.error, type: "error" });
       } else {
         updateLeadLocally(response.data);
@@ -1322,7 +1322,7 @@ export function LeadsTable({
         }
         if (response.warning) toast.add({ title: "Status saved with a timeline warning", description: response.warning, type: "error" });
         queueSuccessSummary("updated");
-        void fetchPage(page);
+        await fetchPage(page);
         router.refresh();
         // Celebrate only when entering a completed surgery status.
         if (stageForStatus(status) === "surgery" && stageForStatus(lead.status) !== "surgery") {
@@ -1331,7 +1331,7 @@ export function LeadsTable({
       }
     } catch (error) {
       updateLeadLocally(lead);
-      void fetchPage(page);
+      await fetchPage(page);
       toast.add({
         title: "Status update failed",
         description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",

@@ -106,6 +106,10 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     has_function_privilege('anon','public.crm_pipeline_insights(date)','execute') as anon_pipeline_insights,
     has_function_privilege('authenticated','public.crm_pipeline_insights(date)','execute') as auth_pipeline_insights,
     (select prosecdef=false from pg_proc where oid='public.crm_pipeline_insights(date)'::regprocedure) as invoker_pipeline_insights,
+    has_function_privilege('anon','public.crm_change_lead_status(uuid,text,text)','execute') as anon_status_change,
+    has_function_privilege('authenticated','public.crm_change_lead_status(uuid,text,text)','execute') as auth_status_change,
+    (select prosecdef=false from pg_proc where oid='public.crm_change_lead_status(uuid,text,text)'::regprocedure) as invoker_status_change,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_change_lead_status(uuid,text,text)'::regprocedure) as empty_status_change_path,
     (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as invoker_admin_lead_edit,
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as empty_admin_lead_edit_path,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
@@ -132,6 +136,10 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     anon_pipeline_insights: false,
     auth_pipeline_insights: true,
     invoker_pipeline_insights: true,
+    anon_status_change: false,
+    auth_status_change: true,
+    invoker_status_change: true,
+    empty_status_change_path: true,
     invoker_admin_lead_edit: true,
     empty_admin_lead_edit_path: true,
     has_meta_id: true,
@@ -1082,6 +1090,56 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(followUp.follow_up_date, '2026-11-09', 'failed timeline insert rolls back date change');
   assert.equal(followUp.follow_up_at, null, 'failed timeline insert cannot leave a partial callback update');
   await db.exec("reset role; drop trigger reject_followup_activity on public.lead_activities; drop function reject_followup_activity();");
+
+  // Status and its actor timeline entry commit together under the caller's RLS.
+  const statusLeadIds = (await db.query(`insert into leads(name,phone,assigned_to,status)
+    values ('Status employee fixture','9190000093','Agent A','New'),
+           ('Status other-owner fixture','9190000094','Agent B','New') returning id`)).rows.map(row => row.id);
+  const [statusLead, otherOwnerStatusLead] = statusLeadIds;
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
+  const changedStatus = (await db.query(
+    "select (crm_change_lead_status($1,'DNP','New')).status as status", [statusLead],
+  )).rows[0].status;
+  assert.equal(changedStatus, 'DNP', 'employee status RPC returns the committed status');
+  assert.deepEqual((await db.query(
+    "select user_id,action_type,description from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead],
+  )).rows, [{
+    user_id: '00000000-0000-4000-8000-000000000002',
+    action_type: 'Status changed',
+    description: 'New → DNP',
+  }], 'status timeline preserves the exact transition and actor');
+  await assert.rejects(
+    db.query("select crm_change_lead_status($1,'RNR','New')", [statusLead]),
+    /status changed/i,
+    'a stale editor cannot overwrite a newer disposition',
+  );
+  await assert.rejects(
+    db.query("select crm_change_lead_status($1,'RNR','New')", [otherOwnerStatusLead]),
+    /unavailable or access denied/i,
+    'an employee cannot change another employee\'s lead',
+  );
+  await assert.rejects(
+    db.query("select crm_change_lead_status($1,'Unsupported','DNP')", [statusLead]),
+    /available lead statuses/i,
+    'the database rejects values outside the CRM status vocabulary',
+  );
+  await db.query("select crm_change_lead_status($1,'DNP','DNP')", [statusLead]);
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 1,
+    'saving the same status does not add a duplicate transition');
+  await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'; set role authenticated;");
+  await db.query("select crm_change_lead_status($1,'Follow-Up','New')", [otherOwnerStatusLead]);
+  assert.equal((await db.query("select status from leads where id=$1", [otherOwnerStatusLead])).rows[0].status, 'Follow-Up',
+    'admin can change a team lead disposition');
+  await db.exec(`reset role; create function public.reject_status_activity() returns trigger language plpgsql as $$
+    begin if new.action_type = 'Status changed' then raise exception 'fixture status timeline rejection'; end if; return new; end $$;
+    create trigger reject_status_activity before insert on public.lead_activities for each row execute function public.reject_status_activity();
+    set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
+  await assert.rejects(db.query("select crm_change_lead_status($1,'RNR','DNP')", [statusLead]), /fixture status timeline rejection/i);
+  assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'DNP',
+    'a failed timeline insert rolls back the status update');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 1,
+    'failed status transition leaves no partial timeline entry');
+  await db.exec("reset role; drop trigger reject_status_activity on public.lead_activities; drop function reject_status_activity();");
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
