@@ -18,6 +18,8 @@ insert into storage.objects(metadata) values ('{"size":100}'::jsonb), ('{"size":
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table public.profiles(id uuid primary key,name text,role text,phone text,email text,gender text,blood_group text,emergency_contact text,manager_name text,photo_url text);
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
+create table public.attendance(id uuid primary key default gen_random_uuid(),employee_id uuid references public.profiles(id),attendance_date date not null,status text not null,marked_by uuid references public.profiles(id));
+grant select,insert on public.attendance to authenticated;
 update profiles set phone='9999999999',email='admin@example.test',gender='Other',blood_group='O+',emergency_contact='8888888888',manager_name='Owner',photo_url='https://example.test/admin.png' where id='00000000-0000-4000-8000-000000000001';
 create function public.handle_new_user() returns trigger language plpgsql security definer as $$begin return new;end$$;
 create function public.rls_auto_enable() returns void language plpgsql security definer as $$begin return;end$$;
@@ -1145,11 +1147,84 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 1,
     'failed status transition leaves no partial timeline entry');
   await db.exec("reset role; drop trigger reject_status_activity on public.lead_activities; drop function reject_status_activity();");
+
+  // Weekly-off and leave scheduling retain their role boundaries and attendance guard.
+  await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'; set role authenticated;");
+  const weeklyOff = (await db.query(`insert into employee_weekly_offs
+    (employee_id,week_start_date,off_date,note,created_by,updated_by)
+    values('00000000-0000-4000-8000-000000000002','2026-11-09','2026-11-09','Rotating Monday',
+      '00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001') returning id`)).rows[0].id;
+  await assert.rejects(db.query(`insert into employee_weekly_offs
+    (employee_id,week_start_date,off_date,created_by,updated_by)
+    values('00000000-0000-4000-8000-000000000002','2026-11-09','2026-11-10',
+      '00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001')`),
+    /employee_weekly_offs_monday_start|employee_weekly_offs_one_per_week/i,
+    'a weekly off must be one selected weekday in its week');
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  assert.equal((await db.query("select count(*)::int n from employee_weekly_offs where id=$1", [weeklyOff])).rows[0].n, 1,
+    'employee can view their own weekly-off schedule');
+  await assert.rejects(db.query(`insert into employee_weekly_offs
+    (employee_id,week_start_date,off_date,created_by,updated_by)
+    values('00000000-0000-4000-8000-000000000002','2026-11-16','2026-11-16',
+      '00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000002')`), /row-level security|permission denied/i,
+    'employees cannot create or change their own weekly off');
+  const weeklyOffAbsentError = await db.query(
+    "insert into attendance(employee_id,attendance_date,status) values('00000000-0000-4000-8000-000000000002','2026-11-09','Absent')",
+  ).then(() => null, (error) => error);
+  assert.ok(weeklyOffAbsentError, 'a scheduled weekly off cannot be marked Absent');
+  assert.match(String(weeklyOffAbsentError.message ?? weeklyOffAbsentError), /scheduled weekly off or approved leave/i);
+  await db.query("insert into attendance(employee_id,attendance_date,status) values('00000000-0000-4000-8000-000000000002','2026-11-09','Present')");
+  assert.equal((await db.query("select count(*)::int n from attendance where employee_id=auth.uid() and attendance_date='2026-11-09' and status='Present'")).rows[0].n, 1,
+    'sign-in remains allowed on a weekly-off date');
+  await db.query(`insert into employee_leave_requests(employee_id,start_date,end_date,leave_type,duration,reason)
+    values(auth.uid(),'2026-12-01','2026-12-01','Sick','full_day','Medical appointment')`);
+  const leaveRequest = (await db.query("select id from employee_leave_requests where employee_id=auth.uid() and start_date='2026-12-01'")).rows[0].id;
+  await db.query(`insert into employee_leave_requests(employee_id,start_date,end_date,leave_type,duration)
+    values(auth.uid(),'2026-12-03','2026-12-03','Casual','half_day')`);
+  await assert.rejects(db.query(`insert into employee_leave_requests(employee_id,start_date,end_date,leave_type,duration)
+    values(auth.uid(),'2026-12-05','2026-12-06','Paid','half_day')`), /employee_leave_requests_half_day_one_date/i,
+    'half-day leave must be one date');
+  await assert.rejects(db.query(`insert into employee_leave_requests(employee_id,start_date,end_date,leave_type,duration)
+    values(auth.uid(),'2026-12-01','2026-12-01','Paid','full_day')`), /overlap an existing/i,
+    'overlapping pending/approved leave is rejected');
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from employee_weekly_offs where id=$1", [weeklyOff])).rows[0].n, 0,
+    'another employee cannot read this employee\'s weekly-off schedule');
+  assert.equal((await db.query("select count(*)::int n from employee_leave_requests where id=$1", [leaveRequest])).rows[0].n, 0,
+    'another employee cannot read this leave request');
+  await db.exec("reset role; update profiles set role='manager' where id='00000000-0000-4000-8000-000000000003'; set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from employee_weekly_offs where id=$1", [weeklyOff])).rows[0].n, 1,
+    'manager can view the team weekly-off schedule');
+  assert.equal((await db.query("select count(*)::int n from employee_leave_requests where id=$1", [leaveRequest])).rows[0].n, 0,
+    'leave request details remain hidden from managers');
+  assert.equal((await db.query("update employee_weekly_offs set note='Manager edit' where id=$1 returning id", [weeklyOff])).rows.length, 0,
+    'weekly-off management remains admin-only');
+  await assert.rejects(db.query(`insert into employee_weekly_offs
+    (employee_id,week_start_date,off_date,created_by,updated_by)
+    values('00000000-0000-4000-8000-000000000003','2026-11-16','2026-11-16',
+      '00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000003')`), /row-level security|permission denied/i,
+    'managers cannot manage weekly offs');
+  assert.equal((await db.query("update employee_leave_requests set status='Approved' where id=$1 returning id", [leaveRequest])).rows.length, 0,
+    'only admins can approve leave requests');
+  await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'; set role authenticated;");
+  await db.query("update employee_leave_requests set status='Approved',reviewed_by=auth.uid(),reviewed_at=now() where id=$1", [leaveRequest]);
+  assert.equal((await db.query("select status from employee_leave_requests where id=$1", [leaveRequest])).rows[0].status, 'Approved',
+    'admin can approve an employee leave request');
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  const leaveAbsentError = await db.query(
+    "insert into attendance(employee_id,attendance_date,status) values(auth.uid(),'2026-12-01','Absent')",
+  ).then(() => null, (error) => error);
+  assert.ok(leaveAbsentError, 'approved leave cannot be marked Absent');
+  assert.match(String(leaveAbsentError.message ?? leaveAbsentError), /scheduled weekly off or approved leave/i);
+  await db.query("insert into attendance(employee_id,attendance_date,status) values(auth.uid(),'2026-12-01','Present')");
+  assert.equal((await db.query("select count(*)::int n from attendance where employee_id=auth.uid() and attendance_date='2026-12-01' and status='Present'")).rows[0].n, 1,
+    'work attendance remains allowed during approved leave for admin review');
+  await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
   console.log(
-    "Isolated migration checks passed: CRM workflows, appointment owner RLS and reassignment, agent buckets, deletion reviews, and linked-data cleanup",
+    "Isolated migration checks passed: status/assignment RLS, weekly offs and leave, appointment owner RLS, agent buckets, deletion reviews, and linked-data cleanup",
   );
 })().catch(async (e) => {
   console.error(e);
