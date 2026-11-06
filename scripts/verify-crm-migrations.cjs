@@ -107,6 +107,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     has_function_privilege('authenticated','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as auth_admin_lead_edit,
     has_function_privilege('anon','public.crm_update_lead_details(uuid,jsonb,timestamptz)','execute') as anon_lead_detail_edit,
     has_function_privilege('authenticated','public.crm_update_lead_details(uuid,jsonb,timestamptz)','execute') as auth_lead_detail_edit,
+    has_function_privilege('anon','public.crm_update_lead_appointment(uuid,text,text,timestamptz)','execute') as anon_lead_appointment_edit,
+    has_function_privilege('authenticated','public.crm_update_lead_appointment(uuid,text,text,timestamptz)','execute') as auth_lead_appointment_edit,
     has_function_privilege('anon','public.crm_pipeline_insights(date)','execute') as anon_pipeline_insights,
     has_function_privilege('authenticated','public.crm_pipeline_insights(date)','execute') as auth_pipeline_insights,
     (select prosecdef=false from pg_proc where oid='public.crm_pipeline_insights(date)'::regprocedure) as invoker_pipeline_insights,
@@ -118,6 +120,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as empty_admin_lead_edit_path,
     (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details(uuid,jsonb,timestamptz)'::regprocedure) as invoker_lead_detail_edit,
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details(uuid,jsonb,timestamptz)'::regprocedure) as empty_lead_detail_edit_path,
+    (select prosecdef=false from pg_proc where oid='public.crm_update_lead_appointment(uuid,text,text,timestamptz)'::regprocedure) as invoker_lead_appointment_edit,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_appointment(uuid,text,text,timestamptz)'::regprocedure) as empty_lead_appointment_edit_path,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
   `)).rows[0];
   assert.deepEqual(hardened, {
@@ -141,6 +145,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     auth_admin_lead_edit: true,
     anon_lead_detail_edit: false,
     auth_lead_detail_edit: true,
+    anon_lead_appointment_edit: false,
+    auth_lead_appointment_edit: true,
     anon_pipeline_insights: false,
     auth_pipeline_insights: true,
     invoker_pipeline_insights: true,
@@ -152,6 +158,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     empty_admin_lead_edit_path: true,
     invoker_lead_detail_edit: true,
     empty_lead_detail_edit_path: true,
+    invoker_lead_appointment_edit: true,
+    empty_lead_appointment_edit_path: true,
     has_meta_id: true,
   });
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -1078,6 +1086,8 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
            ('Task complete fixture','9190000092','Agent A','DNP','2026-11-06','2026-11-06T05:00:00Z')
     returning id`)).rows.map(row => row.id);
   const [rescheduleLead, completeLead] = followUpIds;
+  const appointmentLead = (await db.query(`insert into leads(name,phone,assigned_to,status,opd_booked_date)
+    values ('Appointment date fixture','9190000095','Agent A','OPD Booked',null) returning id`)).rows[0].id;
   await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
   await db.query("select crm_update_task_follow_up($1,'reschedule','2026-11-09'::date,'')", [rescheduleLead]);
   let followUp = (await db.query("select follow_up_date, follow_up_at, status from leads where id=$1", [rescheduleLead])).rows[0];
@@ -1085,6 +1095,34 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(followUp.follow_up_at, null, 'rescheduling clears the old callback time');
   assert.equal(followUp.status, 'DNP', 'follow-up scheduling never changes disposition');
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Follow-up rescheduled'", [rescheduleLead])).rows[0].n, 1);
+  let appointmentVersion = (await db.query("select updated_at::text from leads where id=$1", [appointmentLead])).rows[0].updated_at;
+  const staleAppointmentVersion = appointmentVersion;
+  const savedAppointment = (await db.query(
+    "select * from crm_update_lead_appointment($1,'opd_booked_date',$2::text,$3)",
+    [appointmentLead, '2026-11-12', appointmentVersion],
+  )).rows[0];
+  assert.equal(savedAppointment.opd_booked_date, '2026-11-12', 'employee can save their assigned appointment date');
+  assert.deepEqual((await db.query("select user_id::text,action_type,description from lead_activities where lead_id=$1", [appointmentLead])).rows, [{
+    user_id: '00000000-0000-4000-8000-000000000002',
+    action_type: 'Appointment date updated',
+    description: 'OPD booked date: — → 2026-11-12',
+  }], 'appointment date and actor timeline receipt commit together');
+  appointmentVersion = (await db.query("select updated_at::text from leads where id=$1", [appointmentLead])).rows[0].updated_at;
+  await db.query("select crm_update_lead_appointment($1,'opd_booked_date',$2::text,$3)", [appointmentLead, '2026-11-12', appointmentVersion]);
+  assert.equal((await db.query("select updated_at::text from leads where id=$1", [appointmentLead])).rows[0].updated_at, appointmentVersion, 'saving the same appointment date is a no-op');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [appointmentLead])).rows[0].n, 1, 'a no-op appointment save does not duplicate timeline entries');
+  await assert.rejects(db.query(
+    "select crm_update_lead_appointment($1,'opd_booked_date',$2::text,$3)",
+    [appointmentLead, '2026-11-13', staleAppointmentVersion],
+  ), /changed while you were editing/i, 'a stale appointment form cannot overwrite a newer save');
+  await assert.rejects(db.query(
+    "select crm_update_lead_appointment($1,'status',$2::text,$3)",
+    [appointmentLead, '2026-11-13', appointmentVersion],
+  ), /valid appointment date field/i, 'appointment updates cannot name a status or other lead field');
+  await assert.rejects(db.query(
+    "select crm_update_lead_appointment($1,'opd_booked_date',$2::text,$3)",
+    [safeLead, '2026-11-13', appointmentVersion],
+  ), /Lead not found or access denied/i, 'employees cannot edit another employee\'s appointment date');
   await db.query("select crm_update_task_follow_up($1,'complete',null,'')", [completeLead]);
   followUp = (await db.query("select follow_up_date, follow_up_at, status from leads where id=$1", [completeLead])).rows[0];
   assert.equal(followUp.follow_up_date, '-');
@@ -1153,6 +1191,15 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(detailNoOp.status, 'RNR', 'a no-op save returns the authoritative saved lead');
   assert.equal((await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at, currentDetailVersion, 'saving unchanged details does not invalidate other editors');
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [statusLead])).rows[0].n, 2, 'a no-op detail save does not duplicate timeline entries');
+  const followUpDateVersion = (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at;
+  const savedFollowUpDate = (await db.query(
+    "select * from crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ follow_up_date: '2026-11-09' }), followUpDateVersion],
+  )).rows[0];
+  assert.equal(savedFollowUpDate.follow_up_date, '2026-11-09', 'follow-up date saves through the atomic detail path');
+  assert.equal(savedFollowUpDate.status, 'RNR', 'saving a follow-up date does not change the lead disposition');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and description='Changed: Follow-up date: — → 2026-11-09.'", [statusLead])).rows[0].n, 1,
+    'follow-up date timeline receipt is written with the saved value');
   await assert.rejects(db.query(
     "select crm_update_lead_details($1,$2::jsonb,$3)",
     [statusLead, JSON.stringify({ status: 'New' }), detailsVersion],
@@ -1190,17 +1237,24 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     '00000000-0000-4000-8000-000000000003', 'manager detail edit timeline records the correct actor');
   await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec(`reset role; create function public.reject_status_activity() returns trigger language plpgsql as $$
-    begin if new.action_type = 'Status changed' then raise exception 'fixture status timeline rejection'; end if; return new; end $$;
+    begin if new.action_type in ('Status changed','Appointment date updated') then raise exception 'fixture timeline rejection'; end if; return new; end $$;
     create trigger reject_status_activity before insert on public.lead_activities for each row execute function public.reject_status_activity();
     set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
-  await assert.rejects(db.query("select crm_change_lead_status($1,'New','RNR')", [statusLead]), /fixture status timeline rejection/i);
+  await assert.rejects(db.query("select crm_change_lead_status($1,'New','RNR')", [statusLead]), /fixture timeline rejection/i);
   assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'RNR',
     'a failed timeline insert rolls back the status update');
   await assert.rejects(db.query("select crm_update_lead_details($1,$2::jsonb,$3)",
     [statusLead, JSON.stringify({ status: 'New' }), (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at]),
-    /fixture status timeline rejection/i, 'detail drawer save rolls back when its timeline entry fails');
+    /fixture timeline rejection/i, 'detail drawer save rolls back when its timeline entry fails');
   assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'RNR',
     'failed detail timeline cannot partially change the disposition');
+  await assert.rejects(db.query("select crm_update_lead_appointment($1,'opd_booked_date',$2::text,$3)",
+    [appointmentLead, '2026-11-13', (await db.query("select updated_at::text from leads where id=$1", [appointmentLead])).rows[0].updated_at]),
+    /fixture timeline rejection/i, 'appointment date rolls back when its timeline entry fails');
+  assert.equal((await db.query("select opd_booked_date from leads where id=$1", [appointmentLead])).rows[0].opd_booked_date, '2026-11-12',
+    'a failed appointment timeline cannot leave a partially saved date');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [appointmentLead])).rows[0].n, 1,
+    'failed appointment update does not leave an activity entry');
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 2,
     'failed status transition leaves no partial timeline entry');
   await db.exec("reset role; drop trigger reject_status_activity on public.lead_activities; drop function reject_status_activity();");

@@ -112,11 +112,15 @@ for (const status of ["OPD Booked", "OPD Done", "IPD Done"]) {
 // 9. Dates normalise: the '-' placeholder means "unset", never a fake date.
 // ---------------------------------------------------------------------------
 assert.equal(normaliseAppointmentDate("2026-10-05"), "2026-10-05", "a real date passes through");
+assert.equal(normaliseAppointmentDate("2024-02-29"), "2024-02-29", "a leap day passes through");
 assert.equal(normaliseAppointmentDate("-"), "", "the table's dash placeholder means unset");
 assert.equal(normaliseAppointmentDate("  "), "", "whitespace means unset");
 assert.equal(normaliseAppointmentDate(null), "", "null means unset");
 assert.equal(normaliseAppointmentDate(undefined), "", "undefined means unset");
 assert.equal(normaliseAppointmentDate("05/10/2026"), "", "a non-ISO date is rejected rather than guessed");
+assert.equal(normaliseAppointmentDate("2026-02-29"), "", "a non-leap-year February 29 is rejected");
+assert.equal(normaliseAppointmentDate("2026-04-31"), "", "a day outside the selected month is rejected");
+assert.equal(normaliseAppointmentDate("2026-13-01"), "", "an out-of-range month is rejected");
 
 console.log("✓ all appointment assertions passed");
 console.log("  columns:", APPOINTMENT_COLUMNS.join(", "));

@@ -124,5 +124,9 @@ export function isAppointmentColumn(value: unknown): value is (typeof APPOINTMEN
 export function normaliseAppointmentDate(value: string | null | undefined): string {
   const text = (value ?? "").trim();
   if (!text || text === "-" || text === "--") return "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const [year, month, day] = text.split("-").map(Number);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return year > 0 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth[month - 1] ? text : "";
 }

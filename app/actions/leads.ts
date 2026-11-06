@@ -1975,29 +1975,6 @@ async function reconcileImportedAssignmentBatch(
   }
 }
 
-// Best-effort timeline entry. Never throws: a failed activity log must not
-// block the actual lead write. RLS decides who may insert (admins/managers for
-// all leads, employees only for leads assigned to them as themselves).
-async function recordLeadActivity(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  leadId: string,
-  userId: string,
-  actionType: string,
-  description: string,
-): Promise<boolean> {
-  try {
-    const { error } = await supabase.from("lead_activities").insert({
-      lead_id: leadId,
-      user_id: userId,
-      action_type: actionType,
-      description,
-    });
-    return !error;
-  } catch {
-    return false;
-  }
-}
-
 export async function updateLeadStatus(
   input: UpdateLeadStatusInput,
 ): Promise<ActionResult<Lead>> {
@@ -2062,57 +2039,41 @@ export async function updateLeadAppointment(input: {
     } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "Sign in before changing an appointment date." };
 
-    const value = normaliseAppointmentDate(input.value);
+    const rawValue = input.value.trim();
+    const value = normaliseAppointmentDate(rawValue);
+    if (rawValue && rawValue !== "-" && rawValue !== "--" && !value) {
+      return { success: false, error: "Enter a real calendar date or clear the date field." };
+    }
     const { data: previousLead, error: previousLeadError } = await supabase
       .from("leads")
-      .select(input.column)
+      .select("updated_at")
       .eq("id", input.id)
       .single();
     if (previousLeadError || !previousLead) {
       return { success: false, error: previousLeadError?.message ?? "Lead not found." };
     }
 
-    const { data, error } = await supabase
-      .from("leads")
-      .update({ [input.column]: value || null })
-      .eq("id", input.id)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc("crm_update_lead_appointment", {
+      p_lead_id: input.id,
+      p_column: input.column,
+      p_value: value || null,
+      p_expected_updated_at: previousLead.updated_at,
+    });
 
     if (error) {
-      // Almost always a missing column — name the fix instead of a raw
-      // PostgREST message the clinic admin cannot act on.
-      if (/column|42703|pgrst204/i.test(error.message)) {
+      if (/crm_update_lead_appointment|column|42703|pgrst204/i.test(error.message)) {
         return {
           success: false,
-          error:
-            "Appointment dates need the new columns — run supabase-master-data-migration.sql in the Supabase SQL editor.",
+          error: "Appointment date saving needs the latest Supabase migration. Ask an admin to apply it, then retry.",
         };
       }
       return { success: false, error: error.message };
     }
 
-    const previousDates = previousLead as unknown as Record<string, unknown>;
-    const oldValue = normaliseAppointmentDate(String(previousDates[input.column] ?? ""));
-    const appointmentLabel = input.column.replace(/_/g, " ").replace(" date", "");
-    const activityRecorded = !user || oldValue === value
-      ? true
-      : await recordLeadActivity(
-        supabase,
-        input.id,
-        user.id,
-        "Appointment date updated",
-        `${appointmentLabel}: ${oldValue || "—"} → ${value || "—"}`,
-      );
-
     // The calendar reads these columns directly, so it must re-render too.
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/calendar");
-    return {
-      success: true,
-      data: data as Lead,
-      ...(!activityRecorded ? { warning: "Appointment date saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
-    };
+    return { success: true, data: data as Lead };
   } catch (error) {
     return {
       success: false,
@@ -2133,41 +2094,26 @@ export async function updateLeadFollowUpDate(
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Sign in before changing a follow-up date." };
     const nextFollowUp = followUpDate.trim();
     const { data: previousLead, error: previousLeadError } = await supabase
       .from("leads")
-      .select("follow_up_date")
+      .select("updated_at")
       .eq("id", leadId)
       .single();
     if (previousLeadError || !previousLead) {
       return { success: false, error: previousLeadError?.message ?? "Lead not found." };
     }
-    const { data, error } = await supabase
-      .from("leads")
-      .update({ follow_up_date: nextFollowUp || "-" })
-      .eq("id", leadId)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc("crm_update_lead_details", {
+      p_lead_id: leadId,
+      p_updates: { follow_up_date: nextFollowUp || "-" },
+      p_expected_updated_at: previousLead.updated_at,
+    });
 
     if (error) return { success: false, error: error.message };
-    const oldFollowUp = String(previousLead.follow_up_date ?? "").trim();
-    const storedFollowUp = nextFollowUp || "-";
-    const activityRecorded = !user || oldFollowUp === storedFollowUp
-      ? true
-      : await recordLeadActivity(
-        supabase,
-        leadId,
-        user.id,
-        "Follow-up updated",
-        `${oldFollowUp === "-" ? "—" : oldFollowUp} → ${nextFollowUp || "—"}`,
-      );
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/follow-up-calendar");
-    return {
-      success: true,
-      data: data as Lead,
-      ...(!activityRecorded ? { warning: "Follow-up saved, but its timeline entry could not be recorded. Please tell an admin." } : {}),
-    };
+    return { success: true, data: data as Lead };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to update follow-up date.") };
   }
