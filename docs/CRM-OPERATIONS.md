@@ -39,11 +39,11 @@ Rules operate inside the database. They do not send SMS, WhatsApp, email or pati
 
 At 100–500 new leads per day, one year adds approximately 36,500–182,500 leads. Staff count alone cannot guarantee a year on the free tier: remarks, appointments, activities, indexes, recovery copies and monthly data transfer all count. Settings shows actual database size and record counts; monthly egress must be checked in Supabase Usage. Review growth at 250 MB database size or 18 staff rather than waiting for a quota failure. Never automatically delete patient records to fit a quota.
 
-Supabase Free currently includes 500 MB database size, 5 GB uncached egress plus 5 GB cached egress, 1 GB file storage and two million Realtime messages. A database over the 500 MB quota enters read-only mode, so monitor the database-size figure rather than counting on the included 1 GB disk. Reports transfer database aggregates, daily pages are bounded, date/treatment filters are indexed, and automation uses a single daily database job rather than repeated Vercel requests. These changes reduce consumption; they are not a capacity guarantee. Check current [Supabase quotas](https://supabase.com/docs/guides/platform/billing-on-supabase) and [database-size behavior](https://supabase.com/docs/guides/platform/database-size) before planning growth.
+The current Supabase organization is on the Free plan. Supabase Free currently includes 500 MB database size, 5 GB uncached egress plus 5 GB cached egress, 1 GB file storage and two million Realtime messages. A database over the 500 MB quota enters read-only mode, so monitor the database-size figure rather than counting on the included 1 GB disk. Reports transfer database aggregates, daily pages are bounded, date/treatment filters are indexed, and automation uses a single daily database job rather than repeated hosting requests. These changes reduce consumption; they are not a capacity guarantee. Check current [Supabase quotas](https://supabase.com/docs/guides/platform/billing-on-supabase) and [database-size behavior](https://supabase.com/docs/guides/platform/database-size) before planning growth.
 
-Vercel Hobby is restricted to personal, non-commercial use. A clinic CRM used for commercial operations may require Vercel Pro or a hosting platform whose terms cover this use; having fewer than 20 staff does not create an exception. No paid plan is purchased by these changes. Review [Vercel's Hobby terms](https://vercel.com/docs/plans/hobby) before continuing production use on Hobby.
+The current app host is the Render `aurevia-crm` Free web service; Supabase remains the database and source of truth. Render Free spins the service down after 15 minutes without inbound traffic, takes about one minute to wake, has an ephemeral local filesystem, and Render advises against Free for production applications. CRM records and uploaded profile photos must stay in Supabase, not the Render filesystem. Upgrade the Render service if dependable always-on response time is required; no paid plan is purchased by these changes. Review [Render Free service limits](https://render.com/docs/free).
 
-Sources: [Supabase pricing](https://supabase.com/pricing), [Supabase Cron](https://supabase.com/docs/guides/cron), [Vercel Hobby rules](https://vercel.com/docs/plans/hobby).
+Sources: [Supabase pricing](https://supabase.com/pricing), [Supabase Cron](https://supabase.com/docs/guides/cron), [Render Free service limits](https://render.com/docs/free).
 
 ## Verification
 
@@ -67,7 +67,7 @@ Configure the server-only values and Meta Developer settings in [Meta lead setup
 
 ## Security and recovery
 
-- Keep Supabase service-role credentials, Meta tokens and Meta app secrets in Vercel server-side environment variables. Do not put them in client bundles or Git.
-- In Supabase Auth settings, enable leaked-password protection. This is an Auth dashboard setting and is not changed by SQL migrations.
+- Keep Supabase service-role credentials, Meta tokens and Meta app secrets in Render's server-side environment variables. Do not put them in client bundles or Git.
+- The current Supabase Free plan has leaked-password protection disabled. Supabase offers this Auth feature on Pro and above; after an approved upgrade, enable it in Auth password settings. It is not changed by SQL migrations.
 - Take a regular database export and practice restoring it to a separate test project before depending on it as a recovery plan. Settings' lead-recovery snapshots are not a full database backup.
 - Re-run Supabase security and performance advisors after database migrations. Review each `SECURITY DEFINER` grant individually; do not revoke application RPC permissions broadly without checking role behavior.

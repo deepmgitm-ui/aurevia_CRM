@@ -7,7 +7,9 @@ procedure changes. Keep the implementation and this guide in the same change.
 ## Product and stack
 
 - Clinic operations CRM built with Next.js 16, React 19, TypeScript and Supabase.
-- Production hosting is Vercel. Optional CRM help uses Cloudflare Workers AI.
+- Production hosting is the Render `aurevia-crm` web service. The connected
+  Supabase project is the source of truth. Optional CRM help uses Cloudflare
+  Workers AI.
 - The CRM UI is English. The help assistant can respond in English or Hinglish.
 - Material UI alerts use the Next.js App Router cache provider alongside the
   existing Tailwind and Base UI components.
@@ -162,6 +164,27 @@ tokens, patient exports, database credentials or service-role keys.
 Meta delivery also requires Meta Page permissions, a reachable production
 webhook URL and a successful test lead. See docs/META-LEADS.md.
 
+## Security and hosting notes
+
+- Current Supabase organization plan: Free. The live security advisor reports
+  leaked-password protection disabled. Supabase only offers that Auth feature
+  on Pro and above; enable it in Supabase Auth password settings after an
+  approved plan upgrade. It cannot be enabled with a SQL migration. See
+  [Supabase password security](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+- The live advisor also flags eight `SECURITY DEFINER` RPCs because signed-in
+  users can invoke them. Their definitions were reviewed: each has an
+  authentication check, and the administrative functions check the required
+  role. The duplicate-review capture RPC intentionally accepts CRM roles.
+  Keep these grants aligned with their server-side workflows; do not revoke
+  them solely to silence the advisor.
+- The performance advisor currently reports four foreign keys without
+  covering indexes, 22 indexes with no recorded use, and multiple-permissive
+  policy notices. No index or policy was changed in this audit: unused-index
+  counters are not proof that an index is dead, and each overlapping policy
+  group needs a role-by-role review before consolidation.
+- Render Free may spin down after inactivity and take time to wake. This is a
+  hosting-plan behavior, not a CRM data reset; Supabase remains the database.
+
 ## Release and maintenance checklist
 
 1. Check the working tree and preserve unrelated work. Review the exact files
@@ -188,6 +211,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Corrected the production, Meta setup and operations guides to identify Render as the live app host; documented the current Supabase security-advisor findings and Free-plan limits. No app code, database settings, schema or CRM data changed. | Confirmed Supabase organization plan and live advisor output. Reviewed all eight flagged function definitions for authentication and role checks. Leaked-password protection remains unavailable on the current Free plan; no permissions were revoked and no indexes or policies were removed. |
 | 2026-11-06 | Added intrinsic dimensions to all dashboard profile photos so browsers can reserve their rendered 40/44/64px space before the image loads. No workflow or CRM data changed. | Dashboard ESLint, TypeScript and full production build pass; `git diff --check` passes. |
 | 2026-11-06 | Scoped Turbopack to the app root so an unrelated parent `package-lock.json` cannot widen file watching or trigger a root-detection warning. Lead status remains compare-and-set in table/board actions, and stale detail edits are rejected and reloaded. No lead rows were changed. | Lint, TypeScript, production build (root warning gone), 12 focused workflow verifiers and read-only Supabase migration/data checks pass. Timeline round-trip used a temporary activity and removed it; activity count returned to 1,870. Vercel reported no runtime errors in the last hour. Live role-based UI could not be exercised because no CRM session was available. |
 | 2026-11-06 | Removed an unused `status` field from the automation patch type. Automation currently changes assignments, follow-up dates and timeline notes only; status changes remain in explicit lead/appointment/transfer flows. No runtime behavior or CRM data changed. | Automation verifier, ESLint, TypeScript and `git diff --check` pass. |

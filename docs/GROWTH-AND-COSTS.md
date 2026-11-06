@@ -78,22 +78,22 @@ existing Supabase projects by running
 
 ## 3. Meta leads — setup checklist (ye karne pe leads rukenge nahi)
 
-App → `https://<vercel-domain>/api/meta-webhook`
+App → `https://aurevia-crm.onrender.com/api/meta-webhook`
 
-1. **Meta App → Settings → Basic** → App Secret copy karo → Vercel env
+1. **Meta App → Settings → Basic** → App Secret copy karo → Render env
    `META_APP_SECRET` set karo (signature check on).
 2. **App Dashboard → Webhooks → Page → Subscribe** → Callback URL upar wali,
-   Verify Token = wahi jo Vercel env `META_VERIFY_TOKEN` me hai → "Verify and
+   Verify Token = wahi jo Render env `META_VERIFY_TOKEN` me hai → "Verify and
    Save" dabao.
 3. Subscribe to **`leadgen`** field. Token ke liye System User + `leads_retrieval`
-   permission (page access token, long-lived) → Vercel env `META_ACCESS_TOKEN`.
+   permission (page access token, long-lived) → Render env `META_ACCESS_TOKEN`.
 4. **Test**: Webhooks page se "Test" bhejo ya ek real test lead bharo → lead
    "Meta Ads" source, status New ke saath aana chahiye, aur
    remarks me `[Campaign Name]` dikhna chahiye.
 5. Duplicate aaye? Logs me "Duplicate lead skipped" dikhega — 24h window me
    same number wali entry link hoti hai, nayi row nahi banti.
 
-Sabse common failure: **token mismatch** (Meta me kuch aur, Vercel env me kuch
+Sabse common failure: **token mismatch** (Meta me kuch aur, Render env me kuch
 aur) — tab "Verify and Save" red hota hai. Dusra: `META_ACCESS_TOKEN` expired —
 Graph API 190 error logs me dikhega.
 
