@@ -63,10 +63,12 @@ export function SmartAssignmentBanner({
   async function handleAssign() {
     if (!canSubmit) return;
     setIsAssigning(true);
-    const response = await assignUnassignedLeads(parsedCount, selected);
-    if (!response.success) {
-      toast.add({ title: "Assignment failed", description: response.error, type: "error" });
-    } else {
+    try {
+      const response = await assignUnassignedLeads(parsedCount, selected);
+      if (!response.success) {
+        toast.add({ title: "Assignment failed", description: response.error, type: "error" });
+        return;
+      }
       const { assigned, perEmployee } = response.data;
       toast.add({
         title: `Successfully distributed ${assigned} leads among ${perEmployee.length} employees.`,
@@ -76,8 +78,15 @@ export function SmartAssignmentBanner({
       setIsOpen(false);
       // Server re-render: the banner disappears and team stats update.
       router.refresh();
+    } catch (error) {
+      toast.add({
+        title: "Assignment failed",
+        description: error instanceof Error ? error.message : "Unable to reach the server. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setIsAssigning(false);
     }
-    setIsAssigning(false);
   }
 
   if (unassigned <= 0 || employees.length === 0) return null;
@@ -106,7 +115,9 @@ export function SmartAssignmentBanner({
               <Label htmlFor="smart-assign-count">How many leads do you want to assign?</Label>
               <Input
                 id="smart-assign-count"
+                name="leadCount"
                 type="number"
+                autoComplete="off"
                 min={1}
                 max={unassigned}
                 value={count}
