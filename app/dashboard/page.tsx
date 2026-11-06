@@ -225,10 +225,10 @@ export default async function DashboardPage({
       </section>
       <section aria-label="Assignment status breakdown" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-slate-950">{isToday ? "Today’s assigned leads" : "Assigned leads for this date"} · Status breakdown</h2>
-          <Link href={`/dashboard?work=assigned&day=${day}#today-leads`} className="text-sm font-semibold text-blue-700 hover:underline">View all assignments</Link>
+          <h2 className="text-lg font-semibold text-slate-950">{isToday ? "Untouched leads assigned today" : "All leads assigned on this date"} · Status breakdown</h2>
+          <Link href={`/dashboard?work=assigned&day=${day}#today-leads`} className="text-sm font-semibold text-blue-700 hover:underline">{isToday ? "View untouched leads" : "View assignments"}</Link>
         </div>
-        <p className="mt-1 text-sm text-slate-500">Current status of leads received on {dayLabel}. OPD and IPD cards above include your earlier assignments too.</p>
+        <p className="mt-1 text-sm text-slate-500">{isToday ? "Only leads that have not been worked yet are included here." : `Current status of leads assigned on ${dayLabel}.`} OPD and IPD cards above include your earlier assignments too.</p>
         {statusResult.success ? statusResult.data.length === 0 ? (
           <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No new leads were assigned to you on this date.</p>
         ) : (

@@ -852,7 +852,7 @@ export async function getLeadsForExport(
 
 export async function getDailyWorkCounts(day=clinicDate()):Promise<ActionResult<Record<DailyWorkKind,number>>>{if(!isWorkDate(day))return {success:false,error:"Invalid work date."};const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to see daily work."};const supabase=await createClient();const {data,error}=await supabase.rpc("crm_daily_work_counts",{p_day:day});return error?{success:false,error:"Daily work could not be loaded."}:{success:true,data:data as Record<DailyWorkKind,number>};}
 
-/** Current status of every lead assigned to the viewer on the selected day. */
+/** Current status of today's untouched assignments or the full past-day assignment cohort. */
 export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<ActionResult<{ status: string | null; count: number }[]>> {
   try {
     if (!isWorkDate(day)) return { success: false, error: "Invalid work date." };
