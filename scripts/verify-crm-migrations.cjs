@@ -35,6 +35,12 @@ alter table public.leads enable row level security;create policy fixture_lead_sc
 alter table public.lead_activities enable row level security;create policy fixture_activity_scope on public.lead_activities for all to authenticated using(public.current_user_role() in('admin','manager') or user_id=auth.uid()) with check(public.current_user_role() in('admin','manager') or user_id=auth.uid());
 grant usage on schema public,auth to authenticated;grant select on profiles to authenticated;grant select,insert,update,delete on leads,lead_activities to authenticated;
 insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Legacy fixture','9876543210','Agent A','10/10/2026','2026-10-12');
+insert into leads(id,name,phone,source,status,assigned_to,assigned_at,created_at,updated_at)
+values('00000000-0000-4000-8000-000000000101','Legacy untouched imported follow-up','9191000101','Excel/CSV','Follow-Up','Agent A','2026-10-12T05:00:00Z','2026-10-11T05:00:00Z','2026-10-12T05:00:00Z'),
+      ('00000000-0000-4000-8000-000000000102','Legacy touched imported follow-up','9191000102','Excel/CSV','Follow-Up','Agent A','2026-10-12T05:00:00Z','2026-10-11T05:00:00Z','2026-10-12T05:00:00Z'),
+      ('00000000-0000-4000-8000-000000000103','Legacy untouched imported closed','9191000103','Excel/CSV','Dropped','-','2026-10-11T05:00:00Z','2026-10-11T05:00:00Z','2026-10-11T05:00:00Z');
+insert into lead_activities(lead_id,user_id,action_type,description,created_at)
+values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000002','note','Legacy user note','2026-10-13T05:00:00Z');
 `);
   for (const file of fs
     .readdirSync("supabase/migrations")
@@ -46,7 +52,38 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
         .replace(/-- CRON_SETUP_BEGIN[\s\S]*?-- CRON_SETUP_END/g, ""),
     );
     console.log("Migration syntax passed:", file);
+    if (file === "20261022095339_agent_lead_buckets_and_deletion_reviews.sql") {
+      await db.query(`insert into crm_lead_deletion_reviews
+        (lead_id, closed_status, closed_since, delete_after)
+        values('00000000-0000-4000-8000-000000000103','Dropped','2026-10-11T05:00:00Z','2026-10-18T05:00:00Z')`);
+    }
   }
+  const legacyUntouched = (await db.query(`select status, assigned_to, workflow_bucket,
+    assigned_fresh_since, first_agent_touch_at from leads
+    where id='00000000-0000-4000-8000-000000000101'`)).rows[0];
+  assert.equal(legacyUntouched.workflow_bucket, "fresh", "legacy imported disposition remains Fresh until CRM touch");
+  assert.equal(legacyUntouched.status, "Follow-Up", "legacy imported disposition remains unchanged");
+  assert.equal(legacyUntouched.assigned_to, "Agent A", "legacy owner remains unchanged");
+  assert.equal(legacyUntouched.assigned_fresh_since.toISOString(), "2026-10-12T05:00:00.000Z", "Fresh day uses the last known assignment date");
+  assert.equal(legacyUntouched.first_agent_touch_at, null);
+  const legacyTouched = (await db.query(`select status, workflow_bucket, first_agent_touch_at
+    from leads where id='00000000-0000-4000-8000-000000000102'`)).rows[0];
+  assert.equal(legacyTouched.workflow_bucket, "followup", "a recorded historical CRM interaction ends Fresh");
+  assert.equal(legacyTouched.status, "Follow-Up", "historical touch reconstruction preserves disposition");
+  assert.equal(legacyTouched.first_agent_touch_at.toISOString(), "2026-10-13T05:00:00.000Z");
+  const legacyClosed = (await db.query(`select status, workflow_bucket, closed_status_since,
+    fresh_pending_since from leads where id='00000000-0000-4000-8000-000000000103'`)).rows[0];
+  assert.equal(legacyClosed.workflow_bucket, "fresh", "untouched imported closed status does not enter cleanup");
+  assert.equal(legacyClosed.status, "Dropped", "legacy closed disposition remains unchanged");
+  assert.equal(legacyClosed.closed_status_since, null, "unworked imported closed status has no cleanup clock");
+  assert.equal(legacyClosed.fresh_pending_since.toISOString(), "2026-10-11T05:00:00.000Z", "unassigned Fresh date uses intake date");
+  assert.equal((await db.query("select count(*)::int as n from crm_lead_deletion_reviews where lead_id='00000000-0000-4000-8000-000000000103' and decision='pending'")).rows[0].n, 0,
+    "an unworked imported closed status is removed from the pending cleanup queue");
+  await db.query("delete from leads where id=any($1::uuid[])", [[
+    "00000000-0000-4000-8000-000000000101",
+    "00000000-0000-4000-8000-000000000102",
+    "00000000-0000-4000-8000-000000000103",
+  ]]);
   const hardened = (await db.query(`select
     has_function_privilege('anon','public.handle_new_user()','execute') as anon_handle,
     has_function_privilege('anon','public.crm_existing_phone_identities(text[])','execute') as anon_phone_lookup,

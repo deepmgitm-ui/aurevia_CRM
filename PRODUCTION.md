@@ -76,6 +76,10 @@ procedure changes. Keep the implementation and this guide in the same change.
   leads after their intake/assignment day). New imported rows start untouched
   regardless of their source status or whether they have an assignee. Preserve
   the uploaded disposition as provenance until a CRM user changes that status.
+- Reconcile legacy workflow markers from recorded user activity: timeline
+  activity ends Fresh; otherwise old assigned records use their last assignment
+  date, and unassigned records use their intake date. Untouched imported closed
+  labels have no deletion-review clock until a person works the lead.
 - Older unassigned untouched leads use their intake date for the Fresh card and
   its drill-down; assigned untouched leads use their latest assignment date.
 - Assignment by itself does not count as a touch. An employee's note, call,
@@ -214,6 +218,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Reconciled legacy lead workflow markers: recorded human activity restores first-touch state; older records without a recorded touch get a Fresh assignment/intake clock. Lead status, owner, notes, and assignment history remain unchanged; unworked imported closed leads leave the pending cleanup queue. | Isolated CRM migration assertions cover untouched imported Follow-Up, historically touched Follow-Up, and unassigned imported Dropped records, including preserved status and removal of stale review entries. Live migration `20261106112834` applied. Production remained at 1,245 leads and 1,470 activities; zero untouched leads have a missing Fresh clock; Fresh is 137, Follow-up is 1,044, and Closed is 32. |
 | 2026-11-06 | Kept manager deletion permissions usable without opening general exports: managers can download only an explicit, validated selection (up to 5,000 rows) as the required pre-delete Excel backup. Bulk delete now always clears its pending state and distinguishes backup failure, unconfirmed delete requests, and confirmed deletion with a refresh failure. No lead data or schema changed. | Selected-delete export authorization, backup-first UI flow, stale-response handling, ESLint, strict TypeScript, isolated CRM migration and daily-work checks, and production build pass. Live records were not deleted. |
 | 2026-11-06 | Aligned the manager-reassignment guard migration filename with the already-applied Supabase ledger version `20261106073400`; SQL is unchanged and no migration was rerun. | Compared all 58 local migration versions/names with the live ledger; exact match. Live trigger/function definition matches the repository SQL. No lead data changed. |
 | 2026-11-06 | Added a keyboard-accessible “Skip to main content” link to the dashboard shell and a focusable main landmark. No workflow, data or database changes. | Dashboard shell ESLint, TypeScript and full production build pass. Visual browser verification was unavailable in this session. |
