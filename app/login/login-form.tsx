@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -44,8 +45,8 @@ export function LoginForm({ redirectTo, dayEnded = false }: LoginFormProps) {
   }, [state]);
 
   return (
-    <main className="flex min-h-full flex-1 items-center justify-center bg-muted/30 px-4 py-12">
-      <Card className="w-full max-w-md shadow-lg">
+    <main className="flex min-h-full w-full min-w-0 flex-1 items-center justify-center bg-muted/30 px-4 py-12">
+      <Card className="w-full min-w-0 max-w-md shadow-lg">
         <CardHeader className="gap-2 text-center">
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to continue to Aurevia CRM.</CardDescription>
@@ -89,14 +90,14 @@ export function LoginForm({ redirectTo, dayEnded = false }: LoginFormProps) {
               />
             </div>
             <Button type="submit" className="h-10 w-full" disabled={isPending}>
-              {isPending ? "Signing in..." : "Sign in"}
+              {isPending ? "Signing in…" : "Sign in"}
             </Button>
           </form>
           <p className="mt-5 text-center text-sm text-slate-500">
             Don&apos;t have an account?{" "}
-            <a href="/signup" className="font-medium text-slate-900 hover:underline">
+            <Link href="/signup" className="font-medium text-slate-900 hover:underline">
               Sign up
-            </a>
+            </Link>
           </p>
         </CardContent>
       </Card>
