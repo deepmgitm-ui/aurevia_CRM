@@ -317,6 +317,10 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     today,
     saved.appointmentId,
   ]);
+  const bookedOpdIds = (await db.query("select id::text from crm_daily_lead_ids('opd',$1)", [today])).rows.map((row) => row.id);
+  assert.ok(bookedOpdIds.includes(id), "OPD booking card opens the booked patient");
+  const completedOpdIdsBefore = (await db.query("select id::text from crm_daily_lead_ids('opdDone',$1)", [today])).rows.map((row) => row.id);
+  assert.ok(!completedOpdIdsBefore.includes(id), "booked OPD is not listed as completed");
   await db.exec(
     `set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`,
   );
@@ -339,6 +343,8 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
     "00000000-0000-4000-8000-000000000002",
     "appointment status transition records the acting employee",
   );
+  const completedOpdIds = (await db.query("select id::text from crm_daily_lead_ids('opdDone',$1)", [today])).rows.map((row) => row.id);
+  assert.ok(completedOpdIds.includes(id), "OPD completion card opens the completed patient");
   await db.exec(
     `set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';`,
   );
@@ -356,8 +362,14 @@ const ipdPayload={...p,expectedUpdatedAt:ipdVersion,kind:'ipdDone',date:today,ap
 const ipd=(await db.query('select crm_save_calendar_entry($1::jsonb) x',[JSON.stringify(ipdPayload)])).rows[0].x;
 let daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;
 assert.equal(daily.ipd,1);assert.equal(daily.ipdDone,0,'booking is not IPD completion');
+const bookedIpdIds=(await db.query("select id::text from crm_daily_lead_ids('ipd',$1)",[today])).rows.map((row)=>row.id);
+assert.ok(bookedIpdIds.includes(id),'IPD booking card opens the booked patient');
+const completedIpdIdsBefore=(await db.query("select id::text from crm_daily_lead_ids('ipdDone',$1)",[today])).rows.map((row)=>row.id);
+assert.ok(!completedIpdIdsBefore.includes(id),'booked IPD is not listed as completed');
 await db.query("select crm_change_appointment_status($1,'completed')",[ipd.appointmentId]);
 daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;assert.equal(daily.ipdDone,1);
+const completedIpdIds=(await db.query("select id::text from crm_daily_lead_ids('ipdDone',$1)",[today])).rows.map((row)=>row.id);
+assert.ok(completedIpdIds.includes(id),'IPD completion card opens the completed patient');
 const ipdTransition=(await db.query("select description from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc,id desc limit 1",[id])).rows[0].description;
 assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and completion both record status transitions');
 // A recovered legacy duplicate can be merged only with fresh versions and phone confirmation.
@@ -845,8 +857,13 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 1, "employee can view their own appointment");
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [otherAppointment])).rows[0].n, 0, "employee cannot view another agent's appointment");
+  const ownDailyOpdIds = (await db.query("select id::text from crm_daily_lead_ids('opd',$1)", [today])).rows.map((row) => row.id);
+  assert.ok(ownDailyOpdIds.includes(bucketIds.opdBooked), "employee dashboard drill-down includes their assigned appointment");
+  assert.ok(!ownDailyOpdIds.includes(otherAppointmentLead), "employee dashboard drill-down excludes another agent's appointment");
   await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [otherAppointment])).rows[0].n, 1, "appointment is visible to its assigned employee");
+  const newOwnerDailyOpdIds = (await db.query("select id::text from crm_daily_lead_ids('opd',$1)", [today])).rows.map((row) => row.id);
+  assert.ok(newOwnerDailyOpdIds.includes(otherAppointmentLead), "new owner dashboard drill-down includes their assigned appointment");
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   await db.query("update leads set assigned_to='Agent B' where id=$1", [bucketIds.opdBooked]);
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");

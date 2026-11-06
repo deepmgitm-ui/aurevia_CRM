@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyCurrentNewLeadFilter, applyDailyWorkFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
+import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
 import { clinicDate } from "../lib/attendance.ts";
 import { parseLeadFilters, leadsHref, hasLeadFilters, describeActiveFilters } from "../app/dashboard/lead-filters.ts";
 
@@ -41,14 +41,15 @@ class Query {
   matches(row: Row) { return this.predicates.every(predicate => predicate(row)); }
 }
 const rows: Row[] = [
-  { id: "old-created-newly-assigned", created_at: "2020-01-01", assigned_at: "2026-10-10T18:30:00.000Z", status: "Contacted", opd_booked_date: "2026-10-11", opd_done_date: "2026-10-11", ipd_done_date: "2026-10-12" },
-  { id: "yesterday", assigned_at: "2026-10-10T18:29:59.999Z", opd_booked_date: "2026-10-10", opd_done_date: null, ipd_done_date: "2026-10-11" },
-  { id: "tomorrow", assigned_at: "2026-10-11T18:30:00.000Z", opd_booked_date: "2026-10-12", opd_done_date: null, ipd_done_date: null },
-  { id: "unknown-history", assigned_at: null, opd_booked_date: null, opd_done_date: null, ipd_done_date: null },
+  { id: "old-created-newly-assigned", assigned_at: "2026-10-10T18:30:00.000Z" },
+  { id: "yesterday", assigned_at: "2026-10-10T18:29:59.999Z" },
+  { id: "tomorrow", assigned_at: "2026-10-11T18:30:00.000Z" },
+  { id: "unknown-history", assigned_at: null },
 ];
-for (const [kind, expected] of [["assigned", "old-created-newly-assigned"], ["opd", "old-created-newly-assigned"], ["opdDone", "old-created-newly-assigned"], ["ipd", "yesterday"]] as const) {
-  const query = applyDailyWorkFilter(new Query(), kind, "2026-10-11");
-  assert.deepEqual(rows.filter(row => query.matches(row)).map(row => row.id), [expected]);
+{
+  const query = applyAssignmentDayFilter(new Query(), "2026-10-11");
+  assert.deepEqual(rows.filter(row => query.matches(row)).map(row => row.id), ["old-created-newly-assigned"]);
+  const kind = "assigned" as const;
   const filters = parseLeadFilters({ work: kind, day: "2026-10-11" });
   const url = new URL(leadsHref(filters), "https://crm.test");
   assert.deepEqual(parseLeadFilters(Object.fromEntries(url.searchParams)), filters);
@@ -75,11 +76,7 @@ for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
 assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:29:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Fresh");
 assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Follow-up");
 assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "DNP" }, "2026-10-11"), "DNP");
-const bookedOnly = { opd_booked_date: "2026-10-11", opd_done_date: null };
-assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(bookedOnly), false);
-const progressed = { status: "IPD Done", opd_done_date: "2026-10-11" };
-assert.equal(applyDailyWorkFilter(new Query(), "opdDone", "2026-10-11").matches(progressed), true);
 const statusFilters = parseLeadFilters({ work: "assigned", day: "2026-10-11", status: "OPD Booked" });
 const statusUrl = new URL(leadsHref(statusFilters), "https://crm.test");
 assert.deepEqual(parseLeadFilters(Object.fromEntries(statusUrl.searchParams)), statusFilters);
-console.log("✓ daily work: IST boundaries, assignment date, OPD deduplication, IPD dates and filter round trips passed");
+console.log("✓ daily work: IST boundaries, assignment dates, New/Fresh buckets and filter round trips passed");

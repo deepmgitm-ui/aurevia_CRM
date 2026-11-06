@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
-import { applyCurrentNewLeadFilter, applyDailyWorkFilter, olderFreshLeadFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -534,7 +534,7 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
   else if (resolved.work === "assigned" && resolved.day === clinicDate()) filtered = applyCurrentNewLeadFilter(filtered, resolved.day);
-  else if (resolved.work) filtered = applyDailyWorkFilter(filtered, resolved.work, resolved.day);
+  else if (resolved.work === "assigned") filtered = applyAssignmentDayFilter(filtered, resolved.day);
   if (resolved.bucket === "dnp") {
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
   } else if (resolved.bucket) {
@@ -851,7 +851,7 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
         .ilike("assigned_to", escapeLikePattern(viewer.name)).order("id").range(offset, offset + 499);
       query = day === clinicDate()
         ? applyCurrentNewLeadFilter(query, day)
-        : applyDailyWorkFilter(query, "assigned", day);
+        : applyAssignmentDayFilter(query, day);
       const { data, error } = await query;
       if (error) return { success: false, error: "Assignment statuses could not be loaded." };
       for (const row of data ?? []) {

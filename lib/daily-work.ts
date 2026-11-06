@@ -32,19 +32,10 @@ interface DailyQuery<Q> {
   or(expression: string): Q;
 }
 
-/** Counts and paginated calling lists share these exact date conditions. */
-export function applyDailyWorkFilter<Q extends DailyQuery<Q>>(query: Q, work: DailyWorkKind, day: string): Q {
-  if (!isWorkDate(day)) throw new Error("Invalid work date");
-  if (work === "assigned") {
-    const window = assignmentDayWindow(day);
-    return query.gte("assigned_at", window.from).lt("assigned_at", window.to);
-  }
-  if (work === "opd") {
-    // One lead appears once even if both OPD dates fall on the same day.
-    return query.or(`opd_booked_date.eq.${day},opd_done_date.eq.${day}`);
-  }
-  if (work === "opdDone") return query.eq("opd_done_date", day);
-  return query.eq("ipd_done_date", day);
+/** Historic assignment lists use assigned_at; appointment lists use the RLS-scoped CRM appointment RPC. */
+export function applyAssignmentDayFilter<Q extends DailyQuery<Q>>(query: Q, day: string): Q {
+  const window = assignmentDayWindow(day);
+  return query.gte("assigned_at", window.from).lt("assigned_at", window.to);
 }
 
 /**
