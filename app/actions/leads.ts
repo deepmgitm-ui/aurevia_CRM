@@ -1156,10 +1156,7 @@ export interface EmployeeDirectoryEntry {
   photo_url: string | null;
 }
 
-// The HR columns are optional. The query below selects them when the optional
-// HR migration (supabase-hr-migration.sql) has been applied and silently falls
-// back to the three base columns when it has not (PostgREST answers 42703 /
-// PGRST204 for unknown columns), so the CRM keeps working either way.
+// Staff HR details live in the protected table after the privacy migration.
 const PRIVATE_PROFILE_COLUMNS =
   "id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url";
 
@@ -1192,20 +1189,8 @@ export async function getEmployeeDirectory(): Promise<ActionResult<EmployeeDirec
     const { data: privateRows, error: privateError } = await supabase
       .from("employee_private_profiles")
       .select(PRIVATE_PROFILE_COLUMNS);
-    let hrById = new Map<string, Record<string, unknown>>();
-
-    if (privateError && /employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateError.message)) {
-      // Keep old deployments usable during the additive migration rollout only.
-      const legacy = await supabase.from("profiles").select("id, phone, email, gender, blood_group, emergency_contact, manager_name, photo_url");
-      if (legacy.error && !/column .* does not exist|could not find the .* column/i.test(legacy.error.message)) {
-        return { success: false, error: legacy.error.message };
-      }
-      hrById = new Map((legacy.data ?? []).map((row) => [String(row.id), row as Record<string, unknown>]));
-    } else if (privateError) {
-      return { success: false, error: privateError.message };
-    } else {
-      hrById = new Map((privateRows ?? []).map((row) => [String(row.id), row as Record<string, unknown>]));
-    }
+    if (privateError) return { success: false, error: privateError.message };
+    const hrById = new Map((privateRows ?? []).map((row) => [String(row.id), row as Record<string, unknown>]));
 
     return {
       success: true,
@@ -1254,22 +1239,9 @@ export async function getMyEmployeeProfile(): Promise<ActionResult<EmployeeDirec
       .select(PRIVATE_PROFILE_COLUMNS)
       .eq("id", user.id)
       .maybeSingle();
-    if (privateError && !/employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateError.message)) {
-      return { success: false, error: privateError.message };
-    }
+    if (privateError) return { success: false, error: privateError.message };
 
-    let row = (privateProfile ?? {}) as Record<string, unknown>;
-    if (privateError) {
-      const legacy = await supabase
-        .from("profiles")
-        .select("phone, email, gender, blood_group, emergency_contact, manager_name, photo_url")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (legacy.error) {
-        return { success: false, error: "Profile details are not available yet. Apply the employee profile privacy migration." };
-      }
-      row = (legacy.data ?? {}) as Record<string, unknown>;
-    }
+    const row = (privateProfile ?? {}) as Record<string, unknown>;
     return {
       success: true,
       data: {

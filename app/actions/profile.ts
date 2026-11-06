@@ -163,20 +163,7 @@ export async function updateEmployeeProfile(
       .select("phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
       .eq("id", targetProfileId)
       .maybeSingle();
-    if (privateReadError) {
-      if (/employee_private_profiles|relation .* does not exist|could not find the table/i.test(privateReadError.message)) {
-        // Keep the previous app version usable while the new table is being rolled out.
-        const legacy = await supabase
-          .from("profiles")
-          .select("phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
-          .eq("id", targetProfileId)
-          .single();
-        if (legacy.error) return { success: false, error: legacy.error.message };
-        Object.assign(profile, legacy.data);
-      } else {
-        return { success: false, error: privateReadError.message };
-      }
-    }
+    if (privateReadError) return { success: false, error: privateReadError.message };
     const row = { ...profile, ...(privateProfile ?? {}) };
 
     revalidatePath("/dashboard/settings");
