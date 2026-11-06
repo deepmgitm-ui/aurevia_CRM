@@ -2458,7 +2458,7 @@ export function LeadsTable({
                 <Input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search ALL leads: name, phone, treatment..."
+                  placeholder="Search leads by name, phone, or treatment…"
                   aria-label="Search leads by name, phone or treatment"
                   className="pl-9"
                 />
