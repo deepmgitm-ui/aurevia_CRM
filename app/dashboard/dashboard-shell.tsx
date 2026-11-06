@@ -273,6 +273,12 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
 
   return (
     <div className="crm-app-shell flex min-h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-3 focus-visible:z-[80] focus-visible:rounded-md focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-emerald-900 focus-visible:shadow-lg focus-visible:outline-2 focus-visible:outline-emerald-700"
+      >
+        Skip to main content
+      </a>
       <ActivityTracker />
       <Sidebar profile={profile} pendingDeletionReviews={pendingDeletionReviews} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -316,7 +322,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
           </div>
         </header>
         <DashboardDateRangeProvider value={{ range, onChange: handleRangeChange }}>
-          <main className="crm-main-content flex-1 p-4 sm:p-6 lg:px-8 lg:py-7">{children}</main>
+          <main id="main-content" tabIndex={-1} className="crm-main-content scroll-mt-20 flex-1 p-4 sm:p-6 lg:px-8 lg:py-7">{children}</main>
         </DashboardDateRangeProvider>
         <AssistantChat role={profile.role} />
       </div>
