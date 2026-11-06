@@ -3779,60 +3779,19 @@ export async function updateLeadDetails(
       error = updateError;
       if (error) error = { message: assignmentBatchSetupError(error.message) };
     } else {
-      const updateQuery = supabase
-        .from("leads")
-        .update(updates)
-        .eq("id", input.id)
-        .eq("updated_at", input.expectedUpdatedAt);
-      const result = await updateQuery.select().maybeSingle();
-      data = result.data as Lead | null;
-      error = result.error;
+      const { data: updated, error: updateError } = await supabase.rpc("crm_update_lead_details", {
+        p_lead_id: input.id,
+        p_updates: updates,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      });
+      data = (updated as Lead | null) ?? null;
+      error = updateError;
     }
 
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: "This lead changed or is no longer available. Reopen it and try again." };
-    const fieldLabels: Record<string, string> = {
-      name: "Patient name",
-      phone: "Phone number",
-      email: "Email",
-      gender: "Gender",
-      city: "City",
-      disease: "Treatment / disease",
-      insurance_status: "Insurance status",
-      remarks: "Remarks",
-      status: "Status",
-      assigned_to: "Assignment",
-      lead_date: "Lead date",
-      follow_up_date: "Follow-up date",
-      source: "Source",
-    };
-    const changedFields = Object.entries(fieldLabels).flatMap(([field, label]) => {
-      if (!(field in updates)) return [];
-      const before = String(previousLead[field as keyof typeof previousLead] ?? "").trim();
-      const after = String((data as unknown as Record<string, unknown>)[field] ?? "").trim();
-      if (before === after) return [];
-      if (field === "status") return [`${label}: ${before || "—"} → ${after || "—"}`];
-      if (field === "lead_date" || field === "follow_up_date") {
-        return [`${label}: ${before || "—"} → ${after || "—"}`];
-      }
-      return [`${label} updated`];
-    });
-    const activityRecorded = changedFields.length === 0
-      ? true
-      : await recordLeadActivity(
-        supabase,
-        input.id,
-        user.id,
-        "Lead details updated",
-        `Changed: ${changedFields.join("; ")}.`,
-      );
-    const { data: latest } = await supabase.from("leads").select().eq("id", input.id).maybeSingle();
     revalidatePath("/dashboard", "layout");
-    return {
-      success: true,
-      data: (latest ?? data) as Lead,
-      ...(!activityRecorded ? { warning: "Lead changes were saved, but the timeline entry could not be recorded. Please tell an admin." } : {}),
-    };
+    return { success: true, data: data as Lead };
   } catch (error) {
     return {
       success: false,

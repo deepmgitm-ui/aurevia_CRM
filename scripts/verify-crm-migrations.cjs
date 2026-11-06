@@ -105,6 +105,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     has_function_privilege('authenticated','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as auth_batch_append,
     has_function_privilege('anon','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as anon_admin_lead_edit,
     has_function_privilege('authenticated','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as auth_admin_lead_edit,
+    has_function_privilege('anon','public.crm_update_lead_details(uuid,jsonb,timestamptz)','execute') as anon_lead_detail_edit,
+    has_function_privilege('authenticated','public.crm_update_lead_details(uuid,jsonb,timestamptz)','execute') as auth_lead_detail_edit,
     has_function_privilege('anon','public.crm_pipeline_insights(date)','execute') as anon_pipeline_insights,
     has_function_privilege('authenticated','public.crm_pipeline_insights(date)','execute') as auth_pipeline_insights,
     (select prosecdef=false from pg_proc where oid='public.crm_pipeline_insights(date)'::regprocedure) as invoker_pipeline_insights,
@@ -114,6 +116,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_change_lead_status(uuid,text,text)'::regprocedure) as empty_status_change_path,
     (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as invoker_admin_lead_edit,
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as empty_admin_lead_edit_path,
+    (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details(uuid,jsonb,timestamptz)'::regprocedure) as invoker_lead_detail_edit,
+    (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details(uuid,jsonb,timestamptz)'::regprocedure) as empty_lead_detail_edit_path,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
   `)).rows[0];
   assert.deepEqual(hardened, {
@@ -135,6 +139,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     auth_batch_append: true,
     anon_admin_lead_edit: false,
     auth_admin_lead_edit: true,
+    anon_lead_detail_edit: false,
+    auth_lead_detail_edit: true,
     anon_pipeline_insights: false,
     auth_pipeline_insights: true,
     invoker_pipeline_insights: true,
@@ -144,6 +150,8 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     empty_status_change_path: true,
     invoker_admin_lead_edit: true,
     empty_admin_lead_edit_path: true,
+    invoker_lead_detail_edit: true,
+    empty_lead_detail_edit_path: true,
     has_meta_id: true,
   });
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -847,6 +855,9 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   );
   assert.deepEqual((await db.query("select target_names,lead_count from crm_assignment_batches where id=$1", [editedResult.assignment_batch_id])).rows[0],
     { target_names: ["Agent B"], lead_count: 1 }, "detail reassignment batch matches the saved owner");
+  assert.deepEqual((await db.query("select user_id::text,action_type,description from lead_activities where lead_id=$1 and description=$2", [editedLead.id, "Changed: Remarks updated; Status: DNP → RNR; Assignment updated."])).rows[0],
+    { user_id: "00000000-0000-4000-8000-000000000001", action_type: "Status changed", description: "Changed: Remarks updated; Status: DNP → RNR; Assignment updated." },
+    "admin reassignment, disposition and edit receipt commit in the same transaction");
 
   const staleLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Stale edit','9192222311','Agent A','New') returning id")).rows[0];
   const batchCountBeforeStaleEdit = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
@@ -1120,13 +1131,48 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     /unavailable or access denied/i,
     'an employee cannot change another employee\'s lead',
   );
+  const detailsVersion = (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at;
+  const drawerStatus = (await db.query(
+    "select * from crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ status: 'RNR', remarks: 'Drawer edit' }), detailsVersion],
+  )).rows[0];
+  assert.equal(drawerStatus.status, 'RNR', 'detail drawer can commit a status and other fields together');
+  assert.deepEqual((await db.query(
+    "select user_id::text,action_type,description from lead_activities where lead_id=$1 and description=$2",
+    [statusLead, 'Changed: Remarks updated; Status: DNP → RNR.'],
+  )).rows, [{
+    user_id: '00000000-0000-4000-8000-000000000002',
+    action_type: 'Status changed',
+    description: 'Changed: Remarks updated; Status: DNP → RNR.',
+  }], 'detail drawer status, changed fields, actor and timestamp receipt are atomic');
+  const currentDetailVersion = (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at;
+  const detailNoOp = (await db.query(
+    "select * from crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ status: 'RNR', remarks: 'Drawer edit' }), currentDetailVersion],
+  )).rows[0];
+  assert.equal(detailNoOp.status, 'RNR', 'a no-op save returns the authoritative saved lead');
+  assert.equal((await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at, currentDetailVersion, 'saving unchanged details does not invalidate other editors');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [statusLead])).rows[0].n, 2, 'a no-op detail save does not duplicate timeline entries');
+  await assert.rejects(db.query(
+    "select crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ status: 'New' }), detailsVersion],
+  ), /changed while you were editing/i, 'detail edits reject stale form versions');
+  assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'RNR', 'a stale detail form cannot revert a saved status');
+  await assert.rejects(db.query(
+    "select crm_update_lead_details($1,$2::jsonb,$3)",
+    [otherOwnerStatusLead, JSON.stringify({ status: 'DNP' }), '2000-01-01T00:00:00Z'],
+  ), /Lead not found|access denied/i, 'detail edits cannot cross employee ownership');
+  await assert.rejects(db.query(
+    "select crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ assigned_to: 'Agent B' }), currentDetailVersion],
+  ), /Only admins can assign or transfer/i, 'employees cannot bypass assignment permissions through the detail RPC');
   await assert.rejects(
     db.query("select crm_change_lead_status($1,'Unsupported','DNP')", [statusLead]),
     /available lead statuses/i,
     'the database rejects values outside the CRM status vocabulary',
   );
-  await db.query("select crm_change_lead_status($1,'DNP','DNP')", [statusLead]);
-  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 1,
+  await db.query("select crm_change_lead_status($1,'RNR','RNR')", [statusLead]);
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 2,
     'saving the same status does not add a duplicate transition');
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'; set role authenticated;");
   await db.query("select crm_change_lead_status($1,'Follow-Up','New')", [otherOwnerStatusLead]);
@@ -1136,15 +1182,26 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("select crm_change_lead_status($1,'DNP','Follow-Up')", [otherOwnerStatusLead]);
   assert.equal((await db.query("select user_id from lead_activities where lead_id=$1 and action_type='Status changed' and description='Follow-Up → DNP'", [otherOwnerStatusLead])).rows[0].user_id,
     '00000000-0000-4000-8000-000000000003', 'manager can update a team lead and is recorded as the actor');
+  const managerDetailVersion = (await db.query("select updated_at::text from leads where id=$1", [otherOwnerStatusLead])).rows[0].updated_at;
+  await db.query("select crm_update_lead_details($1,$2::jsonb,$3)",
+    [otherOwnerStatusLead, JSON.stringify({ status: 'CallBack', remarks: 'Manager drawer edit' }), managerDetailVersion]);
+  assert.equal((await db.query("select status from leads where id=$1", [otherOwnerStatusLead])).rows[0].status, 'CallBack', 'manager detail drawer can save a team disposition');
+  assert.equal((await db.query("select user_id::text from lead_activities where lead_id=$1 and description='Changed: Remarks updated; Status: DNP → CallBack.'", [otherOwnerStatusLead])).rows[0].user_id,
+    '00000000-0000-4000-8000-000000000003', 'manager detail edit timeline records the correct actor');
   await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec(`reset role; create function public.reject_status_activity() returns trigger language plpgsql as $$
     begin if new.action_type = 'Status changed' then raise exception 'fixture status timeline rejection'; end if; return new; end $$;
     create trigger reject_status_activity before insert on public.lead_activities for each row execute function public.reject_status_activity();
     set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
-  await assert.rejects(db.query("select crm_change_lead_status($1,'RNR','DNP')", [statusLead]), /fixture status timeline rejection/i);
-  assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'DNP',
+  await assert.rejects(db.query("select crm_change_lead_status($1,'New','RNR')", [statusLead]), /fixture status timeline rejection/i);
+  assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'RNR',
     'a failed timeline insert rolls back the status update');
-  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 1,
+  await assert.rejects(db.query("select crm_update_lead_details($1,$2::jsonb,$3)",
+    [statusLead, JSON.stringify({ status: 'New' }), (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at]),
+    /fixture status timeline rejection/i, 'detail drawer save rolls back when its timeline entry fails');
+  assert.equal((await db.query("select status from leads where id=$1", [statusLead])).rows[0].status, 'RNR',
+    'failed detail timeline cannot partially change the disposition');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Status changed'", [statusLead])).rows[0].n, 2,
     'failed status transition leaves no partial timeline entry');
   await db.exec("reset role; drop trigger reject_status_activity on public.lead_activities; drop function reject_status_activity();");
 
