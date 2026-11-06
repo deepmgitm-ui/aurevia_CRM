@@ -87,7 +87,7 @@ console.log("1. supabase-indexes.sql");
 const firstIndexState = await hasIndex(INDEXES[0]);
 for (const index of INDEXES) {
   const state = firstIndexState === null ? null : await hasIndex(index);
-  if (state === null) report(index, true, "cannot verify over REST — run in SQL editor if unsure");
+  if (state === null) report(index, null, "system catalog is not exposed over REST — check SQL editor");
   else report(index, state);
 }
 const { error: rollupError } = await supabase.from("lead_rollup" as never).select("month" as never).limit(1 as never);
@@ -104,7 +104,7 @@ const { data: policies, error: policyError } = await supabase
 const policyNames = ((policies ?? []) as unknown as { policyname: string }[]).map((row) => row.policyname);
 if (policyError) {
   // pg_policies is a system catalog — many projects do not expose it over REST.
-  report("lead_activities_employee_select_own policy", true, "cannot verify over REST — check SQL editor");
+  report("lead_activities_employee_select_own policy", null, "system catalog is not exposed over REST — check SQL editor");
 } else {
   report("lead_activities_employee_select_own policy", policyNames.includes("lead_activities_employee_select_own"));
 }
@@ -118,7 +118,7 @@ const { error: privateProfilesError } = await supabase
 reportQuery("employee_private_profiles table and HR columns", privateProfilesError);
 for (const column of ["phone", "email", "gender", "blood_group", "emergency_contact", "manager_name", "photo_url"]) {
   const state = await hasColumn("profiles", column);
-  report(`profiles.${column} removed`, state === false, state === null ? "could not verify over REST" : "");
+  report(`profiles.${column} removed`, state === null ? null : state === false, state === null ? "could not verify over REST" : "");
 }
 const { error: attendanceError } = await supabase.from("attendance" as never).select("id" as never).limit(1 as never);
 reportQuery("attendance table", attendanceError);
@@ -182,9 +182,9 @@ console.log(`  · lead_activities rows: ${activityCount ?? 0}`);
 
 console.log(
   failed === 0 && unverified === 0
-    ? "\n✓ all migrations applied — app features fully live"
+    ? "\n✓ all checked migrations applied"
     : failed === 0
-      ? `\n· ${unverified} check(s) could not be verified because of temporary API access problems`
+      ? `\n· ${unverified} check(s) are unverified over REST — inspect the matching SQL in Supabase before claiming full migration coverage`
       : `\n✗ ${failed} check(s) failed${unverified ? `; ${unverified} could not be verified` : ""} — review the matching SQL file in Supabase SQL editor`,
 );
 process.exit(failed === 0 ? 0 : 1);

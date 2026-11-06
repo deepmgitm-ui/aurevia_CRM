@@ -83,9 +83,9 @@ function BoardCard({
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <span
           className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700"
-          title={lead.disease || "Treatment not recorded"}
+          title={lead.disease && lead.disease !== "-" ? lead.disease : "Treatment not recorded"}
         >
-          Treatment recorded
+          <span className="line-clamp-2 break-words">{lead.disease && lead.disease !== "-" ? lead.disease : "Treatment not recorded"}</span>
         </span>
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
