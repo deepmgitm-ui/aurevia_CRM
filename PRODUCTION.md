@@ -22,8 +22,10 @@ procedure changes. Keep the implementation and this guide in the same change.
 
 - **Admin:** can review the whole team, assign or transfer leads, manage CRM
   settings, review deletions and use administrative lead operations.
-- **Manager:** can review team leads and use the manager-enabled assignment and
-  review tools. Admin-only operations stay admin-only.
+- **Manager:** can review team leads, update permitted lead details and use
+  manager-enabled review tools. Lead assignment, transfer, unassignment,
+  assignment batches and closed-lead reassignment are admin-only in the current
+  application and database policies.
 - **Employee:** works with their own assigned leads and attendance. Data access
   must be enforced by server actions and Supabase RLS, not just hidden UI.
 - Keep the employee's visible lead list scoped to their current assignments.
@@ -218,6 +220,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Corrected the production role guide: lead assignment, transfer, unassignment, assignment-batch operations and closed-lead reassignment are admin-only in the current UI and server actions. No application code, schema or CRM data changed. | Compared the guide with `leads-table.tsx`, `app/actions/leads.ts` and `app/actions/deletion-reviews.ts`; isolated CRM migration assertions, lead-filter/import verifiers, full ESLint and `git diff --check` pass. Render logs for 2026-11-06 showed no error-level entries. Live browser click-through remains unverified. |
 | 2026-11-06 | Pipeline Board and dashboard insights now return a visible failure when authentication/profile data cannot load instead of showing fabricated zero counts. Replaced the dashboard's capped 20,000-row client-side scan with one RLS-respecting Postgres aggregate for exact counts and status/source totals. Migration `20261106120414` adds only the function; no lead rows are changed. | Isolated migration assertions verify unauthenticated execution is denied, anon grant is absent, the function runs as invoker, employees see only their own aggregates, and admins see the complete aggregate. Live role-context checks matched total/status/source aggregates to RLS-visible rows (admin 1,245; employee 220), and anon call was rejected. Strict TypeScript, lint, feature verifiers, and production build pass before release. |
 | 2026-11-06 | Reconciled legacy lead workflow markers: recorded human activity restores first-touch state; older records without a recorded touch get a Fresh assignment/intake clock. Lead status, owner, notes, and assignment history remain unchanged; unworked imported closed leads leave the pending cleanup queue. | Isolated CRM migration assertions cover untouched imported Follow-Up, historically touched Follow-Up, and unassigned imported Dropped records, including preserved status and removal of stale review entries. Live migration `20261106112834` applied. Production remained at 1,245 leads and 1,470 activities; zero untouched leads have a missing Fresh clock; Fresh is 137, Follow-up is 1,044, and Closed is 32. |
 | 2026-11-06 | Kept manager deletion permissions usable without opening general exports: managers can download only an explicit, validated selection (up to 5,000 rows) as the required pre-delete Excel backup. Bulk delete now always clears its pending state and distinguishes backup failure, unconfirmed delete requests, and confirmed deletion with a refresh failure. No lead data or schema changed. | Selected-delete export authorization, backup-first UI flow, stale-response handling, ESLint, strict TypeScript, isolated CRM migration and daily-work checks, and production build pass. Live records were not deleted. |
