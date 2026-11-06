@@ -177,6 +177,9 @@ webhook URL and a successful test lead. See docs/META-LEADS.md.
   role. The duplicate-review capture RPC intentionally accepts CRM roles.
   Keep these grants aligned with their server-side workflows; do not revoke
   them solely to silence the advisor.
+- Managers can edit team lead details and dispositions, but only admins can
+  assign or transfer leads. The database rejects manager changes to
+  `leads.assigned_to` even when a request bypasses the application actions.
 - The performance advisor currently reports four foreign keys without
   covering indexes, 22 indexes with no recorded use, and multiple-permissive
   policy notices. No index or policy was changed in this audit: unused-index

@@ -226,6 +226,20 @@ insert into leads(name,phone,assigned_to,lead_date,opd_booked_date) values('Lega
   assert.equal(denied, true, "stale patient versions must be rejected");
   await db.query(`select public.crm_agent_daily_report('2026-10-12')`);
 
+  // Managers retain normal lead-edit access, but assignment stays admin-only
+  // at the database boundary even when a caller skips the server action.
+  await db.exec("reset role;update profiles set role='manager' where id='00000000-0000-4000-8000-000000000003';set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';set role authenticated;");
+  await assert.rejects(
+    db.query("update public.leads set assigned_to='Agent B' where id=$1", [id]),
+    "managers cannot reassign leads through direct database updates",
+  );
+  assert.equal((await db.query("select assigned_to from public.leads where id=$1", [id])).rows[0].assigned_to, "Agent A");
+  await db.query("update public.leads set status='DNP' where id=$1", [id]);
+  assert.equal((await db.query("select status from public.leads where id=$1", [id])).rows[0].status, "DNP",
+    "manager lead status edits remain available");
+  await db.query("update public.leads set status='New' where id=$1", [id]);
+  await db.exec("reset role;update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
+
   // Large data sets must remain exact beyond both the 500 and 1,000 row API caps.
   await db.exec("reset role");
   await db.exec(
