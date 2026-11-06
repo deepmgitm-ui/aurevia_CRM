@@ -3968,44 +3968,24 @@ function todayDateKey(): string {
 export async function completeFollowUp(
   leadId: string,
   note = "",
-): Promise<ActionResult<Lead>> {
-  if (!leadId) return { success: false, error: "Lead ID is required." };
+): Promise<ActionResult<void>> {
+  if (typeof leadId !== "string" || !leadId.trim()) return { success: false, error: "Lead ID is required." };
+  if (typeof note !== "string" || note.length > 2000) return { success: false, error: "Follow-up note is invalid." };
 
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) return { success: false, error: "You must be signed in." };
-
-    const { data: updated, error: updateError } = await supabase
-      .from("leads")
-      .update({ follow_up_date: "-" })
-      .eq("id", leadId)
-      .select()
-      .single();
-    if (updateError) return { success: false, error: updateError.message };
-
-    const description = [
-      "Follow-up completed",
-      note.trim() ? `Note: ${note.trim()}` : "",
-    ].filter(Boolean).join(" — ");
-
-    const { error: activityError } = await supabase
-      .from("lead_activities")
-      .insert({
-        lead_id: leadId,
-        user_id: user.id,
-        action_type: "Follow-up completed",
-        description,
-      });
-    if (activityError) return { success: false, error: activityError.message };
+    const { error } = await supabase.rpc("crm_update_task_follow_up", {
+      p_lead: leadId.trim(),
+      p_action: "complete",
+      p_follow_up: null,
+      p_note: note.trim(),
+    });
+    if (error) return { success: false, error: error.message };
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tasks");
     revalidatePath("/dashboard/follow-up-calendar");
-    return { success: true, data: updated as Lead };
+    return { success: true, data: undefined };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to complete follow-up.") };
   }
@@ -4014,7 +3994,7 @@ export async function completeFollowUp(
 export async function rescheduleFollowUp(
   leadId: string,
   followUpDate: string,
-): Promise<ActionResult<Lead>> {
+): Promise<ActionResult<void>> {
   if (typeof leadId !== "string" || !leadId.trim() || typeof followUpDate !== "string" || !followUpDate) {
     return { success: false, error: "Lead and follow-up date are required." };
   }
@@ -4028,30 +4008,20 @@ export async function rescheduleFollowUp(
     if (userError || !user) return { success: false, error: "You must be signed in." };
 
     const normalized = parseStoredDateKey(followUpDate);
-    if (!normalized) return { success: false, error: "Please provide a valid follow-up date." };
+    if (!normalized || !isWorkDate(normalized)) return { success: false, error: "Please provide a valid follow-up date." };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .update({ follow_up_date: normalized })
-      .eq("id", leadId)
-      .select()
-      .single();
+    const { error } = await supabase.rpc("crm_update_task_follow_up", {
+      p_lead: leadId.trim(),
+      p_action: "reschedule",
+      p_follow_up: normalized,
+      p_note: "",
+    });
     if (error) return { success: false, error: error.message };
-
-    const { error: activityError } = await supabase
-      .from("lead_activities")
-      .insert({
-        lead_id: leadId,
-        user_id: user.id,
-        action_type: "Follow-up rescheduled",
-        description: `Next follow-up: ${normalized}`,
-      });
-    if (activityError) return { success: false, error: activityError.message };
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tasks");
     revalidatePath("/dashboard/follow-up-calendar");
-    return { success: true, data: data as Lead };
+    return { success: true, data: undefined };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to reschedule follow-up.") };
   }

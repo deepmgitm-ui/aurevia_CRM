@@ -71,6 +71,9 @@ procedure changes. Keep the implementation and this guide in the same change.
   the old and new lead disposition to the lead timeline in the same database
   transaction, attributed to the signed-in user. Repeating an already-saved
   disposition does not create a duplicate transition entry.
+- Follow-up completion/rescheduling must update the lead and append its actor
+  timeline entry in one RLS-scoped database transaction. Rescheduling clears an
+  old callback time so the selected date controls task ordering.
 - Language Issue is an active disposition with its own status card and filter;
   legacy Language values remain visible under the same status.
 - Keep the distinction between **New Leads** (untouched assignments made today,
@@ -142,6 +145,7 @@ procedure changes. Keep the implementation and this guide in the same change.
 | Status vocabulary and workflow normalization | lib/lead-status.ts, lib/daily-work.ts, leads.fresh_pending_since |
 | Dashboard and agent summaries | app/dashboard/page.tsx, app/dashboard/overview/, app/actions/leads.ts |
 | Appointments and personal follow-up calendar | app/dashboard/calendar/, app/dashboard/follow-up-calendar/, app/actions/leads.ts, lib/appointments.ts |
+| Follow-up tasks and calling | app/dashboard/tasks/task-center.tsx, app/actions/crm-workflows.ts, app/actions/leads.ts, crm_update_task_follow_up |
 | Attendance, weekly offs and leave | app/dashboard/attendance/, app/actions/attendance.ts |
 | Team activity and session signals | app/dashboard/team-activity-panel.tsx, app/dashboard/activity-tracker.tsx, Supabase migrations |
 | Settings, capacity usage and automation | app/dashboard/settings/, app/actions/automation.ts, lib/capacity-estimate.ts |
@@ -220,6 +224,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-06 | Made follow-up completion/rescheduling atomic with its actor timeline entry; reschedule clears stale callback time. Task actions recover from rejected requests and reload RLS-scoped state; task page inputs are validated. Migration `20261106182458` adds only the invoker RPC; lead rows are unchanged. | Isolated PostgreSQL/RLS checks cover reschedule/complete, status preservation, old-time clearing, unauthorized access, invalid actions and rollback after timeline failure. Daily-work assertions, targeted lint, strict TypeScript and production build pass. Live RPC is invoker-only, denies `anon`, allows authenticated users through RLS; lead/activity counts stayed 1,245 / 1,470. Authenticated browser role testing remains unavailable. |
 | 2026-11-06 | Fixed the sign-in card’s minimum-width behavior on narrow screens, kept the signup link on Next.js navigation, and standardized its pending label. No authentication or CRM data flow changed. | Inspected a real 390px mobile screenshot and measured 320px, 390px and 1,440px viewports; the page has no horizontal overflow and the card stays in bounds. Login form ESLint, strict TypeScript and production build pass. |
 | 2026-11-06 | Corrected the production role guide: lead assignment, transfer, unassignment, assignment-batch operations and the Closed Leads Review queue are admin-only; managers can delete only explicit selections after backup. No application code, schema or CRM data changed. | Compared the guide with the current leads table, server actions and review page; isolated CRM migration assertions, lead-filter/import verifiers, full ESLint and `git diff --check` pass. Render logs for 2026-11-06 showed no error-level entries. Live browser click-through remains unverified. |
 | 2026-11-06 | Pipeline Board and dashboard insights now return a visible failure when authentication/profile data cannot load instead of showing fabricated zero counts. Replaced the dashboard's capped 20,000-row client-side scan with one RLS-respecting Postgres aggregate for exact counts and status/source totals. Migration `20261106120414` adds only the function; no lead rows are changed. | Isolated migration assertions verify unauthenticated execution is denied, anon grant is absent, the function runs as invoker, employees see only their own aggregates, and admins see the complete aggregate. Live role-context checks matched total/status/source aggregates to RLS-visible rows (admin 1,245; employee 220), and anon call was rejected. Strict TypeScript, lint, feature verifiers, and production build pass before release. |

@@ -1049,6 +1049,39 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal((await db.query("select count(*)::int n from leads where id=$1", [safeLead])).rows[0].n, 1, 'existing lead survives expired duplicate review');
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [safeLead])).rows[0].n, 1, 'existing lead history survives');
   assert.equal((await db.query("select resolution from crm_duplicate_review_queue where lead_id=$1", [safeLead])).rows[0].resolution, 'expired');
+
+  // Follow-up mutation and its timeline entry commit or roll back together.
+  await db.exec("reset role; create policy fixture_employee_activity_insert on public.lead_activities for insert to authenticated with check (public.current_user_role() = 'employee' and user_id = auth.uid() and exists (select 1 from public.leads l where l.id = lead_activities.lead_id)); set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'");
+  const followUpIds = (await db.query(`insert into leads(name,phone,assigned_to,status,follow_up_date,follow_up_at)
+    values ('Task reschedule fixture','9190000091','Agent A','DNP','2026-11-06','2026-11-06T05:00:00Z'),
+           ('Task complete fixture','9190000092','Agent A','DNP','2026-11-06','2026-11-06T05:00:00Z')
+    returning id`)).rows.map(row => row.id);
+  const [rescheduleLead, completeLead] = followUpIds;
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
+  await db.query("select crm_update_task_follow_up($1,'reschedule','2026-11-09'::date,'')", [rescheduleLead]);
+  let followUp = (await db.query("select follow_up_date, follow_up_at, status from leads where id=$1", [rescheduleLead])).rows[0];
+  assert.equal(followUp.follow_up_date, '2026-11-09');
+  assert.equal(followUp.follow_up_at, null, 'rescheduling clears the old callback time');
+  assert.equal(followUp.status, 'DNP', 'follow-up scheduling never changes disposition');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Follow-up rescheduled'", [rescheduleLead])).rows[0].n, 1);
+  await db.query("select crm_update_task_follow_up($1,'complete',null,'')", [completeLead]);
+  followUp = (await db.query("select follow_up_date, follow_up_at, status from leads where id=$1", [completeLead])).rows[0];
+  assert.equal(followUp.follow_up_date, '-');
+  assert.equal(followUp.follow_up_at, null, 'completing clears the old callback time');
+  assert.equal(followUp.status, 'DNP', 'completion never changes disposition');
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Follow-up completed'", [completeLead])).rows[0].n, 1);
+  await assert.rejects(db.query("select crm_update_task_follow_up($1,'complete',null,'')", [safeLead]), /unavailable or access denied/i);
+  await assert.rejects(db.query("select crm_update_task_follow_up($1,'invalid',null,'')", [rescheduleLead]), /invalid follow-up action/i);
+  await db.exec("reset role");
+  await db.exec(`create function public.reject_followup_activity() returns trigger language plpgsql as $$
+    begin if new.action_type = 'Follow-up rescheduled' then raise exception 'fixture activity rejection'; end if; return new; end $$;
+    create trigger reject_followup_activity before insert on public.lead_activities for each row execute function public.reject_followup_activity();
+    set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';`);
+  await assert.rejects(db.query("select crm_update_task_follow_up($1,'reschedule','2026-11-10'::date,'')", [rescheduleLead]));
+  followUp = (await db.query("select follow_up_date, follow_up_at from leads where id=$1", [rescheduleLead])).rows[0];
+  assert.equal(followUp.follow_up_date, '2026-11-09', 'failed timeline insert rolls back date change');
+  assert.equal(followUp.follow_up_at, null, 'failed timeline insert cannot leave a partial callback update');
+  await db.exec("reset role; drop trigger reject_followup_activity on public.lead_activities; drop function reject_followup_activity();");
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();

@@ -141,20 +141,23 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
     const originalIndex = leads.findIndex((entry) => entry.id === lead.id);
     setBusyId(lead.id);
     setLeads((current) => current.filter((entry) => entry.id !== lead.id));
-    const result = await completeFollowUp(lead.id);
-    if (!result.success) {
+    try {
+      const result = await completeFollowUp(lead.id);
+      if (!result.success) throw new Error(result.error);
+      toast.add({ title: "Follow-up completed", description: lead.name, type: "success" });
+      await load();
+    } catch (error) {
       setLeads((current) => {
         if (current.some((entry) => entry.id === lead.id)) return current;
         const restored = [...current];
         restored.splice(Math.min(originalIndex, restored.length), 0, lead);
         return restored;
       });
-      toast.add({ title: "Unable to complete follow-up", description: result.error, type: "error" });
-    } else {
-      toast.add({ title: "Follow-up completed", description: lead.name, type: "success" });
+      toast.add({ title: "Unable to complete follow-up", description: error instanceof Error ? error.message : "Please retry.", type: "error" });
       await load();
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   function openCall(lead: TaskLead) {
@@ -177,23 +180,15 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
         ),
       );
     }
-    const result = await logLeadCall({
-      lead_id: lead.id,
-      outcome: callOutcome,
-      notes: callNotes,
-      next_follow_up_date: nextDate || null,
-      next_follow_up_time: nextTime || null,
-    });
-    if (!result.success) {
-      if (nextDate) {
-        setLeads((current) =>
-          current.map((entry) =>
-            entry.id === lead.id ? { ...entry, follow_up_date: previousDate } : entry,
-          ),
-        );
-      }
-      toast.add({ title: "Unable to log call", description: result.error, type: "error" });
-    } else {
+    try {
+      const result = await logLeadCall({
+        lead_id: lead.id,
+        outcome: callOutcome,
+        notes: callNotes,
+        next_follow_up_date: nextDate || null,
+        next_follow_up_time: nextTime || null,
+      });
+      if (!result.success) throw new Error(result.error);
       toast.add({
         title: "Call logged",
         description: nextDate ? `Next follow-up set for ${displayDate(nextDate)}.` : "Call added to the activity timeline.",
@@ -202,33 +197,41 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
       const next=visible[visible.findIndex(item=>item.id===lead.id)+1];
       await load();
       if(moveNext&&next)openCall(next);else setCallLead(null);
+    } catch (error) {
+      if (nextDate) {
+        setLeads((current) =>
+          current.map((entry) =>
+            entry.id === lead.id ? { ...entry, follow_up_date: previousDate } : entry,
+          ),
+        );
+      }
+      toast.add({ title: "Unable to log call", description: error instanceof Error ? error.message : "Please retry.", type: "error" });
+      await load();
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   async function handleReschedule(lead: TaskLead, value: string) {
     if (!value || busyId) return;
     setBusyId(lead.id);
-    setLeads((current) =>
-      current.map((entry) =>
-        entry.id === lead.id ? { ...entry, follow_up_date: value } : entry,
-      ),
-    );
-    const result = await rescheduleFollowUp(lead.id, value);
-    if (!result.success) {
-      setLeads((current) =>
-        current.map((entry) =>
-          entry.id === lead.id
-            ? { ...entry, follow_up_date: lead.follow_up_date }
-            : entry,
-        ),
-      );
-      toast.add({ title: "Unable to reschedule", description: result.error, type: "error" });
-    } else {
+    setLeads((current) => current.map((entry) => entry.id === lead.id
+      ? { ...entry, follow_up_date: value, follow_up_at: null }
+      : entry));
+    try {
+      const result = await rescheduleFollowUp(lead.id, value);
+      if (!result.success) throw new Error(result.error);
       toast.add({ title: "Follow-up rescheduled", description: `${lead.name} → ${displayDate(value)}`, type: "success" });
       await load();
+    } catch (error) {
+      setLeads((current) => current.map((entry) => entry.id === lead.id
+        ? { ...entry, follow_up_date: lead.follow_up_date, follow_up_at: lead.follow_up_at }
+        : entry));
+      toast.add({ title: "Unable to reschedule", description: error instanceof Error ? error.message : "Please retry.", type: "error" });
+      await load();
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   }
 
   return (
@@ -262,7 +265,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all follow-ups: patient, phone or agent" className="pl-9" onKeyDown={event=>{if(event.key==='Enter')void load(bucket,query,1);}} />
+          <Input aria-label="Search all follow-ups" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all follow-ups: patient, phone or agent" className="pl-9" onKeyDown={event=>{if(event.key==='Enter')void load(bucket,query,1);}} />
         </div>
         <Button disabled={loading} onClick={()=>void load(bucket,query,1)}>Search</Button>
         <Button type="button" variant="outline" disabled={loading} onClick={() => { setQuery(""); void load("all","",1); }}>
@@ -325,6 +328,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                       <div className="mt-2 flex items-center gap-2">
                         <CalendarClock className="size-3.5 text-slate-400" />
                         <Input
+                          aria-label={`Reschedule follow-up for ${lead.name}`}
                           type="date"
                           className="h-8 w-36 text-xs"
                           value={/^\d{4}-\d{2}-\d{2}$/.test(key) ? key : ""}

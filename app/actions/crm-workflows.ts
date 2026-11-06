@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "./leads";
 import type { TaskLead } from "@/app/dashboard/tasks/task-center";
+import { isValidTaskPageRequest } from "@/lib/daily-work";
 
 export interface TaskPageData {
   leads: TaskLead[];
@@ -10,14 +11,15 @@ export interface TaskPageData {
   stats: { total: number; overdue: number; today: number; upcoming: number; stale: number };
 }
 export async function getTaskPage(bucket = "all", search = "", page = 1) {
+  if (!isValidTaskPageRequest(bucket, search, page))
+    return { success: false as const, error: "Choose a valid follow-up filter, search, and page." };
+
   const supabase = await createClient();
   const viewer = await getViewer();
   if (!viewer.success || !viewer.data)
     return { success: false as const, error: "Sign in to view follow-ups." };
   const { data, error } = await supabase.rpc("crm_task_page", {
-    p_bucket: ["all", "overdue", "today", "upcoming", "stale"].includes(bucket)
-      ? bucket
-      : "all",
+    p_bucket: bucket,
     p_search: search.trim().slice(0, 120),
     p_page: Math.max(1, Math.floor(page)),
   });

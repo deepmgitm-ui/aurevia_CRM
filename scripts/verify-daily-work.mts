@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, leadWorkflowLabel } from "../lib/daily-work.ts";
+import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, isValidTaskPageRequest, leadWorkflowLabel } from "../lib/daily-work.ts";
 import { clinicDate } from "../lib/attendance.ts";
 import { parseLeadFilters, leadsHref, hasLeadFilters, describeActiveFilters } from "../app/dashboard/lead-filters.ts";
 
@@ -8,6 +8,10 @@ assert.equal(clinicDate(new Date("2026-10-10T18:30:00Z")), "2026-10-11");
 assert.deepEqual(assignmentDayWindow("2026-10-11"), { from: "2026-10-10T18:30:00.000Z", to: "2026-10-11T18:30:00.000Z" });
 assert.equal(isWorkDate("2026-02-30"), false);
 assert.equal(isWorkDate("2028-02-29"), true);
+assert.equal(isValidTaskPageRequest("today", "patient", 1), true);
+for (const invalid of [["invalid", "", 1], ["all", null, 1], ["all", "", 1.5], ["all", "", 100_001]]) {
+  assert.equal(isValidTaskPageRequest(invalid[0], invalid[1], invalid[2]), false, `Invalid task query is rejected: ${invalid}`);
+}
 
 type Row = Record<string, string | null>;
 class Query {

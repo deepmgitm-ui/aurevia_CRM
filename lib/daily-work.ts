@@ -18,6 +18,13 @@ export function isWorkDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+const TASK_PAGE_BUCKETS = ["all", "overdue", "today", "upcoming", "stale"];
+export function isValidTaskPageRequest(bucket: unknown, search: unknown, page: unknown): boolean {
+  return typeof bucket === "string" && TASK_PAGE_BUCKETS.includes(bucket) &&
+    typeof search === "string" && typeof page === "number" &&
+    Number.isSafeInteger(page) && page >= 1 && page <= 100_000;
+}
+
 /** IST midnight through the next midnight, including no part of the next day. */
 export function assignmentDayWindow(day: string): { from: string; to: string } {
   if (!isWorkDate(day)) throw new Error("Invalid work date");
