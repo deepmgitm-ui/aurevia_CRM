@@ -254,9 +254,9 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
             key={card.label}
             type="button"
             disabled={loading||Boolean(busyId)} onClick={() => void load(card.next,query,1)}
-            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-slate-400 ${card.active ? "border-slate-900 ring-1 ring-slate-900/10" : "border-slate-200"}`}
+            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${card.active ? "border-slate-900 ring-1 ring-slate-900/10" : "border-slate-200"}`}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
+            <p className="text-xs font-semibold text-slate-500">{card.label}</p>
             <p className="mt-2 text-3xl font-semibold text-slate-950">{card.value}</p>
           </button>
         ))}
@@ -264,7 +264,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
 
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <Input aria-label="Search all follow-ups" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all follow-ups: patient, phone or agent" className="pl-9" onKeyDown={event=>{if(event.key==='Enter')void load(bucket,query,1);}} />
         </div>
         <Button disabled={loading} onClick={()=>void load(bucket,query,1)}>Search</Button>
@@ -309,10 +309,10 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                         {lead.phone && lead.phone !== "-" && (
                           <>
                             <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
-                              <Phone className="size-3" /> Call
+                              <Phone aria-hidden="true" className="size-3" /> Call
                             </a>
                             <a href={`https://wa.me/91${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
-                              <MessageCircle className="size-3" /> WhatsApp
+                              <MessageCircle aria-hidden="true" className="size-3" /> WhatsApp
                             </a>
                           </>
                         )}
@@ -347,7 +347,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                           Log Call
                         </Button>
                         <Button type="button" size="sm" onClick={() => void handleComplete(lead)} disabled={busyId !== null}>
-                          <CheckCircle2 aria-hidden="true" /> {busyId === lead.id ? "Saving..." : "Done"}
+                          <CheckCircle2 aria-hidden="true" /> {busyId === lead.id ? "Saving…" : "Done"}
                         </Button>
                       </div>
                     </td>
@@ -359,7 +359,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span role="status">{loading?"Loading...":`Page ${page} · ${total} matching follow-ups`}</span><div className="flex gap-2"><Button variant="outline" disabled={loading||page<=1} onClick={()=>void load(bucket,query,page-1)}>Previous</Button><Button variant="outline" disabled={loading||page*50>=total} onClick={()=>void load(bucket,query,page+1)}>Next</Button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span role="status">{loading?"Loading…":`Page ${page} · ${total} matching follow-ups`}</span><div className="flex gap-2"><Button variant="outline" disabled={loading||page<=1} onClick={()=>void load(bucket,query,page-1)}>Previous</Button><Button variant="outline" disabled={loading||page*50>=total} onClick={()=>void load(bucket,query,page+1)}>Next</Button></div></div>
       {requestError&&<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{requestError}</p>}
       <Dialog open={Boolean(callLead)} onOpenChange={(open) => !open && !busyId && setCallLead(null)}>
         <DialogContent className="sm:max-w-lg">
@@ -368,9 +368,9 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Call outcome</Label>
+              <Label htmlFor="call-outcome">Call outcome</Label>
               <Select value={callOutcome} onValueChange={(value) => setCallOutcome(String(value ?? ""))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="call-outcome"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CALL_OUTCOMES.map(outcome=><SelectItem key={outcome} value={outcome}>{outcome}</SelectItem>)}
                 </SelectContent>
@@ -389,7 +389,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCallLead(null)}>Cancel</Button>
             <Button type="button" disabled={!callLead || busyId === callLead.id} onClick={() => void handleLogCall()}>
-              {busyId === callLead?.id ? "Saving..." : "Save Call"}
+              {busyId === callLead?.id ? "Saving…" : "Save Call"}
             </Button>
             <Button type="button" variant="outline" disabled={!callLead || Boolean(busyId)} onClick={()=>void handleLogCall(true)}>Save & Next Lead</Button>
           </DialogFooter>
