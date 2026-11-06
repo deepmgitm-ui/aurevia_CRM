@@ -50,7 +50,7 @@ export default function SignupPage() {
       router.push("/login");
     } catch (error) {
       // e.g. missing Supabase env vars in .env.local — surface it instead of
-      // leaving the button stuck on "Creating account...".
+      // leaving the button stuck on "Creating account…".
       toast.add({
         title: "Unable to create account",
         description:
@@ -97,7 +97,7 @@ export default function SignupPage() {
               />
             </div>
             <Button type="submit" className="h-10 w-full" disabled={isSubmitting}>
-              {isSubmitting ? "Creating account..." : "Create account"}
+              {isSubmitting ? "Creating account…" : "Create account"}
             </Button>
           </form>
           <p className="mt-5 text-center text-sm text-slate-500">

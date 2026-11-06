@@ -389,7 +389,7 @@ export function AttendanceCalendar({
 
           {isLoadingMonth && (
             <p className="mt-2 text-xs text-slate-500" role="status">
-              Loading attendance...
+              Loading attendance…
             </p>
           )}
           {monthError && (
@@ -636,7 +636,7 @@ export function AttendanceCalendar({
                   disabled={!addEmployee || busyKey === `add-${selectedIso}`}
                   onClick={() => void addMark()}
                 >
-                  {busyKey === `add-${selectedIso}` ? "Marking..." : "Mark"}
+                  {busyKey === `add-${selectedIso}` ? "Marking…" : "Mark"}
                 </Button>
               </div>
             </div>

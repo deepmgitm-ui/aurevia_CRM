@@ -54,7 +54,7 @@ export function SettingsForm({ initialName, role }: { initialName: string; role:
             </div>
           </div>
           <Button type="submit" disabled={isSaving || !name.trim()}>
-            {isSaving ? "Saving..." : "Save Profile"}
+            {isSaving ? "Saving…" : "Save Profile"}
           </Button>
         </form>
       </CardContent>

@@ -222,7 +222,7 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
                 Cancel
               </Button>
               <Button type="submit" disabled={isCreatingUser}>
-                {isCreatingUser ? "Creating..." : "Create User"}
+                {isCreatingUser ? "Creating…" : "Create User"}
               </Button>
             </DialogFooter>
           </form>

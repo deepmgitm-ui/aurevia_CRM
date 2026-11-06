@@ -131,7 +131,7 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
                   disabled={savingKey !== null || !snapshot.fromDatabase}
                   onClick={() => void handleSave(key)}
                 >
-                  {savingKey === key ? "Saving..." : "Save list"}
+                  {savingKey === key ? "Saving…" : "Save list"}
                 </Button>}
               </div>
             );

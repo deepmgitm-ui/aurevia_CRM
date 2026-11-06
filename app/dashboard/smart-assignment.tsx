@@ -161,7 +161,7 @@ export function SmartAssignmentBanner({
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
             <Button type="button" disabled={!canSubmit} onClick={() => void handleAssign()}>
-              {isAssigning ? "Assigning..." : "Assign Now"}
+              {isAssigning ? "Assigning…" : "Assign Now"}
             </Button>
           </DialogFooter>
         </DialogContent>

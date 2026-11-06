@@ -392,7 +392,7 @@ function DuplicateReview({
               disabled={pending || confirmation !== group.phone}
               onClick={() => void merge()}
             >
-              {pending ? "Merging..." : "Merge reviewed records"}
+              {pending ? "Merging…" : "Merge reviewed records"}
             </Button>
           </DialogContent>
         )}

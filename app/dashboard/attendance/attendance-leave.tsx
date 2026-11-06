@@ -190,7 +190,7 @@ export function AttendanceLeave({
 
         {loadError && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">{loadError}</p>}
         {isLoading ? (
-          <p className="flex items-center gap-2 py-2 text-xs text-slate-500" role="status"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading leave requests...</p>
+          <p className="flex items-center gap-2 py-2 text-xs text-slate-500" role="status"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading leave requests…</p>
         ) : requests.length === 0 ? (
           <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">{canAdmin ? "There are no leave requests." : "Your leave requests will appear here."}</p>
         ) : (

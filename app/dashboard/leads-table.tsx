@@ -884,7 +884,7 @@ export function LeadsTable({
   if (dateFilter) {
     activeFilterChips.push({
       key: "date",
-      label: `${dateFilter.dateField === "follow_up_date" ? "Follow-Up" : "Lead"} Date: ${dateFrom || "..."} → ${dateTo || "..."}`,
+      label: `${dateFilter.dateField === "follow_up_date" ? "Follow-Up" : "Lead"} Date: ${dateFrom || "…"} → ${dateTo || "…"}`,
       onRemove: () => {
         setDateFrom("");
         setDateTo("");
@@ -2324,7 +2324,7 @@ export function LeadsTable({
               <>
             <Button type="button" variant="outline" disabled={isImporting} onClick={() => fileInputRef.current?.click()}>
                   {isImporting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FileUp aria-hidden="true" />}
-                  {isImporting ? "Importing..." : "Import CSV / Excel"}
+                  {isImporting ? "Importing…" : "Import CSV / Excel"}
                 </Button>
                 <Button type="button" variant="outline" disabled={isImporting} onClick={() => setIsPasteOpen(true)}>
                   <ClipboardPaste aria-hidden="true" />
@@ -2335,7 +2335,7 @@ export function LeadsTable({
             {isAdmin && (
               <Button type="button" variant="outline" disabled={isExporting} onClick={() => void handleExportCsv()}>
                 {isExporting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                {isExporting ? "Preparing..." : "Download CSV"}
+                {isExporting ? "Preparing…" : "Download CSV"}
               </Button>
             )}
             {canDelete && (
@@ -2828,7 +2828,7 @@ export function LeadsTable({
             <Button type="button" variant="outline" onClick={() => setIsPasteOpen(false)}>Cancel</Button>
             <Button type="button" disabled={isImporting || pastePreview.rowCount === 0} onClick={handleMagicPaste}>
               {isImporting && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {isImporting ? "Adding leads..." : pastePreview.rowCount > 0 ? `Add ${pastePreview.rowCount} Leads` : "Add Leads"}
+              {isImporting ? "Adding leads…" : pastePreview.rowCount > 0 ? `Add ${pastePreview.rowCount} Leads` : "Add Leads"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2850,7 +2850,7 @@ export function LeadsTable({
             <div className="space-y-2"><Label htmlFor="lead-status">Status</Label><Select name="status" defaultValue="New"><SelectTrigger id="lead-status"><SelectValue /></SelectTrigger><SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label htmlFor="lead-remarks">Remarks</Label><Textarea id="lead-remarks" name="remarks" rows={3} /></div>
             <div className="space-y-2"><Label htmlFor="lead-follow-up-date">Next Follow-Up Date</Label><Input id="lead-follow-up-date" name="follow_up_date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} /></div>
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button><Button type="submit" disabled={isCreatingLead}>{isCreatingLead ? "Adding..." : "Add Lead"}</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button><Button type="submit" disabled={isCreatingLead}>{isCreatingLead ? "Adding…" : "Add Lead"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -2863,7 +2863,7 @@ export function LeadsTable({
               This deletes {selectedLeads.length} selected lead{selectedLeads.length === 1 ? "" : "s"} and their related activity history. A backup snapshot is taken first, so you can undo it from &quot;Recent Deletions&quot;.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || selectedLeads.length === 0} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting..." : "Delete selected leads"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={isBulkActionPending || selectedLeads.length === 0} onClick={() => void handleBulkDelete()}>{isBulkActionPending ? "Deleting…" : "Delete selected leads"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -3539,7 +3539,7 @@ export function LeadsTable({
           </DialogHeader>
           {isLoadingBackups ? (
             <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-              <Loader2 className="animate-spin" aria-hidden="true" /> Loading deletion history...
+              <Loader2 className="animate-spin" aria-hidden="true" /> Loading deletion history…
             </p>
           ) : backupErrorText ? (
             <div className="rounded-md border border-dashed p-3 text-sm">
@@ -3721,7 +3721,7 @@ export function LeadsTable({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEditingLead(null)}>Cancel</Button>
-            <Button type="button" disabled={isSavingEdit || !editForm.name.trim()} onClick={() => void handleSaveEdit()}>{isSavingEdit ? "Saving..." : "Save Changes"}</Button>
+            <Button type="button" disabled={isSavingEdit || !editForm.name.trim()} onClick={() => void handleSaveEdit()}>{isSavingEdit ? "Saving…" : "Save Changes"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3731,9 +3731,9 @@ export function LeadsTable({
           <DialogHeader><DialogTitle>Add quick note</DialogTitle><DialogDescription>Add a note to {quickNoteLead?.name}&apos;s remarks and timeline.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <Label htmlFor="quick-lead-note">Note</Label>
-            <Textarea id="quick-lead-note" value={quickNote} onChange={(event) => setQuickNote(event.target.value)} placeholder="Write a short note..." rows={4} />
+            <Textarea id="quick-lead-note" value={quickNote} onChange={(event) => setQuickNote(event.target.value)} placeholder="Write a short note…" rows={4} />
           </div>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => setQuickNoteLead(null)}>Cancel</Button><Button type="button" disabled={isSavingQuickNote || !quickNote.trim()} onClick={handleQuickNote}>{isSavingQuickNote ? "Saving..." : "Save Note"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setQuickNoteLead(null)}>Cancel</Button><Button type="button" disabled={isSavingQuickNote || !quickNote.trim()} onClick={handleQuickNote}>{isSavingQuickNote ? "Saving…" : "Save Note"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -3752,7 +3752,7 @@ export function LeadsTable({
                 <div className="sm:col-span-2 space-y-1"><Label htmlFor="edit-remarks">Remarks</Label><Textarea id="edit-remarks" rows={3} value={leadEdits.remarks} onChange={(event) => setLeadEdits((current) => ({ ...current, remarks: event.target.value }))} placeholder="-" /></div>
                 <div className="flex items-center gap-2 sm:col-span-2">
                   <Button type="button" size="sm" onClick={() => void handleSaveLeadEdits()} disabled={isSavingEdits}>
-                    {isSavingEdits ? "Saving..." : "Save Changes"}
+                    {isSavingEdits ? "Saving…" : "Save Changes"}
                   </Button>
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
@@ -3760,8 +3760,8 @@ export function LeadsTable({
                 <div className="sm:col-span-2">{renderAppointmentDateInput(selectedLead)}</div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>
-              <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity...</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
-              <section className="space-y-3 border-t border-slate-200 pt-5"><Label htmlFor="lead-note">Add note</Label><Textarea id="lead-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Write a note about this lead..." rows={4} /><Button type="button" onClick={handleAddNote} disabled={isAddingNote || !note.trim()}>{isAddingNote ? "Adding note..." : "Add Note"}</Button></section>
+              <section><h3 className="mb-3 text-sm font-semibold text-slate-900">Activity timeline</h3>{isLoadingActivities ? <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading activity…</div> : activities.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : <div className="space-y-4 border-l border-slate-200 pl-4">{activities.map((activity) => <article key={activity.id} className="relative space-y-1"><span className="absolute -left-[1.3rem] top-1 size-2 rounded-full bg-slate-400 ring-4 ring-white" /><p className="text-xs font-medium uppercase tracking-wide text-slate-400">{activity.action_type} · {formatDate(activity.created_at)}</p><p className="text-xs text-slate-500">By {activity.actor_name || "Team member"}</p><p className="text-sm text-slate-700">{activity.description || "No details provided."}</p></article>)}</div>}</section>
+              <section className="space-y-3 border-t border-slate-200 pt-5"><Label htmlFor="lead-note">Add note</Label><Textarea id="lead-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Write a note about this lead…" rows={4} /><Button type="button" onClick={handleAddNote} disabled={isAddingNote || !note.trim()}>{isAddingNote ? "Adding note…" : "Add Note"}</Button></section>
             </div>
           </>}
         </SheetContent>

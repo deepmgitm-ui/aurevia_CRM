@@ -95,7 +95,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
         <Button variant={mode === "existing" ? "default" : "outline"} disabled={loading || saving} onClick={() => { setMode("existing"); setError(""); }}>Existing patient / lead</Button>
         <Button variant={mode === "new" ? "default" : "outline"} disabled={loading || saving || Boolean(appointmentId)} onClick={() => { setMode("new"); setError(""); }}>New patient / lead</Button>
       </div>
-      {loading && <p role="status" className="text-sm text-slate-500">Loading patients...</p>}
+      {loading && <p role="status" className="text-sm text-slate-500">Loading patients…</p>}
       {mode === "existing" && !selected && <>
         <form onSubmit={findPatients} className="flex items-end gap-2">
           <label className="min-w-0 flex-1 text-xs font-medium text-slate-600">Patient name or phone<input value={search} onChange={(event) => setSearch(event.target.value)} minLength={2} maxLength={120} required disabled={loading} className={inputClass} /></label>
@@ -123,7 +123,7 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
           {mode === "existing" && shouldSyncLeadStatus(appointmentStatus) ? <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Saving this appointment will update the lead&apos;s current status to <strong>{appointmentStatus==="completed"?(kind==="ipdDone"?"IPD Done":"OPD Done"):(kind==="ipdDone"?"IPD Booked":"OPD Booked")}</strong>. Only this current appointment status will appear on the calendar.</p> : mode === "existing" ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Cancelled or no-show appointments won&apos;t change the lead&apos;s current pipeline status.</p> : <p className="text-xs text-slate-500">A new CRM lead and a separate appointment record will be created.</p>}
           <p className="text-xs text-slate-500">Earlier visits are preserved. Editing this appointment records its date and status history.</p>
         </fieldset>
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save appointment"}</Button></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save appointment"}</Button></div>
       </form>}
       {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
     </div>

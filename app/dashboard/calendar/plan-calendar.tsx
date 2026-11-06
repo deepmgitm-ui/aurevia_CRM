@@ -177,7 +177,7 @@ export function PlanCalendar({
               {monthLabel}
               {loadingMonth && (
                 <span className="ml-2 text-xs font-normal text-slate-400" role="status">
-                  Loading appointments...
+                  Loading appointments…
                 </span>
               )}
             </CardTitle>
@@ -294,7 +294,7 @@ export function PlanCalendar({
               )}
               {loadingMonth ? (
                 <p role="status" className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Loading appointments...
+                  Loading appointments…
                 </p>
               ) : !calendarError && ensureArray(selected?.reminders).length === 0 && (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">

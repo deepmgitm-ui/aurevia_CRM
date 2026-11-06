@@ -112,7 +112,7 @@ export function AutomationPanel() {
     return (
       <Card className="border-0 shadow-sm">
         <CardContent className="flex items-center gap-2 py-8 text-sm text-slate-500">
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading automation rules...
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading automation rules…
         </CardContent>
       </Card>
     );

@@ -90,7 +90,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
                 autoFocus
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by patient, phone, treatment, city, status..."
+                placeholder="Search by patient, phone, treatment, city, or status…"
                 aria-label="Search leads and CRM sections"
                 className="h-12 rounded-xl pl-9"
               />
@@ -113,7 +113,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
               <section aria-label="Matching leads">
                 <h3 className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Leads</h3>
                 {resultsFor !== term ? (
-                  <p className="flex items-center gap-2 px-3 py-5 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Searching leads...</p>
+                  <p className="flex items-center gap-2 px-3 py-5 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Searching leads…</p>
                 ) : searchError ? (
                   <p role="status" className="px-3 py-5 text-sm text-rose-600">{searchError}</p>
                 ) : resultsFor === term && leads.length > 0 ? leads.map((lead) => (

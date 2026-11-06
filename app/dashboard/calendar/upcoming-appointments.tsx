@@ -53,7 +53,7 @@ export function UpcomingAppointments({ items, pastItems, todayIso, canEdit, show
           </select>
           <select aria-label="Appointment status" value={appointmentStatus} onChange={event=>{setAppointmentStatus(event.target.value);setLimit(12);}} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">All statuses</option>{["booked","confirmed","arrived","completed","cancelled","no_show"].map(value=><option key={value} value={value}>{value.replace("_"," ")}</option>)}</select>
           <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500">
-            <Search aria-hidden="true" className="size-4 shrink-0 text-slate-400" /><input aria-label="Search appointments" placeholder="Search patient, phone or agent" value={search} onChange={(event) => { setSearch(event.target.value); setLimit(12); }} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+            <Search aria-hidden="true" className="size-4 shrink-0 text-slate-400" /><input aria-label="Search appointments" placeholder="Search patient, phone, or agent…" value={search} onChange={(event) => { setSearch(event.target.value); setLimit(12); }} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
           </label>
         </div>
       </div>

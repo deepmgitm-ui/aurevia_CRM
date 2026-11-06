@@ -276,7 +276,7 @@ function EmployeeProfileEditor({
           </Button>
         )}
         <Button type="submit" className="ml-auto" disabled={isSaving || !name.trim()}>
-          {isSaving ? "Saving..." : "Save profile"}
+          {isSaving ? "Saving…" : "Save profile"}
         </Button>
       </div>
     </form>

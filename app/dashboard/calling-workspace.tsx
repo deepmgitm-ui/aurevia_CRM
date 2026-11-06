@@ -159,7 +159,7 @@ export function CallingWorkspace({ leads }: { leads: Lead[] }) {
               Skip
             </Button>
             <Button disabled={pending} onClick={() => void save()}>
-              {pending ? "Saving..." : "Save & Next Lead"}
+              {pending ? "Saving…" : "Save & Next Lead"}
             </Button>
           </div>
         </DialogContent>
