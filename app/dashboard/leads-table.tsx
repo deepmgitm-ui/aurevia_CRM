@@ -2561,14 +2561,13 @@ export function LeadsTable({
               <TableHead className="w-[140px]">City</TableHead>
               <TableHead className="w-[150px]">Surgery / Treatment</TableHead>
               <SortableTableHead className="w-[180px]" label="Status" sortKey="status" sortConfig={sortConfig} onSort={toggleSort} />
-              <TableHead className="w-[180px]">Temp</TableHead>
               <SortableTableHead className="w-[180px]" label="Assigned To" sortKey="assigned_to" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[250px] max-w-[250px]">Remarks</TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {sortedLeads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-10">
+                  <TableCell colSpan={canDelete ? 9 : 8} className="py-10">
                     {/*
                       Never look broken: distinguish "the database is empty" from
                       "your filters hide everything", and put the fix (import /
