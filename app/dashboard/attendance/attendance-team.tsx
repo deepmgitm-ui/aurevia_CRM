@@ -176,6 +176,8 @@ export function AttendanceTeam({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={person.photo_url}
+                        width={40}
+                        height={40}
                         alt=""
                         className="size-10 shrink-0 rounded-full object-cover"
                       />

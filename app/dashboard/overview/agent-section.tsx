@@ -191,7 +191,7 @@ function EmployeeProfileEditor({
         <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
           {photoPreview ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={photoPreview} alt={`${profile.name} profile`} className="size-full object-cover" />
+            <img src={photoPreview} width={64} height={64} alt={`${profile.name} profile`} className="size-full object-cover" />
           ) : (
             <ImagePlus className="size-6 text-slate-400" aria-hidden="true" />
           )}
@@ -575,7 +575,7 @@ function AgentAvatar({ card, size }: { card: AgentCard; size: "md" | "lg" }) {
     >
       {card.photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={card.photoUrl} alt="" className="size-full object-cover" />
+        <img src={card.photoUrl} width={size === "lg" ? 64 : 44} height={size === "lg" ? 64 : 44} alt="" className="size-full object-cover" />
       ) : (
         <span>{card.emoji || getInitials(card.name)}</span>
       )}
