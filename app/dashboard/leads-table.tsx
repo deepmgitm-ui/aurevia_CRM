@@ -1867,47 +1867,79 @@ export function LeadsTable({
     // SAFETY NET #2 (server): bulkDeleteLeads stores a snapshot in
     // lead_deletion_backups when that migration has been applied.
     const selectedIds = [...selectedLeads];
-    const backup = await getLeadsForExport("", "", "", undefined, selectedIds);
-    if (!backup.success) {
-      toast.add({
-        title: "Delete cancelled — Excel backup could not be prepared",
-        description: `${backup.error} Nothing was deleted. Try again or export the leads first.`,
-        type: "error",
-      });
-      setIsBulkActionPending(false);
-      return;
-    }
-    await downloadLeadsExcel(
-      backup.data,
-      `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
-    );
-    const response = await bulkDeleteLeads(selectedIds, false);
-    if (!response.success) {
-      toast.add({ title: "Delete failed", description: response.error, type: "error" });
-      setIsBulkActionPending(false);
-      return;
-    }
+    let backupDownloaded = false;
+    let deleteConfirmed = false;
+    try {
+      const backup = await getLeadsForExport("", "", "", undefined, selectedIds);
+      if (!backup.success) {
+        toast.add({
+          title: "Delete cancelled — Excel backup could not be prepared",
+          description: `${backup.error} Nothing was deleted. Try again or export the leads first.`,
+          type: "error",
+        });
+        return;
+      }
+      await downloadLeadsExcel(
+        backup.data,
+        `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
+      );
+      backupDownloaded = true;
 
-    const deletedCount = response.data.deleted;
-    const remaining = Math.max(0, serverTotal - deletedCount);
-    const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
-    setSelectedLeads([]);
-    setIsDeleteConfirmOpen(false);
-    await fetchPage(Math.min(page, nextTotalPages));
-    router.refresh();
-    toast.add({
-      title: "Leads deleted",
-      description: `${deletedCount} selected leads deleted.${response.data.snapshotSkipped ? "" : ' A snapshot was saved — "Recent Deletions" can restore them.'}`,
-      type: "success",
-    });
-    if (response.data.snapshotSkipped) {
+      const response = await bulkDeleteLeads(selectedIds, false);
+      if (!response.success) {
+        toast.add({ title: "Delete failed", description: response.error, type: "error" });
+        return;
+      }
+      deleteConfirmed = true;
+
+      const deletedCount = response.data.deleted;
+      const remaining = Math.max(0, serverTotal - deletedCount);
+      const nextTotalPages = Math.max(1, Math.ceil(remaining / LEADS_PAGE_SIZE));
+      setSelectedLeads([]);
+      setIsDeleteConfirmOpen(false);
+      await fetchPage(Math.min(page, nextTotalPages));
+      router.refresh();
       toast.add({
-        title: "Undo is not available yet",
-        description: `${deletedCount} leads were deleted, but no snapshot could be stored. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
-        type: "error",
+        title: "Leads deleted",
+        description: `${deletedCount} selected leads deleted.${response.data.snapshotSkipped ? "" : ' A snapshot was saved — "Recent Deletions" can restore them.'}`,
+        type: "success",
       });
+      if (response.data.snapshotSkipped) {
+        toast.add({
+          title: "Undo is not available yet",
+          description: `${deletedCount} leads were deleted, but no snapshot could be stored. ${LEAD_DELETION_BACKUP_SETUP_HINT}`,
+          type: "error",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to reach the server. Please try again.";
+      if (deleteConfirmed) {
+        router.refresh();
+        toast.add({
+          title: "Leads deleted",
+          description: `The deletion was confirmed and the Excel backup is saved, but the list could not refresh. Reload the Leads page to see the latest list. ${message}`,
+          type: "error",
+        });
+      } else if (backupDownloaded) {
+        // The delete request may have reached the server before its response
+        // was lost, so reconcile the visible page instead of claiming failure.
+        void fetchPage(page);
+        router.refresh();
+        toast.add({
+          title: "Delete could not be confirmed",
+          description: `${message} The Excel backup is saved. Refresh the lead list to confirm the current state before retrying.`,
+          type: "error",
+        });
+      } else {
+        toast.add({
+          title: "Delete cancelled — Excel backup could not be prepared",
+          description: `${message} Nothing was deleted. Try again or export the leads first.`,
+          type: "error",
+        });
+      }
+    } finally {
+      setIsBulkActionPending(false);
     }
-    setIsBulkActionPending(false);
   }
 
   async function openRestoreDialog() {

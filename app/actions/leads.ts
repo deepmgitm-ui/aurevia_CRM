@@ -782,8 +782,8 @@ export async function getLeadsPage(
 }
 
 // Admin-only CSV export: bypasses pagination with a bounded, chunked fetch of
-// ALL leads matching the current server-side filters (search + status +
-// employee drill-down + chart drill-down filters), capped at EXPORT_LIMIT rows.
+// All leads matching current filters are admin-only. Managers may export an
+// explicit bounded ID list solely for the pre-delete backup workflow.
 export async function getLeadsForExport(
   search = "",
   statusFilter = "",
@@ -795,13 +795,28 @@ export async function getLeadsForExport(
 ): Promise<ActionResult<Lead[]>> {
   const EXPORT_LIMIT = 5000;
   const chunkSize = 1000;
+  const selectedDeletionBackup = Array.isArray(ids) && ids.length > 0;
+  if (ids !== undefined && (
+    !Array.isArray(ids) ||
+    ids.length > EXPORT_LIMIT ||
+    ids.some((id) => typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+  )) {
+    return { success: false, error: "Select up to 5,000 valid leads for the deletion backup." };
+  }
   try {
     const supabase = await createClient();
 
-    // RBAC: strictly Admins — employees and managers cannot export data.
+    // General exports stay admin-only. Managers may fetch only an explicit,
+    // bounded ID selection because the delete workflow must download its
+    // pre-delete backup before the manager-authorized delete can run.
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can export leads (403 Forbidden)." };
+    if (viewerRole !== "admin" && !(viewerRole === "manager" && selectedDeletionBackup)) {
+      return {
+        success: false,
+        error: viewerRole === "manager"
+          ? "Managers can download Excel backups only for explicitly selected leads before deletion."
+          : "Only admins can export leads (403 Forbidden).",
+      };
     }
 
     const resolved = await resolveLeadFilters(supabase, filters);
