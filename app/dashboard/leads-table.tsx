@@ -2099,6 +2099,11 @@ export function LeadsTable({
 
   async function handleSaveLeadEdits() {
     if (!selectedLead) return;
+    const expectedUpdatedAt = leadEditsVersionRef.current;
+    if (!expectedUpdatedAt) {
+      toast.add({ title: "Unable to save changes", description: "Reopen this lead before saving.", type: "error" });
+      return;
+    }
     trackLeadMutations(selectedLead.id);
     setIsSavingEdits(true);
     const previousLead = selectedLead;
@@ -2107,7 +2112,7 @@ export function LeadsTable({
       : { ...selectedLead, remarks: leadEdits.remarks || "-" };
     updateLeadLocally(optimisticLead);
     try {
-      const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits, expectedUpdatedAt: leadEditsVersionRef.current });
+      const response = await updateLeadDetails({ id: selectedLead.id, ...leadEdits, expectedUpdatedAt });
       if (!response.success) {
         await reconcileLeadAfterFailedSave(previousLead.id);
         toast.add({ title: "Unable to save changes", description: response.error, type: "error" });

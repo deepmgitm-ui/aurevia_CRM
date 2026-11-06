@@ -173,7 +173,7 @@ export function LeadDetailDrawer({
 
   if (!open) return null;
 
-  async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string, expectedUpdatedAt?: string) {
+  async function persist(patch: Partial<UpdateLeadDetailsInput>, successTitle: string, expectedUpdatedAt: string) {
     if (!lead) return;
     setSaving(true);
     const optimistic = { ...lead, ...patch, status: patch.status ?? lead.status, id: lead.id };
@@ -236,6 +236,11 @@ export function LeadDetailDrawer({
 
   async function handleInfoSave() {
     if (!lead) return;
+    const expectedUpdatedAt = editVersionRef.current;
+    if (!expectedUpdatedAt) {
+      toast.add({ title: "Could not save", description: "Reopen this lead before saving.", type: "error" });
+      return;
+    }
     await persist(
       {
         name: edits.name.trim() || lead.name,
@@ -255,7 +260,7 @@ export function LeadDetailDrawer({
           : {}),
       },
       "Patient updated",
-      editVersionRef.current,
+      expectedUpdatedAt,
     );
   }
 

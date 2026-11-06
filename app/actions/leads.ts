@@ -3628,7 +3628,7 @@ export async function updateLeadAssignment(
 
 export interface UpdateLeadDetailsInput {
   id: string;
-  expectedUpdatedAt?: string;
+  expectedUpdatedAt: string;
   name?: string;
   phone?: string;
   email?: string;
@@ -3658,7 +3658,7 @@ export async function updateLeadDetails(
   if (textFields.some((field) => input[field] !== undefined && typeof input[field] !== "string")) {
     return { success: false, error: "Lead details must be valid text." };
   }
-  if (input.expectedUpdatedAt !== undefined && typeof input.expectedUpdatedAt !== "string") {
+  if (typeof input.expectedUpdatedAt !== "string" || !input.expectedUpdatedAt.trim()) {
     return { success: false, error: "Reopen the lead before saving changes." };
   }
   if (input.transfer_as_fresh !== undefined && typeof input.transfer_as_fresh !== "boolean") {
@@ -3707,7 +3707,7 @@ export async function updateLeadDetails(
     if (previousLeadError || !previousLead) {
       return { success: false, error: previousLeadError?.message ?? "Lead not found." };
     }
-    if (input.expectedUpdatedAt && previousLead.updated_at !== input.expectedUpdatedAt) {
+    if (previousLead.updated_at !== input.expectedUpdatedAt) {
       return { success: false, error: "This lead changed while you were editing. Reopen it and try again." };
     }
 
@@ -3779,8 +3779,11 @@ export async function updateLeadDetails(
       error = updateError;
       if (error) error = { message: assignmentBatchSetupError(error.message) };
     } else {
-      let updateQuery = supabase.from("leads").update(updates).eq("id", input.id);
-      if (input.expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", input.expectedUpdatedAt);
+      const updateQuery = supabase
+        .from("leads")
+        .update(updates)
+        .eq("id", input.id)
+        .eq("updated_at", input.expectedUpdatedAt);
       const result = await updateQuery.select().maybeSingle();
       data = result.data as Lead | null;
       error = result.error;

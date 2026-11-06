@@ -62,8 +62,11 @@ procedure changes. Keep the implementation and this guide in the same change.
 
 - Lead edit forms must send a status only when the user changed it, so an old
   open form cannot overwrite a newer disposition while saving other details.
-- Detail forms reject saves when the lead has changed since the form opened;
-  status changes compare the previously displayed status before writing.
+- Every lead-detail save must carry the `updated_at` value read when editing
+  began. The server rejects a missing or stale version, and the database update
+  compares that same version so an older form cannot overwrite newer fields or
+  disposition.
+- Status changes compare the previously displayed status before writing.
 - The supported status vocabulary is maintained in lib/lead-status.ts.
 - Status changes must save through updateLeadStatus, update the visible row,
   preserve the existing role rules, and report a useful error if saving fails.
