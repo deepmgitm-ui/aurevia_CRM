@@ -40,7 +40,7 @@ export function DashboardGreeting({ name, role, gender }: { name?: string; role?
     return (
       <div
         aria-hidden="true"
-        className="h-[86px] animate-pulse rounded-2xl border border-slate-200 bg-slate-50/70 sm:h-[80px]"
+        className="h-[86px] animate-pulse motion-reduce:animate-none rounded-2xl border border-slate-200 bg-slate-50/70 sm:h-[80px]"
       />
     );
   }

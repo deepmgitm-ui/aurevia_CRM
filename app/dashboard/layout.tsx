@@ -22,7 +22,7 @@ function isUserRole(value: string): value is UserRole {
 
 function DashboardShellFallback() {
   return (
-    <div className="flex min-h-screen animate-pulse bg-slate-50">
+    <div className="flex min-h-screen animate-pulse motion-reduce:animate-none bg-slate-50">
       <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-5 lg:block">
         <div className="h-10 w-36 rounded-lg bg-slate-200" />
         <div className="mt-10 space-y-3">
