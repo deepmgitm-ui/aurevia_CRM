@@ -958,20 +958,6 @@ const BOARD_COLUMNS: { key: StageKey; label: string }[] = [
   { key: "lost", label: "Lost / Dropped" },
 ];
 
-function emptyBoardData(): PipelineBoardData {
-  return {
-    columns: BOARD_COLUMNS.map(({ key, label }) => ({
-      key,
-      label,
-      status: STAGE_TARGET_STATUS[key],
-      total: 0,
-      leads: [],
-    })),
-    total: 0,
-    cardLimit: BOARD_CARD_LIMIT,
-  };
-}
-
 /**
  * Feeds the Kanban board: one light query per column (cards + an exact count),
  * scoped exactly like every other list — employees only ever see leads assigned
@@ -982,8 +968,9 @@ export async function getPipelineBoard(): Promise<ActionResult<PipelineBoardData
     const supabase = await createClient();
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
-    if (!user) return { success: true, data: emptyBoardData() };
+    if (userError || !user) return { success: false, error: "Sign in to view the pipeline board." };
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -991,9 +978,9 @@ export async function getPipelineBoard(): Promise<ActionResult<PipelineBoardData
       .eq("id", user.id)
       .single();
 
-    if (profileError || !profile) return { success: true, data: emptyBoardData() };
+    if (profileError || !profile) return { success: false, error: "Your team profile could not be loaded. Please try again." };
     if (profile.role === "employee" && !profile.name?.trim()) {
-      return { success: true, data: emptyBoardData() };
+      return { success: false, error: "Your team profile needs a name. Please contact an admin." };
     }
 
     const isEmployee = profile.role === "employee";
@@ -4107,84 +4094,73 @@ export async function logLeadCall(
 }
 
 export async function getPipelineInsights(): Promise<ActionResult<PipelineInsights>> {
-  const empty: PipelineInsights = {
-    total: 0,
-    open: 0,
-    won: 0,
-    lost: 0,
-    conversionRate: 0,
-    overdueFollowUps: 0,
-    dueToday: 0,
-    unassigned: 0,
-    bySource: [],
-    byStatus: [],
-  };
-
   try {
     const supabase = await createClient();
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
-    if (userError || !user) return { success: true, data: empty };
+    if (userError || !user) return { success: false, error: "Sign in to view pipeline insights." };
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("name, role")
       .eq("id", user.id)
       .single();
-    if (profileError || !profile) return { success: true, data: empty };
-
-    const sourceMap = new Map<string, number>();
-    const statusMap = new Map<string, number>();
-    let total = 0;
-    let won = 0;
-    let lost = 0;
-    let unassigned = 0;
-    let overdueFollowUps = 0;
-    let dueToday = 0;
-    const todayKey = todayDateKey();
-    const chunkSize = 1000;
-    const limit = 20000;
-
-    for (let from = 0; from < limit; from += chunkSize) {
-      let query = supabase
-        .from("leads")
-        .select("status, source, assigned_to, follow_up_date");
-      if (profile.role === "employee") {
-        query = query.ilike("assigned_to", profile.name ?? "");
-      }
-
-      const { data, error } = await query.range(from, from + chunkSize - 1);
-      if (error) return { success: false, error: error.message };
-
-      const rows = data ?? [];
-      for (const row of rows) {
-        total += 1;
-        const status = String(row.status ?? "-");
-        const source = String(row.source ?? "-");
-        statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
-        sourceMap.set(source, (sourceMap.get(source) ?? 0) + 1);
-
-        if (isWonStatus(status)) won += 1;
-        if (stageForStatus(status) === "lost") lost += 1;
-        if (!row.assigned_to || row.assigned_to === "-") unassigned += 1;
-
-        const followUpKey = parseStoredDateKey(String(row.follow_up_date ?? ""));
-        if (followUpKey && followUpKey < todayKey) overdueFollowUps += 1;
-        if (followUpKey === todayKey) dueToday += 1;
-      }
-
-      if (rows.length < chunkSize) break;
+    if (profileError || !profile) return { success: false, error: "Your team profile could not be loaded. Please try again." };
+    if (profile.role === "employee" && !profile.name?.trim()) {
+      return { success: false, error: "Your team profile needs a name. Please contact an admin." };
     }
 
+    const { data, error } = await supabase.rpc("crm_pipeline_insights", { p_today: todayDateKey() });
+    if (error || !data || typeof data !== "object") {
+      return { success: false, error: error?.message ?? "Pipeline insights could not be loaded. Please retry." };
+    }
+
+    const aggregate = data as {
+      total?: unknown;
+      unassigned?: unknown;
+      overdueFollowUps?: unknown;
+      dueToday?: unknown;
+      bySource?: unknown;
+      byStatus?: unknown;
+    };
+    const toCount = (value: unknown): number | null => {
+      const count = Number(value);
+      return Number.isSafeInteger(count) && count >= 0 ? count : null;
+    };
+    const toRows = (value: unknown): Array<{ label: string; count: number }> => {
+      if (!Array.isArray(value)) return [];
+      return value.flatMap((row) => {
+        if (!row || typeof row !== "object") return [];
+        const item = row as { label?: unknown; count?: unknown };
+        const count = toCount(item.count);
+        if (typeof item.label !== "string" || count === null) return [];
+        return [{ label: item.label, count }];
+      });
+    };
+    const total = toCount(aggregate.total);
+    const unassigned = toCount(aggregate.unassigned);
+    const overdueFollowUps = toCount(aggregate.overdueFollowUps);
+    const dueToday = toCount(aggregate.dueToday);
+    const byStatus = toRows(aggregate.byStatus);
+    const bySource = toRows(aggregate.bySource);
+    if (
+      total === null || unassigned === null || overdueFollowUps === null || dueToday === null ||
+      !Array.isArray(aggregate.byStatus) || byStatus.length !== aggregate.byStatus.length ||
+      !Array.isArray(aggregate.bySource) || bySource.length !== aggregate.bySource.length
+    ) {
+      return { success: false, error: "Pipeline insights returned invalid data. Please retry." };
+    }
+
+    let won = 0;
+    let lost = 0;
+    for (const row of byStatus) {
+      if (isWonStatus(row.label)) won += row.count;
+      if (stageForStatus(row.label) === "lost") lost += row.count;
+    }
     const closed = won + lost;
     const conversionRate = closed > 0 ? Math.round((won / closed) * 100) : 0;
-    const toSorted = (map: Map<string, number>, limitCount: number) =>
-      Array.from(map.entries())
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, limitCount)
-        .map(([label, count]) => ({ label, count }));
 
     return {
       success: true,
@@ -4197,8 +4173,8 @@ export async function getPipelineInsights(): Promise<ActionResult<PipelineInsigh
         overdueFollowUps,
         dueToday,
         unassigned,
-        bySource: toSorted(sourceMap, 6),
-        byStatus: toSorted(statusMap, 10),
+        bySource: bySource.slice(0, 6),
+        byStatus: byStatus.slice(0, 10),
       },
     };
   } catch (error) {

@@ -39,7 +39,7 @@ export default async function DashboardPage({
   const viewerResult = await getViewer();
   const viewer = viewerResult.success ? viewerResult.data : null;
   if (!viewer) {
-    return <Alert severity="error">Your account could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>;
+    return <Alert severity="error">Your account could not be loaded. <Link href="/dashboard" className="font-semibold underline">Reload this page</Link> to try again.</Alert>;
   }
   const isTeamLead = viewer?.role === "admin" || viewer?.role === "manager";
   // ---- Admin/Manager drill-down: one employee's leads table ----
@@ -144,7 +144,7 @@ export default async function DashboardPage({
 
         {teamResult.success ? <LeadAssignmentTabs team={team} today={today} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
-        {insights && <PipelineInsights insights={insights} />}
+        {insights ? <PipelineInsights insights={insights} /> : <Alert severity="error">Pipeline insights could not be loaded. <Link href="/dashboard" className="font-semibold underline">Reload this page</Link> to try again.</Alert>}
         <TeamActivityPanel day={today} />
       </div>
     );

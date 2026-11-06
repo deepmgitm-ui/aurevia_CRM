@@ -103,6 +103,9 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     has_function_privilege('authenticated','public.crm_add_leads_to_assignment_batch(uuid,jsonb)','execute') as auth_batch_append,
     has_function_privilege('anon','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as anon_admin_lead_edit,
     has_function_privilege('authenticated','public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)','execute') as auth_admin_lead_edit,
+    has_function_privilege('anon','public.crm_pipeline_insights(date)','execute') as anon_pipeline_insights,
+    has_function_privilege('authenticated','public.crm_pipeline_insights(date)','execute') as auth_pipeline_insights,
+    (select prosecdef=false from pg_proc where oid='public.crm_pipeline_insights(date)'::regprocedure) as invoker_pipeline_insights,
     (select prosecdef=false from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as invoker_admin_lead_edit,
     (select proconfig @> array['search_path=""'] from pg_proc where oid='public.crm_update_lead_details_admin(uuid,jsonb,timestamptz,boolean)'::regprocedure) as empty_admin_lead_edit_path,
     exists(select 1 from pg_attribute where attrelid='public.leads'::regclass and attname='meta_leadgen_id' and not attisdropped) as has_meta_id
@@ -126,6 +129,9 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     auth_batch_append: true,
     anon_admin_lead_edit: false,
     auth_admin_lead_edit: true,
+    anon_pipeline_insights: false,
+    auth_pipeline_insights: true,
+    invoker_pipeline_insights: true,
     invoker_admin_lead_edit: true,
     empty_admin_lead_edit_path: true,
     has_meta_id: true,
@@ -306,6 +312,35 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     ),
     1205,
   );
+  await db.exec("reset role;set request.jwt.claim.sub='';");
+  await assert.rejects(
+    db.query("select crm_pipeline_insights('2026-10-13')"),
+    /Authentication required/,
+    "pipeline insights reject unauthenticated callers",
+  );
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  const employeeInsights = (await db.query(
+    "select crm_pipeline_insights('2026-10-13') x",
+  )).rows[0].x;
+  assert.equal(employeeInsights.total, (await db.query("select count(*)::int n from leads")).rows[0].n,
+    "pipeline insights total follows the employee's RLS-visible lead scope");
+  assert.equal(employeeInsights.byStatus.reduce((sum, row) => sum + Number(row.count), 0), employeeInsights.total,
+    "pipeline status aggregates include every visible employee lead");
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  const otherEmployeeInsights = (await db.query(
+    "select crm_pipeline_insights('2026-10-13') x",
+  )).rows[0].x;
+  assert.equal(otherEmployeeInsights.total, 0,
+    "pipeline insights do not expose another employee's leads");
+  await db.exec("reset role;set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const adminInsights = (await db.query(
+    "select crm_pipeline_insights('2026-10-13') x",
+  )).rows[0].x;
+  assert.equal(adminInsights.total, (await db.query("select count(*)::int n from leads")).rows[0].n,
+    "admin pipeline insights include the full admin-visible lead scope");
+  assert.equal(adminInsights.bySource.reduce((sum, row) => sum + Number(row.count), 0), adminInsights.total,
+    "pipeline source aggregates include every visible admin lead");
+  await db.exec("reset role;set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   let duplicateBlocked = false;
   try {
     await db.query(
