@@ -13,6 +13,10 @@ create schema cron;create table cron.job(jobid bigint,jobname text);
 create function cron.schedule(text,text,text) returns bigint language sql as $$select 1::bigint$$;
 create function cron.unschedule(bigint) returns boolean language sql as $$select true$$;
 create table auth.users(id uuid primary key);
+insert into auth.users values
+('00000000-0000-4000-8000-000000000001'),
+('00000000-0000-4000-8000-000000000002'),
+('00000000-0000-4000-8000-000000000003');
 create schema storage;create table storage.objects(metadata jsonb);
 insert into storage.objects(metadata) values ('{"size":100}'::jsonb), ('{"size":250}'::jsonb);
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
@@ -20,6 +24,16 @@ create table public.profiles(id uuid primary key,name text,role text,phone text,
 insert into profiles values('00000000-0000-4000-8000-000000000001','Admin','admin'),('00000000-0000-4000-8000-000000000002','Agent A','employee'),('00000000-0000-4000-8000-000000000003','Agent B','employee');
 create table public.attendance(id uuid primary key default gen_random_uuid(),employee_id uuid references public.profiles(id),attendance_date date not null,status text not null,marked_by uuid references public.profiles(id));
 grant select,insert on public.attendance to authenticated;
+-- calendar_events is created by the documented manual setup SQL, outside the
+-- versioned migration chain. Seed its pre-hardening PUBLIC policies so later
+-- policy migrations are replayed against the same shape as production.
+create table public.calendar_events(id uuid primary key default gen_random_uuid(),owner_id uuid not null references auth.users(id),event_date date not null,title text not null,kind text not null default 'note',notes text,created_at timestamptz not null default now());
+alter table public.calendar_events enable row level security;
+create policy calendar_events_select_own on public.calendar_events for select using(auth.uid()=owner_id);
+create policy calendar_events_insert_own on public.calendar_events for insert with check(auth.uid()=owner_id);
+create policy calendar_events_update_own on public.calendar_events for update using(auth.uid()=owner_id) with check(auth.uid()=owner_id);
+create policy calendar_events_delete_own on public.calendar_events for delete using(auth.uid()=owner_id);
+grant select,insert,update,delete on public.calendar_events to anon,authenticated;
 update profiles set phone='9999999999',email='admin@example.test',gender='Other',blood_group='O+',emergency_contact='8888888888',manager_name='Owner',photo_url='https://example.test/admin.png' where id='00000000-0000-4000-8000-000000000001';
 create function public.handle_new_user() returns trigger language plpgsql security definer as $$begin return new;end$$;
 create function public.rls_auto_enable() returns void language plpgsql security definer as $$begin return;end$$;
@@ -1376,12 +1390,24 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("insert into attendance(employee_id,attendance_date,status) values(auth.uid(),'2026-12-01','Present')");
   assert.equal((await db.query("select count(*)::int n from attendance where employee_id=auth.uid() and attendance_date='2026-12-01' and status='Present'")).rows[0].n, 1,
     'work attendance remains allowed during approved leave for admin review');
+  await db.exec("reset role; insert into calendar_events(owner_id,event_date,title) values('00000000-0000-4000-8000-000000000002','2026-12-02','Own event'); set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  assert.equal((await db.query("select count(*)::int n from calendar_events")).rows[0].n, 1,
+    'signed-in users retain access to their own calendar events');
+  await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
+  assert.equal((await db.query("select count(*)::int n from calendar_events")).rows[0].n, 0,
+    'signed-in users cannot see another user\'s calendar events');
+  await db.exec("reset role; set role anon; set request.jwt.claim.sub='';");
+  assert.equal((await db.query("select count(*)::int n from calendar_events")).rows[0].n, 0,
+    'anonymous callers cannot read calendar events');
+  await assert.rejects(db.query("insert into calendar_events(owner_id,event_date,title) values('00000000-0000-4000-8000-000000000002','2026-12-03','Anonymous event')"),
+    /row-level security|permission denied/i,
+    'anonymous callers cannot write calendar events');
   await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec("reset role; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000099'");
   let missingRoleDenied=false;try{await db.query('select crm_capacity()');}catch{missingRoleDenied=true;}assert.ok(missingRoleDenied,'missing profiles must not bypass admin guards');
   await db.close();
   console.log(
-    "Isolated migration checks passed: status/assignment RLS, weekly offs and leave, appointment owner RLS, agent buckets, deletion reviews, and linked-data cleanup",
+    "Isolated migration checks passed: calendar owner/anonymous RLS, status/assignment RLS, weekly offs and leave, appointment owner RLS, agent buckets, deletion reviews, and linked-data cleanup",
   );
 })().catch(async (e) => {
   console.error(e);
