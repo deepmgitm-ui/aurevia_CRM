@@ -675,6 +675,13 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(freshBatchLead.status, "New", "Send as Fresh deliberately resets the disposition");
   assert.equal(freshBatchLead.follow_up_date, "-");
   assert.equal(freshBatchLead.first_agent_touch_at, null);
+  assert.deepEqual((await db.query(
+    "select action_type,description from lead_activities where lead_id=$1 order by created_at,id",
+    [freshBatchLeadId],
+  )).rows, [{
+    action_type: "Transfer",
+    description: "Transferred from Agent A to Agent B. Previous notes and call history are retained. Disposition: DNP → New (sent as fresh).",
+  }], "fresh batch transfer records its old and new disposition in the transfer timeline receipt");
   assert.deepEqual((await db.query("select target_names from crm_assignment_batches where id=$1", [freshBatchId])).rows[0].target_names, ["Agent B"]);
 
   const atomicBatchId = (await db.query(
@@ -741,6 +748,11 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.deepEqual((await db.query("select assigned_to,status,follow_up_date,first_agent_touch_at from leads where id=$1", [freshLeadId])).rows[0],
     { assigned_to: "Agent B", status: "New", follow_up_date: "-", first_agent_touch_at: null },
     "Send as Fresh deliberately resets disposition and touch state");
+  assert.deepEqual((await db.query(
+    "select action_type,description from lead_activities where lead_id=$1 order by created_at,id",
+    [freshLeadId],
+  )).rows, [{ action_type: "Assignment", description: "Assigned to Agent B. Disposition: DNP → New (sent as fresh)." }],
+    "fresh assignment from unassigned records its old and new disposition");
 
   const guardedLeadId = (await db.query(
     "insert into leads(name,phone,assigned_to,status) values('Bulk guard','9192222293','Agent B','New') returning id",
@@ -886,6 +898,13 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   )).rows[0];
   assert.deepEqual({ status: freshEdit.status, follow_up_date: freshEdit.follow_up_date, first_agent_touch_at: freshEdit.first_agent_touch_at },
     { status: "New", follow_up_date: "-", first_agent_touch_at: null }, "Send as Fresh resets workflow only when ownership changes");
+  assert.deepEqual((await db.query(
+    "select action_type,description from lead_activities where lead_id=$1 and action_type='Transfer'",
+    [freshEditLead.id],
+  )).rows, [{
+    action_type: "Transfer",
+    description: "Transferred from Agent A to Agent B. Previous notes and call history are retained. Disposition: DNP → New (sent as fresh).",
+  }], "single-lead Send as Fresh saves one disposition transition with its transfer receipt");
 
   const rollbackEditLead = (await db.query(
     "insert into leads(name,phone,assigned_to,status,remarks) values('Admin edit blocked','9192222313','Agent A','New','Before') returning id,updated_at",

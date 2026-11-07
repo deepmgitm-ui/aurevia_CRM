@@ -83,6 +83,11 @@ procedure changes. Keep the implementation and this guide in the same change.
   the old and new lead disposition to the lead timeline in the same database
   transaction, attributed to the signed-in user. Repeating an already-saved
   disposition does not create a duplicate transition entry.
+- Admin Send as Fresh transfers record the prior disposition and `New` together
+  with the transfer timeline receipt. Fresh assignment from Unassigned records
+  the status transition separately. A transfer form's stale status field is
+  ignored when the admin explicitly chooses Send as Fresh, preventing a
+  duplicate or contradictory status receipt.
 - Follow-up completion/rescheduling must update the lead and append its actor
   timeline entry in one RLS-scoped database transaction. Rescheduling clears an
   old callback time so the selected date controls task ordering.

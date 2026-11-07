@@ -3712,6 +3712,9 @@ export async function updateLeadDetails(
     const assignmentChanged = viewerProfile?.role === "admin"
       && typeof updates.assigned_to === "string"
       && updates.assigned_to.trim() !== (previousLead.assigned_to ?? "").trim();
+    // Fresh is an explicit workflow reset to New; don't send a conflicting
+    // form status that would create a second status receipt in the timeline.
+    if (assignmentChanged && input.transfer_as_fresh === true) delete updates.status;
     let data: Lead | null = null;
     let error: { message: string } | null = null;
     if (assignmentChanged) {
