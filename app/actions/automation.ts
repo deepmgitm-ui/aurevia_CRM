@@ -13,6 +13,7 @@ import {
   ALL_RULES,
   AUTOMATION_CAP,
   AUTOMATION_SCAN,
+  canRunAutomationRule,
   matchChanges,
   type AutomationChange,
   type AutomationRuleKey,
@@ -198,8 +199,10 @@ export async function previewAutomation(ruleKey: AutomationRuleKey): Promise<Aut
   try {
     const supabase = await createClient();
     const role = await getViewerRole(supabase);
-    if (role !== "admin" && role !== "manager") {
-      return { success: false, error: "Only admins and managers can run automations (403 Forbidden)." };
+    if (!canRunAutomationRule(role, ruleKey)) {
+      return { success: false, error: ruleKey === "balance"
+        ? "Only admins can run workload balancing because it assigns leads."
+        : "Only admins and managers can run automations (403 Forbidden)." };
     }
     const rules = await readRules(supabase);
     const rule = rules.find((entry) => entry.key === ruleKey);
@@ -222,8 +225,10 @@ export async function runAutomation(ruleKey: AutomationRuleKey): Promise<Automat
     } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "You must be signed in." };
     const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
-    if (profile?.role !== "admin" && profile?.role !== "manager") {
-      return { success: false, error: "Only admins and managers can run automations (403 Forbidden)." };
+    if (!canRunAutomationRule(profile?.role ?? null, ruleKey)) {
+      return { success: false, error: ruleKey === "balance"
+        ? "Only admins can run workload balancing because it assigns leads."
+        : "Only admins and managers can run automations (403 Forbidden)." };
     }
     const ruleState = (await readRules(supabase)).find((entry) => entry.key === ruleKey);
     if (ruleState && !ruleState.enabled) {

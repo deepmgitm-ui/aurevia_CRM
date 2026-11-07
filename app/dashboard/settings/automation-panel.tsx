@@ -30,8 +30,9 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Play, Wand2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { canRunAutomationRule } from "@/lib/automation";
 
-export function AutomationPanel() {
+export function AutomationPanel({ isAdmin }: { isAdmin: boolean }) {
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [runs, setRuns] = useState<AutomationRunLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,7 +131,7 @@ export function AutomationPanel() {
               </p>
             </div>
             <Badge className="border-indigo-200 bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
-              Admin / Manager
+              {isAdmin ? "Admin" : "Admin / Manager"}
             </Badge>
           </div>
         </CardHeader>
@@ -175,8 +176,9 @@ export function AutomationPanel() {
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={!rule.enabled || pendingRule === rule.key || runningRule === rule.key}
+                  disabled={!rule.enabled || !canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) || pendingRule === rule.key || runningRule === rule.key}
                   onClick={() => void handlePreview(rule)}
+                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins can run workload balancing because it assigns leads." : undefined}
                 >
                   {pendingRule === rule.key ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -188,8 +190,9 @@ export function AutomationPanel() {
                 <Button
                   type="button"
                   size="sm"
-                  disabled={!rule.enabled || runningRule === rule.key}
+                  disabled={!rule.enabled || !canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) || runningRule === rule.key}
                   onClick={() => void handleRun(rule)}
+                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins can run workload balancing because it assigns leads." : undefined}
                 >
                   {runningRule === rule.key ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -198,6 +201,9 @@ export function AutomationPanel() {
                   )}
                   Run now
                 </Button>
+                {!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) && (
+                  <span className="text-xs font-medium text-slate-500">Admin only</span>
+                )}
               </div>
             </div>
           ))}

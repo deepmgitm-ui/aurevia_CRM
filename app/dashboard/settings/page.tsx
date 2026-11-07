@@ -52,7 +52,7 @@ export default async function SettingsPage() {
       {isTeamLead && masterDataResult?.success && masterDataResult.data && (
         <MasterDataPanel initial={masterDataResult.data} />
       )}
-      {isTeamLead && <AutomationPanel />}
+      {isTeamLead && <AutomationPanel isAdmin={role === "admin"} />}
       {role === "admin" && <CrmOperationsPanel schedulerStatus={schedulerStatus} duplicateError={duplicates && !duplicates.success?duplicates.error:undefined} capacity={capacity} scheduler={scheduler} groups={duplicates?.success?duplicates.data.groups:[]} total={duplicates?.success?duplicates.data.total:0}/> }
     </div>
   );

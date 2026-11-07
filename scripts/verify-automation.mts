@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   ALL_RULES,
   AUTOMATION_CAP,
+  canRunAutomationRule,
   addDaysKey,
   daysSinceIso,
   isStaleFollowUp,
@@ -46,6 +47,11 @@ assert.deepEqual(
   ALL_RULES.map((rule) => rule.key),
   ["welcome", "nudge", "overdue", "balance", "celebrate"],
 );
+assert.equal(canRunAutomationRule("admin", "balance"), true);
+assert.equal(canRunAutomationRule("manager", "balance"), false);
+assert.equal(canRunAutomationRule("manager", "welcome"), true);
+assert.equal(canRunAutomationRule("employee", "welcome"), false);
+assert.equal(canRunAutomationRule(null, "balance"), false);
 
 // 1. Date handling: both stored formats normalize to the same day key, and only
 //    a PAST day counts as stale (today's follow-up is still on time).
