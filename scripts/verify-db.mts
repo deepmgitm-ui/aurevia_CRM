@@ -116,10 +116,9 @@ const { error: privateProfilesError } = await supabase
   .select("id,phone,email,gender,blood_group,emergency_contact,manager_name,photo_url")
   .limit(1);
 reportQuery("employee_private_profiles table and HR columns", privateProfilesError);
-for (const column of ["phone", "email", "gender", "blood_group", "emergency_contact", "manager_name", "photo_url"]) {
-  const state = await hasColumn("profiles", column);
-  report(`profiles.${column} removed`, state === null ? null : state === false, state === null ? "could not verify over REST" : "");
-}
+// Probing a deliberately dropped column through PostgREST creates a PostgreSQL
+// undefined-column error log. Verify this negative schema assertion in SQL instead.
+report("profiles private HR columns removed", null, "REST cannot verify dropped columns; check the SQL catalog");
 const { error: attendanceError } = await supabase.from("attendance" as never).select("id" as never).limit(1 as never);
 reportQuery("attendance table", attendanceError);
 const { error: attendanceRequestsError } = await supabase
