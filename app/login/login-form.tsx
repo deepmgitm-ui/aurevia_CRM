@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,15 @@ export function LoginForm({ redirectTo, dayEnded = false }: LoginFormProps) {
   return (
     <main className="flex min-h-full w-full min-w-0 flex-1 items-center justify-center bg-muted/30 px-4 py-12">
       <Card className="w-full min-w-0 max-w-md shadow-lg">
-        <CardHeader className="gap-2 text-center">
+        <CardHeader className="items-center gap-2 text-center">
+          <Image
+            src="/logo.png"
+            alt="Aurevia Healthcare"
+            width={1693}
+            height={929}
+            priority
+            className="mb-1 h-12 w-auto object-contain"
+          />
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to continue to Aurevia CRM.</CardDescription>
         </CardHeader>

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import {
   adminCreateUser,
+  adminResetUserPassword,
   getAllUsers,
   removeUserAccess,
   updateUserRole,
@@ -47,6 +48,29 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
+  const [passwordUser, setPasswordUser] = useState<ManagedUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
+  async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!passwordUser || isResettingPassword) return;
+    setIsResettingPassword(true);
+    try {
+      const response = await adminResetUserPassword(passwordUser.id, resetPassword);
+      if (!response.success) {
+        toast.add({ title: "Unable to reset password", description: response.error, type: "error" });
+      } else {
+        toast.add({ title: "Password reset", description: `${passwordUser.name || passwordUser.email} can sign in with the new password.`, type: "success" });
+        setPasswordUser(null);
+        setResetPassword("");
+      }
+    } catch {
+      toast.add({ title: "Unable to reset password", description: "The server could not be reached. Try again.", type: "error" });
+    } finally {
+      setIsResettingPassword(false);
+    }
+  }
 
   async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -130,7 +154,7 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead className="text-right">Access</TableHead>
+              <TableHead className="text-right">Account</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -157,15 +181,20 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
                   </Select>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={pendingUserId === user.id}
-                    onClick={() => void handleRevoke(user)}
-                  >
-                    Revoke Access
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={pendingUserId === user.id} onClick={() => setPasswordUser(user)}>
+                      Reset Password
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={pendingUserId === user.id}
+                      onClick={() => void handleRevoke(user)}
+                    >
+                      Revoke Access
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -224,6 +253,24 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
               <Button type="submit" disabled={isCreatingUser}>
                 {isCreatingUser ? "Creating…" : "Create User"}
               </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={passwordUser !== null} onOpenChange={(open) => { if (!open && !isResettingPassword) { setPasswordUser(null); setResetPassword(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription>Set a new sign-in password for {passwordUser?.name || passwordUser?.email}.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(event) => void handleResetPassword(event)} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-reset-password">New password</Label>
+              <Input id="admin-reset-password" name="newPassword" type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required minLength={8} maxLength={128} autoComplete="new-password" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setPasswordUser(null); setResetPassword(""); }} disabled={isResettingPassword}>Cancel</Button>
+              <Button type="submit" disabled={isResettingPassword || resetPassword.length < 8}>{isResettingPassword ? "Resetting…" : "Set new password"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

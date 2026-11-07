@@ -28,6 +28,9 @@ procedure changes. Keep the implementation and this guide in the same change.
   admin-only in the current application and database policies.
 - **Employee:** works with their own assigned leads and attendance. Data access
   must be enforced by server actions and Supabase RLS, not just hidden UI.
+- Users can change their own password after entering the current password;
+  administrators can reset a team member's password from Settings. Keep all
+  password and service-role operations inside server actions.
 - Keep the employee's visible lead list scoped to their current assignments.
   After transfer, a lead must disappear from the previous employee's view and
   appear in the new owner's view without a manual browser refresh.
@@ -249,6 +252,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-07 | Added own-password change and admin password reset controls in Settings, added Aurevia branding to sign-in, and made password dialogs recover from network failures. Lead creation, source dispositions, bucket rules and stored records are unchanged. | Full ESLint and production build pass; lead-import and daily-work verifiers pass. No database migration or production data change. |
 | 2026-11-07 | Moved global notifications to the upper-right area below the app header so errors remain visible while dialogs are open. Updated toast stacking/entry direction for the top anchor and disabled toast transitions for reduced-motion users. | Full ESLint, TypeScript and production build pass; Base UI viewport keeps its polite live region and the toast layer stays above dialogs. No CRM data or workflow changed. |
 | 2026-11-07 | Pointed the global stylesheet import at the installed shadcn CSS file because Turbopack could resolve the package in Node but not through this CSS subpath. Kept the package dependency; no CRM workflows or data changed. | Fresh package install, full ESLint, production build and TypeScript pass; `npm audit --omit=dev` reports 0 vulnerabilities. |
 | 2026-11-07 | Reviewed the 8 live `SECURITY DEFINER` Advisor findings. Each function has an authenticated caller check or role gate, `anon` cannot execute them, and `search_path` is pinned. Leaked-password protection remains disabled; [Supabase documents it as Pro plan and above](https://supabase.com/docs/guides/auth/password-security). No grants or billing plan changed. | Live function bodies, grants and advisor findings inspected. The 4 unindexed-FK and 21 unused-index notices are informational; no index was added or removed without workload evidence. |

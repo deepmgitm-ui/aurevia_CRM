@@ -172,6 +172,59 @@ export async function updateUserRole(
   }
 }
 
+export async function adminResetUserPassword(
+  userId: string,
+  password: string,
+): Promise<UserActionResult<{ userId: string }>> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return { success: false, error: "Choose a valid user." };
+  }
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) {
+    return { success: false, error: "Password must be between 8 and 128 characters." };
+  }
+
+  try {
+    const authorization = await requireAdmin();
+    if (authorization.error) return { success: false, error: authorization.error };
+
+    const { error } = await getAdminClient().auth.admin.updateUserById(userId, { password });
+    if (error) return { success: false, error: error.message };
+
+    revalidatePath("/dashboard/settings");
+    return { success: true, data: { userId } };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unable to reset password." };
+  }
+}
+
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<UserActionResult<null>> {
+  if (typeof currentPassword !== "string" || !currentPassword) {
+    return { success: false, error: "Enter your current password." };
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 8 || newPassword.length > 128) {
+    return { success: false, error: "New password must be between 8 and 128 characters." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user?.email) return { success: false, error: "Sign in again before changing your password." };
+    const { error } = await supabase.auth.updateUser({
+      current_password: currentPassword,
+      password: newPassword,
+    });
+    if (error) return { success: false, error: error.message };
+
+    revalidatePath("/dashboard/settings");
+    return { success: true, data: null };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unable to change password." };
+  }
+}
+
 export async function removeUserAccess(
   userId: string,
 ): Promise<UserActionResult<{ userId: string }>> {

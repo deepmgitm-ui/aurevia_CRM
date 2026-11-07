@@ -9,6 +9,7 @@ import { AdminUserPanel } from "./admin-user-panel";
 import { AutomationPanel } from "./automation-panel";
 import { MasterDataPanel } from "./master-data-panel";
 import { SettingsForm } from "./settings-form";
+import { PasswordPanel } from "./password-panel";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -46,6 +47,7 @@ export default async function SettingsPage() {
         </p>
       </div>
       <SettingsForm initialName={name} role={role} />
+      <PasswordPanel />
       {role === "admin" && usersResult?.success && (
         <AdminUserPanel initialUsers={usersResult.data} />
       )}
