@@ -88,6 +88,8 @@ procedure changes. Keep the implementation and this guide in the same change.
   the status transition separately. A transfer form's stale status field is
   ignored when the admin explicitly chooses Send as Fresh, preventing a
   duplicate or contradictory status receipt.
+- Fresh-transfer timeline detection compares the saved old and new disposition;
+  it does not depend on timestamps that may be identical within one transaction.
 - Follow-up completion/rescheduling must update the lead and append its actor
   timeline entry in one RLS-scoped database transaction. Rescheduling clears an
   old callback time so the selected date controls task ordering.

@@ -684,6 +684,33 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   }], "fresh batch transfer records its old and new disposition in the transfer timeline receipt");
   assert.deepEqual((await db.query("select target_names from crm_assignment_batches where id=$1", [freshBatchId])).rows[0].target_names, ["Agent B"]);
 
+  // Keep assignment and Fresh transfer in one SQL transaction. `now()` is
+  // stable inside it, so the old and reset assignment markers can be equal.
+  await db.exec("begin;");
+  const sameTransactionBatchId = (await db.query(
+    "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Same transaction fresh transfer',auth.uid(),'Admin',array['Agent A'],1) returning id",
+  )).rows[0].id;
+  const sameTransactionLeadId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Same transaction fresh transfer lead','9192222286','Agent A','DNP',$1) returning id",
+    [sameTransactionBatchId],
+  )).rows[0].id;
+  assert.equal(Number((await db.query(
+    "select public.crm_transfer_assignment_batch($1,'Agent B',true) as transferred",
+    [sameTransactionBatchId],
+  )).rows[0].transferred), 1);
+  assert.deepEqual((await db.query(
+    "select status,first_agent_touch_at from leads where id=$1",
+    [sameTransactionLeadId],
+  )).rows[0], { status: "New", first_agent_touch_at: null });
+  assert.deepEqual((await db.query(
+    "select action_type,description from lead_activities where lead_id=$1",
+    [sameTransactionLeadId],
+  )).rows, [{
+    action_type: "Transfer",
+    description: "Transferred from Agent A to Agent B. Previous notes and call history are retained. Disposition: DNP → New (sent as fresh).",
+  }], "Fresh transfer receipt is recorded even when now() returns the same transaction timestamp");
+  await db.exec("rollback;");
+
   const atomicBatchId = (await db.query(
     "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Atomic transfer',auth.uid(),'Admin',array['Agent A'],2) returning id",
   )).rows[0].id;
