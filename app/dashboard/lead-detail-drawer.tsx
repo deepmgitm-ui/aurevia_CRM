@@ -88,6 +88,7 @@ export function LeadDetailDrawer({
   onMutated?: (lead: Lead) => void;
 }) {
   const [lead, setLead] = useState<Lead | null>(null);
+  const onMutatedRef = useRef(onMutated);
   const editVersionRef = useRef<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<LeadDetailTab>(tab);
   const [loading, setLoading] = useState(false);
@@ -113,6 +114,10 @@ export function LeadDetailDrawer({
   const [savingNote, setSavingNote] = useState(false);
   const [callDraft, setCallDraft] = useState(emptyCallDraft());
 
+  useEffect(() => {
+    onMutatedRef.current = onMutated;
+  }, [onMutated]);
+
   const load = useCallback(
     async (id: string) => {
       setLoading(true);
@@ -135,6 +140,18 @@ export function LeadDetailDrawer({
       setNote("");
       setCallDraft(emptyCallDraft());
       setLoadingActivities(true);
+      const touchResponse = await addLeadActivity({ lead_id: id, action_type: "Touch", description: "Lead opened" });
+      if (!touchResponse.success) {
+        toast.add({ title: "Touch not recorded", description: touchResponse.error, type: "error" });
+      } else {
+        const updatedResponse = await getLeadsPage(1, 1, "", "", "", {}, [id]);
+        if (updatedResponse.success && updatedResponse.data.leads[0]) {
+          const updatedLead = updatedResponse.data.leads[0];
+          setLead(updatedLead);
+          editVersionRef.current = updatedLead.updated_at;
+          onMutatedRef.current?.(updatedLead);
+        }
+      }
       const activityResponse = await getLeadActivities(id);
       setLoadingActivities(false);
       if (activityResponse.success) setActivities(activityResponse.data);
@@ -531,6 +548,9 @@ export function LeadDetailDrawer({
                         ))}
                       </SelectContent>
                     </Select>
+                    {lead.intake_status && (
+                      <p className="mt-1 text-xs text-slate-500">At intake: {lead.intake_status}</p>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <Label htmlFor="drawer-detail-treatment">Treatment / Disease</Label>

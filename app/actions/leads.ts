@@ -65,6 +65,8 @@ export interface Lead {
   status: LeadStatus;
   /** The status that arrived in the source sheet, before any CRM change. */
   imported_status?: string | null;
+  /** The status recorded when this lead first entered the CRM. */
+  intake_status?: string | null;
   assigned_to: string | null;
   assigned_at?: string | null;
   assigned_fresh_since?: string | null;
@@ -94,7 +96,7 @@ export interface Lead {
 const LEAD_SELECT_COLUMNS = [
   "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
   "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
-  "imported_status",
+  "imported_status", "intake_status",
   "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "fresh_pending_since", "first_agent_touch_at", "workflow_bucket",
   "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
