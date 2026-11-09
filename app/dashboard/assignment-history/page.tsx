@@ -12,7 +12,7 @@ export default async function AssignmentHistoryPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") redirect("/dashboard");
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) redirect("/dashboard");
 
   const params = await searchParams;
   const requestedPage = Number(params.page ?? "1");

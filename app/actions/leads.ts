@@ -392,6 +392,10 @@ async function getViewerRole(
   return profile?.role ?? null;
 }
 
+function canManageAssignments(role: string | null): boolean {
+  return role === "admin" || role === "manager";
+}
+
 // Builds a PostgREST `.or()` expression for server-side search across the
 // name/phone/disease columns. Wildcards (%, _) are backslash-escaped and
 // double quotes are stripped so the term can never break the filter syntax;
@@ -2767,10 +2771,10 @@ export async function randomAssignLeads(
   try {
     const supabase = await createClient();
 
-    // RBAC: assignment changes are admin-only.
+    // Managers can assign to employees; only admins can assign to other team leads.
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can distribute leads (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can distribute leads (403 Forbidden)." };
     }
 
     const { data: profiles, error: employeeError } = await supabase
@@ -2836,8 +2840,8 @@ export async function getEmployeeLeadsForTransfer(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can select leads for transfer (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can select leads for transfer (403 Forbidden)." };
     }
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -3059,7 +3063,7 @@ export async function transferLeadAssignmentBatch(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") return { success: false, error: "Only admins can transfer assignment batches (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) return { success: false, error: "Only admins and managers can transfer assignment batches (403 Forbidden)." };
     const { data: profiles, error: profileError } = await supabase.from("profiles").select("name, role").eq("name", input.employeeName.trim());
     if (profileError) return { success: false, error: profileError.message };
     const target = profiles?.find((profile) => profile.role === "employee" || viewerRole === "admin");
@@ -3093,7 +3097,7 @@ export async function addLeadsToAssignmentBatch(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") return { success: false, error: "Only admins can add leads to assignment batches (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) return { success: false, error: "Only admins and managers can add leads to assignment batches (403 Forbidden)." };
     const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("target_names").eq("id", input.batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     const targetNames = Array.isArray(batch.target_names) ? batch.target_names.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
@@ -3189,8 +3193,8 @@ export async function getUnassignedLeadAssignmentSuggestions(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can search leads for assignment (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can search leads for assignment (403 Forbidden)." };
     }
 
     let query = supabase
@@ -3311,8 +3315,8 @@ export async function assignLeadsToEmployees(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
     }
 
     const { data: profiles, error: profilesError } = await supabase
@@ -3461,17 +3465,18 @@ export async function assignUnassignedLeads(
   try {
     const supabase = await createClient();
 
-    // RBAC: assignment changes are admin-only.
+    // Managers can distribute new leads to employees.
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can assign leads (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can assign leads (403 Forbidden)." };
     }
 
     // Validate the selected employees against the profiles table.
-    const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name");
+    const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name, role");
     if (profilesError) return { success: false, error: profilesError.message };
     const validNames = new Set(
       (profiles ?? [])
+        .filter((profile) => viewerRole === "admin" || profile.role === "employee")
         .map((profile) => (typeof profile.name === "string" ? profile.name.trim() : ""))
         .filter(Boolean),
     );
@@ -3536,21 +3541,22 @@ export async function updateLeadAssignment(
   try {
     const supabase = await createClient();
 
-    // RBAC: only admins may reassign leads (assigned_to is a core field).
+    // Managers can assign and reassign leads to employees.
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can reassign leads (403 Forbidden)." };
+    if (!canManageAssignments(viewerRole)) {
+      return { success: false, error: "Only admins and managers can reassign leads (403 Forbidden)." };
     }
 
-    const targetName = employeeName.trim();
-    if (["", "-", "unassigned"].includes(targetName.toLowerCase())) {
-      const { data, error } = await supabase
-        .from("leads")
-        .update({ assigned_to: "-", assignment_batch_id: null })
-        .eq("id", leadId)
-        .select()
-        .single();
-      if (error) return { success: false, error: error.message };
+    const targetName = ["", "-", "unassigned"].includes(employeeName.trim().toLowerCase()) ? "-" : employeeName.trim();
+    if (targetName === "-") {
+      const { data, error } = await supabase.rpc("crm_update_lead_details_admin", {
+        p_lead_id: leadId,
+        p_updates: { assigned_to: "-" },
+        p_expected_updated_at: null,
+        p_send_as_fresh: asFresh,
+      });
+      if (error) return { success: false, error: assignmentBatchSetupError(error.message) };
+      if (!data) return { success: false, error: "The assignment could not be confirmed. Refresh the leads list before retrying." };
       revalidatePath("/dashboard", "layout");
       return { success: true, data: data as Lead };
     }
@@ -3675,10 +3681,21 @@ export async function updateLeadDetails(
     }
 
     if (typeof updates.assigned_to === "string" && viewerProfile?.role === "manager") {
-      if (updates.assigned_to.trim() !== (previousLead.assigned_to ?? "").trim()) {
-        return { success: false, error: "Only admins can assign or transfer leads." };
+      const targetName = updates.assigned_to.trim();
+      if (targetName !== (previousLead.assigned_to ?? "").trim()) {
+        if (targetName && targetName !== "-") {
+          const { data: targets, error: targetError } = await supabase
+            .from("profiles")
+            .select("name, role")
+            .eq("name", targetName);
+          if (targetError) return { success: false, error: targetError.message };
+          const target = targets?.find((profile) => profile.role === "employee");
+          if (!target) return { success: false, error: "Managers can assign leads to employee accounts only." };
+          updates.assigned_to = target.name;
+        }
+      } else {
+        delete updates.assigned_to;
       }
-      delete updates.assigned_to;
     }
 
     if (typeof updates.assigned_to === "string" && viewerProfile?.role === "admin") {
@@ -3711,7 +3728,7 @@ export async function updateLeadDetails(
       }
     }
 
-    const assignmentChanged = viewerProfile?.role === "admin"
+    const assignmentChanged = (viewerProfile?.role === "admin" || viewerProfile?.role === "manager")
       && typeof updates.assigned_to === "string"
       && updates.assigned_to.trim() !== (previousLead.assigned_to ?? "").trim();
     // Fresh is an explicit workflow reset to New; don't send a conflicting

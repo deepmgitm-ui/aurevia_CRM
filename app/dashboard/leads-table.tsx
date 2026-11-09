@@ -473,7 +473,7 @@ export function LeadsTable({
   const canDelete = isAdmin || isManager;
   const canSeeSource = isAdmin || isManager;
   const canEditCore = isAdmin || isManager;
-  const canAssign = isAdmin;
+  const canAssign = isAdmin || isManager;
   const [leads, setLeads] = useState(initialLeads);
   // Server-side pagination state: only one page of 50 leads lives in memory;
   // the next page is fetched from the server on demand.
@@ -1321,7 +1321,11 @@ export function LeadsTable({
           await refreshLeadTimeline(lead.id);
         }
         if (response.warning) toast.add({ title: "Status saved with a timeline warning", description: response.warning, type: "error" });
-        queueSuccessSummary("updated");
+        toast.add({
+          title: `Status changed for ${response.data.name || lead.name || "patient"}`,
+          description: `${response.data.phone || lead.phone || "No phone"} · ${lead.status || "—"} → ${response.data.status || status}`,
+          type: "success",
+        });
         await fetchPage(page);
         router.refresh();
         // Celebrate only when entering a completed surgery status.
@@ -2043,10 +2047,15 @@ export function LeadsTable({
         toast.add({ title: "Unable to save note", description: response.error, type: "error" });
         return;
       }
-      const updatedLead = { ...lead, remarks: [lead.remarks === "-" ? "" : lead.remarks, noteText].filter(Boolean).join("\n") };
-      updateLeadLocally(updatedLead);
-      if (selectedLead?.id === updatedLead.id) {
-        await refreshLeadTimeline(updatedLead.id);
+      const refreshedLead = await getLeadById(lead.id);
+      if (refreshedLead.success) {
+        updateLeadLocally(refreshedLead.data);
+      } else {
+        await fetchPage(page);
+        toast.add({ title: "Note saved", description: "The latest lead details could not refresh. Reopen the lead to see them." });
+      }
+      if (selectedLead?.id === lead.id) {
+        await refreshLeadTimeline(lead.id);
       }
       setQuickNoteLead(null);
       setQuickNote("");
@@ -2164,6 +2173,7 @@ export function LeadsTable({
 
   async function handleSaveEdit() {
     if (!editingLead) return;
+    const previousLead = editingLead;
     trackLeadMutations(editingLead.id);
     setIsSavingEdit(true);
     const assignmentChanged = editForm.assigned_to !== (editingLead.assigned_to && editingLead.assigned_to !== "-" ? editingLead.assigned_to : "");
@@ -2232,7 +2242,15 @@ export function LeadsTable({
         if (selectedLead?.id === updated.id && !assignmentChanged) await refreshLeadTimeline(updated.id);
         if (response.warning) toast.add({ title: "Changes saved with a timeline warning", description: response.warning, type: "error" });
         setEditingLead(null);
-        queueSuccessSummary("updated");
+        if (updated.status !== previousLead.status) {
+          toast.add({
+            title: `Status changed for ${updated.name || previousLead.name || "patient"}`,
+            description: `${updated.phone || previousLead.phone || "No phone"} · ${previousLead.status || "—"} → ${updated.status || "—"}`,
+            type: "success",
+          });
+        } else {
+          queueSuccessSummary("updated");
+        }
         // Keep the server-rendered stat cards (New/Hot counts) in sync.
         if (assignmentChanged) refreshAfterAssignment();
         else router.refresh();
@@ -2261,11 +2279,9 @@ export function LeadsTable({
         toast.add({ title: "Unable to add note", description: response.error, type: "error" });
         return;
       }
-      const updatedLead = {
-        ...lead,
-        remarks: [lead.remarks === "-" ? "" : lead.remarks, noteText].filter(Boolean).join("\n"),
-      };
-      updateLeadLocally(updatedLead);
+      const refreshedLead = await getLeadById(lead.id);
+      if (refreshedLead.success) updateLeadLocally(refreshedLead.data);
+      else await fetchPage(page);
       await refreshLeadTimeline(lead.id);
       setNote("");
       queueSuccessSummary("notes");

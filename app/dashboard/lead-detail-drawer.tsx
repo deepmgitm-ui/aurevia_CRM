@@ -213,6 +213,12 @@ export function LeadDetailDrawer({
       if (refreshed.success) setActivities(refreshed.data);
       if (update.warning) {
         toast.add({ title: "Changes saved with a timeline warning", description: update.warning, type: "error" });
+      } else if (patch.status && update.data.status !== lead.status) {
+        toast.add({
+          title: `Status changed for ${update.data.name || lead.name || "patient"}`,
+          description: `${update.data.phone || lead.phone || "No phone"} · ${lead.status || "—"} → ${update.data.status || "—"}`,
+          type: "success",
+        });
       } else {
         toast.add({ title: successTitle });
       }
@@ -314,6 +320,12 @@ export function LeadDetailDrawer({
         return;
       }
       setNote("");
+      const latestLead = await getLeadById(lead.id);
+      if (latestLead.success) {
+        setLead(latestLead.data);
+        editVersionRef.current = latestLead.data.updated_at;
+        onMutated?.(latestLead.data);
+      }
       const refreshed = await getLeadActivities(lead.id);
       if (refreshed.success) {
         setActivities(refreshed.data);
