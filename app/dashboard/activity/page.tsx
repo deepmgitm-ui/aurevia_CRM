@@ -37,10 +37,12 @@ export default async function ActivityPage({
   searchParams: Promise<{ view?: string | string[]; page?: string | string[] }>;
 }) {
   const viewer = await getViewer();
-  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) redirect("/dashboard");
+  const role = viewer.success ? viewer.data?.role : null;
+  if (!role || !["admin", "manager", "employee"].includes(role)) redirect("/dashboard");
+  const isTeamLead = role === "admin" || role === "manager";
 
   const params = await searchParams;
-  const view = params.view === "all" ? "all" : "mine";
+  const view = isTeamLead && params.view === "all" ? "all" : "mine";
   const requestedPage = Number(typeof params.page === "string" ? params.page : "1");
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 4000) : 1;
   const supabase = await createClient();
@@ -61,13 +63,15 @@ export default async function ActivityPage({
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 p-5 sm:p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Recently Leads Assigned</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">{isTeamLead ? "Recently Leads Assigned" : "My Lead Assignments"}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-          See your updates and your team’s recent lead work, notes, calls and assignment changes.
+          {isTeamLead
+            ? "See your updates and your team’s recent lead work, notes, calls and assignment changes."
+            : "See when leads were assigned to you or moved from your work, including who they came from and went to."}
         </p>
       </header>
 
-      <nav aria-label="Activity views" className="grid w-full max-w-md grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1">
+      <nav aria-label="Activity views" className={`grid w-full gap-1 rounded-xl border border-slate-200 bg-white p-1 ${isTeamLead ? "max-w-md grid-cols-2" : "max-w-fit grid-cols-1"}`}>
         <Link
           href={activityHref("mine", 1)}
           aria-current={view === "mine" ? "page" : undefined}
@@ -75,20 +79,22 @@ export default async function ActivityPage({
         >
           My Updates
         </Link>
-        <Link
+        {isTeamLead && <Link
           href={activityHref("all", 1)}
           aria-current={view === "all" ? "page" : undefined}
           className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-emerald-700 sm:px-4 ${view === "all" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-900"}`}
         >
           Updates from the Team
-        </Link>
+        </Link>}
       </nav>
 
-      <section aria-label={view === "mine" ? "My Updates" : "Updates from the Team"} className="space-y-3">
+      <section aria-label={view === "mine" ? (isTeamLead ? "My Updates" : "My Lead Assignments") : "Updates from the Team"} className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-900">{view === "mine" ? "My recent updates" : "Updates from the team"}</h2>
+          <h2 className="text-base font-semibold text-slate-900">{view === "mine" ? (isTeamLead ? "My recent updates" : "My lead assignments" ) : "Updates from the team"}</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {view === "mine" ? "Only changes recorded under your account appear here." : "See lead changes and assignment updates recorded across the team."}
+            {view === "mine"
+              ? isTeamLead ? "Only changes recorded under your account appear here." : "Assignment and transfer history stays here even after you clear a notification."
+              : "See lead changes and assignment updates recorded across the team."}
           </p>
         </div>
 
@@ -100,7 +106,9 @@ export default async function ActivityPage({
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
             <p className="font-medium text-slate-900">No activity on this page yet.</p>
             <p className="mt-2 text-sm text-slate-500">
-              {view === "mine" ? "Your lead updates, notes and calls will appear here." : "Your team’s lead updates, notes, calls and assignments will appear here."}
+              {view === "mine"
+                ? isTeamLead ? "Your lead updates, notes and calls will appear here." : "Leads assigned or transferred to you will appear here."
+                : "Your team’s lead updates, notes, calls and assignments will appear here."}
             </p>
             {view === "mine" && <Link href="/dashboard/leads" className="mt-4 inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700">Open leads</Link>}
           </div>
