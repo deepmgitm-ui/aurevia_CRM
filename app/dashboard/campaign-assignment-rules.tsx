@@ -18,6 +18,8 @@ export function CampaignAssignmentRules() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
   const [routes, setRoutes] = useState<CampaignRoute[]>([]);
+  const [metaConnected, setMetaConnected] = useState(false);
+  const [metaCampaignError, setMetaCampaignError] = useState<string | null>(null);
   const [campaignName, setCampaignName] = useState("");
   const [campaignId, setCampaignId] = useState("");
   const [formId, setFormId] = useState("");
@@ -37,6 +39,8 @@ export function CampaignAssignmentRules() {
     setEmployees(result.data.employees);
     setCampaigns(result.data.campaigns);
     setRoutes(result.data.routes);
+    setMetaConnected(result.data.metaConnected);
+    setMetaCampaignError(result.data.metaCampaignError);
     setError("");
   }, []);
 
@@ -47,7 +51,16 @@ export function CampaignAssignmentRules() {
   useEffect(() => {
     let active = true;
     void getCampaignAssignmentSetup().then((result) => {
-      if (active) applySetup(result);
+      if (!active) return;
+      applySetup(result);
+      const params = new URLSearchParams(window.location.search);
+      const metaStatus = params.get("meta");
+      if (metaStatus === "connected") setNotice("Meta connected. Your campaigns are ready to select.");
+      if (metaStatus === "setup") setError("Meta connection needs setup. Add the Meta app details and token encryption key to the hosting environment, then try again.");
+      if (metaStatus === "admin-only") setError("Only an admin can connect Meta.");
+      if (["cancelled", "state-error", "connect-error"].includes(metaStatus ?? "")) {
+        setError(params.get("detail") || "Meta connection did not finish. Try connecting again.");
+      }
     });
     return () => { active = false; };
   }, [applySetup]);
@@ -123,6 +136,20 @@ export function CampaignAssignmentRules() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-900/10 bg-emerald-50/50 p-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900">{metaConnected ? "Meta account connected" : "Connect your Meta account once"}</p>
+          <p className="mt-1 text-sm text-slate-600">{metaConnected ? `${campaigns.length} active campaigns available to assign.` : "After connecting, choose campaigns here and assign their incoming leads to agents."}</p>
+          {metaCampaignError && <p role="status" className="mt-2 break-words text-sm text-amber-800">{metaCampaignError}</p>}
+        </div>
+        {role === "admin" && (
+          <>
+            <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Meta" : "Connect to Meta"}</a>
+            {metaConnected && <button type="button" disabled={busy} onClick={() => void load()} className="inline-flex min-h-10 items-center rounded-lg border border-emerald-800/25 bg-white px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50">Refresh campaigns</button>}
+          </>
+        )}
+      </div>
+
       {role === "admin" && (
         <form onSubmit={save} className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
           <div className="grid gap-4 md:grid-cols-2">
@@ -138,14 +165,14 @@ export function CampaignAssignmentRules() {
                 }}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
               >
-                <option value="">Choose a campaign already seen by CRM…</option>
+              <option value="">{!metaConnected ? "Connect Meta to list active campaigns…" : campaigns.length ? "Choose an active Meta campaign…" : "No active campaigns found…"}</option>
                 {campaigns.map((item) => (
                   <option key={`${item.id ?? "name"}:${item.name}`} value={`${item.id ?? ""}|${item.name}`}>
-                    {item.name}{item.id ? ` · ${item.id}` : ""}
+                  {item.name}{item.status === "ACTIVE" ? " · Active" : ""}{item.id ? ` · ${item.id}` : ""}
                   </option>
                 ))}
               </select>
-              <span className="block text-xs font-normal text-slate-500">If it has not sent a lead yet, enter its exact Meta name below.</span>
+              <span className="block text-xs font-normal text-slate-500">After connecting Meta, only campaigns Meta marks active appear here, including those with no leads yet.</span>
             </label>
             <label className="space-y-1.5 text-sm font-medium text-slate-800">
               Exact campaign name

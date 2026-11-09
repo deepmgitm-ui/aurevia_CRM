@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchConnectedMetaCampaigns } from "@/lib/meta-integration";
 
 type AssignmentMode = "round_robin" | "manual";
 
-export type CampaignOption = { id: string | null; name: string };
+export type CampaignOption = { id: string | null; name: string; status?: string | null };
 export type CampaignRoute = {
   id: string;
   campaignId: string | null;
@@ -42,39 +43,31 @@ async function getTeamViewer() {
   return { supabase, user, role: profile.role, error: null };
 }
 
-function campaignNameFromLabel(label: string): string {
-  return label
-    .replace(/^Meta Ads\s*[—–-]\s*/i, "")
-    .split(/\s+·\s+Form\s+/i, 1)[0]
-    .trim();
-}
-
 export async function getCampaignAssignmentSetup(): Promise<ActionResult<{
   role: "admin" | "manager";
   employees: { id: string; name: string }[];
   campaigns: CampaignOption[];
   routes: CampaignRoute[];
+  metaConnected: boolean;
+  metaCampaignError: string | null;
 }>> {
   try {
     const viewer = await getTeamViewer();
     if (viewer.error || !viewer.user || !viewer.role) return { success: false, error: viewer.error ?? "Sign in to continue." };
 
-    const [employeeResult, routeResult, leadCampaignResult] = await Promise.all([
+    const [employeeResult, routeResult] = await Promise.all([
       viewer.supabase.from("profiles").select("id, name").eq("role", "employee").order("name"),
       viewer.supabase
         .from("crm_campaign_assignment_rules")
         .select("id, campaign_id, campaign_name, form_id, target_profile_ids, assignment_mode, is_active, updated_at")
         .order("updated_at", { ascending: false }),
-      viewer.supabase
-        .from("leads")
-        .select("meta_campaign_id, meta_campaign_name, source_batch_label")
-        .eq("source", "Meta Ads")
-        .not("source_batch_label", "is", null)
-        .limit(2_000),
     ]);
-    if (employeeResult.error || routeResult.error || leadCampaignResult.error) {
+    if (employeeResult.error || routeResult.error) {
       return { success: false, error: "Campaign routing could not be loaded. Refresh to try again." };
     }
+
+    const liveCampaigns = await fetchConnectedMetaCampaigns();
+    const metaCampaignError = liveCampaigns.error;
 
     const employees = (employeeResult.data ?? []).map((row) => ({ id: row.id, name: row.name }));
     const employeeNames = new Map(employees.map((employee) => [employee.id, employee.name]));
@@ -96,16 +89,8 @@ export async function getCampaignAssignmentSetup(): Promise<ActionResult<{
     });
 
     const campaignsByKey = new Map<string, CampaignOption>();
-    for (const row of leadCampaignResult.data ?? []) {
-      const name = cleanText(row.meta_campaign_name, 160) || campaignNameFromLabel(row.source_batch_label ?? "");
-      if (!name || name === "Meta Ads") continue;
-      const id = cleanText(row.meta_campaign_id, 200) || null;
-      const key = id ? `id:${id}` : `name:${name.toLowerCase()}`;
-      campaignsByKey.set(key, { id, name });
-    }
-    for (const route of routes) {
-      const key = route.campaignId ? `id:${route.campaignId}` : `name:${route.campaignName.toLowerCase()}`;
-      if (!campaignsByKey.has(key)) campaignsByKey.set(key, { id: route.campaignId, name: route.campaignName });
+    for (const campaign of liveCampaigns.campaigns) {
+      campaignsByKey.set(`id:${campaign.id}`, { id: campaign.id, name: campaign.name, status: campaign.status });
     }
 
     return {
@@ -115,6 +100,8 @@ export async function getCampaignAssignmentSetup(): Promise<ActionResult<{
         employees,
         campaigns: [...campaignsByKey.values()].sort((a, b) => a.name.localeCompare(b.name)),
         routes,
+        metaConnected: liveCampaigns.connected,
+        metaCampaignError,
       },
     };
   } catch {

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { extractMetaLead } from "@/lib/meta-lead";
 import { getLeadgenEvents } from "@/lib/meta-webhook";
+import { getMetaWebhookAccessToken } from "@/lib/meta-integration";
 
 export const runtime = "nodejs";
 // Never cache the verification endpoint — Meta's "Verify and Save" must always hit the live handler.
@@ -191,18 +192,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const accessToken = process.env.META_ACCESS_TOKEN;
-    if (!accessToken) {
-      console.error("[Meta Webhook][POST] META_ACCESS_TOKEN is not configured", { requestId });
-      return NextResponse.json(
-        { success: false, error: "Meta access token is not configured." },
-        { status: 503 },
-      );
-    }
-
     const supabase = getSupabaseAdmin();
     const results: { leadId?: string; duplicate?: boolean; reviewQueued?: boolean; assignedTo?: string }[] = [];
-    for (const { leadgenId } of events) {
+    const accessTokens = new Map<string, string | null>();
+    for (const { leadgenId, pageId } of events) {
       // A retry for a Meta lead already stored can be acknowledged immediately,
       // even if the Graph token has since expired.
       const { data: existingMetaLead, error: existingMetaLeadError } = await supabase
@@ -223,6 +216,17 @@ export async function POST(request: NextRequest) {
       if (existingMetaLead) {
         results.push({ leadId: existingMetaLead.id, assignedTo: existingMetaLead.assigned_to ?? "-", duplicate: true });
         continue;
+      }
+
+      const pageKey = pageId ?? "";
+      if (!accessTokens.has(pageKey)) accessTokens.set(pageKey, await getMetaWebhookAccessToken(pageId));
+      const accessToken = accessTokens.get(pageKey);
+      if (!accessToken) {
+        console.error("[Meta Webhook][POST] No access token is available for the lead's Page", { requestId, pageId });
+        return NextResponse.json(
+          { success: false, error: "Meta is not connected for this Facebook Page." },
+          { status: 503 },
+        );
       }
 
       // `campaign_name` / `form_id` give every lead a traceable origin without
