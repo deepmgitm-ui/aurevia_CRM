@@ -61,7 +61,7 @@ export default async function ActivityPage({
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 p-5 sm:p-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Recently Active</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Recently Leads Assigned</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
           See your updates and your team’s recent lead work, notes, calls and assignment changes.
         </p>
