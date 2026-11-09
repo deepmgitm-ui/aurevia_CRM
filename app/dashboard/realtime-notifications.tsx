@@ -1,301 +1,190 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell } from "lucide-react";
+import { Bell, Check, ExternalLink } from "lucide-react";
 
-import { getMyAssignedLeadCount, getViewer } from "@/app/actions/leads";
+import { getViewer } from "@/app/actions/leads";
 import { createClient } from "@/lib/supabase/client";
-import { toast } from "@/components/ui/toast";
-import { isRecentSelfMutation } from "./lead-mutation-tracker";
 
-interface ActivityEvent {
+type Notification = {
   id: string;
-  type: "INSERT" | "UPDATE" | "ASSIGNMENT";
+  lead_id: string | null;
+  event_type: "lead_created" | "lead_updated" | "lead_assignment";
+  title: string;
   message: string;
-  detail?: string;
-  at: number;
-}
+  created_at: string;
+};
 
-interface LeadPayload {
-  id?: unknown;
-  name?: unknown;
-  assigned_to?: unknown;
-}
+const PAGE_SIZE = 50;
 
-function asText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-// Events arriving in a burst (e.g. a bulk import) are batched into a single
-// toast within this window instead of spamming one toast per row.
-const BATCH_WINDOW_MS = 1_000;
-
-// Role-aware realtime notifications driven by postgres_changes on public.leads:
-// - Admins: team activity (teammates adding/updating leads), silence for their
-//   own general actions, EXCEPT a "✅ Lead successfully assigned" confirmation
-//   when their own INSERT/UPDATE assigns a lead to an employee.
-// - Employees: only "🔔 A new lead has been assigned to you!" when the
-//   assigned_to field changes to (or arrives as) their own name.
-// Notification bell + activity dropdown are rendered for admins only.
 export function RealtimeNotifications() {
   const router = useRouter();
-  const [isActive, setIsActive] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  // Events arriving in a burst (e.g. a bulk import) are batched into a single
-  // toast instead of spamming one toast per row.
-  const pendingRef = useRef<{
-    inserts: ActivityEvent[];
-    updates: ActivityEvent[];
-    assignments: ActivityEvent[];
-    assignedToYou: number;
-    timer: ReturnType<typeof setTimeout> | null;
-  }>({ inserts: [], updates: [], assignments: [], assignedToYou: 0, timer: null });
+  const loadNotifications = useCallback(async (userId: string) => {
+    const supabase = createClient();
+    const [{ data, error: listError }, { count, error: countError }] = await Promise.all([
+      supabase
+        .from("crm_notifications")
+        .select("id, lead_id, event_type, title, message, created_at")
+        .eq("recipient_id", userId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(PAGE_SIZE),
+      supabase.from("crm_notifications").select("id", { count: "exact", head: true }).eq("recipient_id", userId),
+    ]);
+    if (listError || countError) {
+      setError("Notifications could not be loaded. Refresh to try again.");
+      return;
+    }
+    setError("");
+    setNotifications((current) => {
+      const live = current.filter((item) => (data ?? []).some((row) => row.id === item.id));
+      const known = new Set(live.map((item) => item.id));
+      return [...live, ...(data ?? []).filter((row) => !known.has(row.id) && row.created_at).map((row) => row as Notification)]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, PAGE_SIZE);
+    });
+    setUnreadCount(count ?? 0);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let assignmentCountInterval: ReturnType<typeof setInterval> | null = null;
-    let lastRefresh = 0;
-    function refreshOnce() {
-      if(refreshTimer || document.visibilityState !== "visible") return;
-      refreshTimer=setTimeout(()=>{refreshTimer=null;if(document.querySelector('[role="dialog"]')){refreshOnce();return;}lastRefresh=Date.now();window.dispatchEvent(new Event("crm:leads-changed"));router.refresh();},1500);
-    }
-    const onVisible=()=>{if(document.visibilityState === "visible" && Date.now()-lastRefresh>30000) refreshOnce();};
-    document.addEventListener("visibilitychange",onVisible);
-    type RealtimeClient = ReturnType<typeof createClient>;
-    type RealtimeChannel = ReturnType<RealtimeClient["channel"]>;
-    let supabase: RealtimeClient | null = null;
-    let channel: RealtimeChannel | null = null;
+    let supabase: ReturnType<typeof createClient> | null = null;
+    let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null = null;
+    let userId: string | null = null;
 
     async function start() {
-      const viewerResult = await getViewer();
-      const viewer = viewerResult.success ? viewerResult.data : null;
-      // Role-aware notifications: admins get team activity, employees get
-      // assignment alerts. The bell UI itself stays admin-only.
-      if (!viewer) return;
-      if (cancelled) return;
-
-      const role = viewer.role;
-      const viewerName = viewer.name;
-      const isEmployee = role === "employee";
-      const isAdminUser = role === "admin";
-
-      if (isEmployee) {
-        let previousCount: number | null = null;
-        const syncAssignmentCount = async () => {
-          if (cancelled || document.visibilityState !== "visible") return;
-          const result = await getMyAssignedLeadCount();
-          if (cancelled || !result.success) return;
-          if (previousCount !== null && result.data !== previousCount) refreshOnce();
-          previousCount = result.data;
-        };
-        void syncAssignmentCount();
-        // Realtime catches incoming assignments; this slower fallback also
-        // catches removals, which no longer match the employee filter.
-        assignmentCountInterval = setInterval(() => void syncAssignmentCount(), 120_000);
-      }
-
+      const result = await getViewer();
+      const viewer = result.success ? result.data : null;
+      if (cancelled || !viewer) return;
+      userId = viewer.id;
+      setViewerId(viewer.id);
       supabase = createClient();
-
-      function pushActivity(events: ActivityEvent[]) {
-        if (!isAdminUser) return; // bell/dropdown is an admin affordance
-        setActivity((current) => [...events, ...current].slice(0, 25));
-        setUnreadCount((count) => count + events.length);
-      }
-
-      function flushBatch() {
-        const batched = pendingRef.current;
-        pendingRef.current = { inserts: [], updates: [], assignments: [], assignedToYou: 0, timer: null };
-        pushActivity([...batched.inserts, ...batched.updates, ...batched.assignments]);
-
-        // One summary per burst, even when it contains a mix of inserts,
-        // edits and assignments. Direct table actions already confirm saves.
-        if (isAdminUser) {
-          const assigned = batched.assignments.length;
-          const updated = batched.updates.length;
-          const summary = [
-            batched.inserts.length ? `${batched.inserts.length} added` : "",
-            assigned ? `${assigned} assigned` : "",
-            updated ? `${updated} updated` : "",
-          ].filter(Boolean).join(" · ");
-          if (summary) toast.add({ title: "Team activity", description: summary, type: "success" });
-        } else if (batched.assignedToYou > 0) {
-          toast.add({
-            title: "New leads assigned",
-            description: `${batched.assignedToYou} lead${batched.assignedToYou === 1 ? " was" : "s were"} assigned to you.`,
-            type: "success",
-          });
-        }
-      }
-
-      function queue(kind: "insert" | "update" | "assignment", event: ActivityEvent) {
-        const pending = pendingRef.current;
-        if (kind === "insert") pending.inserts.push(event);
-        else if (kind === "update") pending.updates.push(event);
-        else pending.assignments.push(event);
-        if (!pending.timer) {
-          pending.timer = setTimeout(flushBatch, BATCH_WINDOW_MS);
-        }
-      }
-
-      function queueAssignedToYou() {
-        const pending = pendingRef.current;
-        pending.assignedToYou += 1;
-        if (!pending.timer) {
-          pending.timer = setTimeout(flushBatch, BATCH_WINDOW_MS);
-        }
-      }
-
       channel = supabase
-        .channel("leads-realtime-notifications")
+        .channel(`crm-notifications-${viewer.id}`)
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "leads", ...(isEmployee ? {filter:`assigned_to=eq.${viewerName}`} : {}) },
-          (payload: { new?: LeadPayload }) => {
-            const row = payload.new ?? {};
-            const leadId = asText(row.id);
-            if (!leadId) return;
-            if(!isRecentSelfMutation(leadId)) refreshOnce();
-            const who = asText(row.assigned_to);
-            const leadName = asText(row.name);
-            const whoLabel = who && who !== "-" ? who : null;
-
-            // Smart employee alert: a new lead arrived already assigned to ME.
-            if (isEmployee) {
-              if (whoLabel && whoLabel === viewerName) queueAssignedToYou();
-              return;
+          { event: "INSERT", schema: "public", table: "crm_notifications", filter: `recipient_id=eq.${viewer.id}` },
+          (payload) => {
+            const row = payload.new as Notification;
+            if (!row?.id) return;
+            setNotifications((current) => current.some((item) => item.id === row.id)
+              ? current
+              : [row, ...current].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, PAGE_SIZE));
+            setUnreadCount((count) => count + 1);
+            if (row.lead_id) {
+              window.dispatchEvent(new Event("crm:leads-changed"));
+              router.refresh();
             }
-
-            const self = isRecentSelfMutation(leadId);
-            // Add/import flows show their own single result summary.
-            if (self) return;
-
-            const suffix = whoLabel ? ` by ${whoLabel}` : "";
-            const patientSuffix = leadName && leadName !== "-" ? ` (${leadName})` : "";
-            queue("insert", {
-              id: `INSERT-${leadId}-${Date.now()}-${Math.random()}`,
-              type: "INSERT",
-              message: `New lead added${suffix}!${patientSuffix}`,
-              at: Date.now(),
-            });
-          },
-        )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "leads", ...(isEmployee ? {filter:`assigned_to=eq.${viewerName}`} : {}) },
-          (payload: { old?: LeadPayload; new?: LeadPayload }) => {
-            const newRow = payload.new ?? {};
-            const oldRow = payload.old ?? {};
-            const leadId = asText(newRow.id);
-            if (!leadId) return;
-            if(!isRecentSelfMutation(leadId)) refreshOnce();
-            // Correct old/new comparison to detect assignment changes. Note:
-            // payload.old only carries full values with REPLICA IDENTITY FULL.
-            const newAssigned = asText(newRow.assigned_to);
-            const oldAssigned = asText(oldRow.assigned_to);
-            const assignmentChanged = oldAssigned !== newAssigned;
-            const patient = asText(newRow.name);
-            const patientSuffix = patient && patient !== "-" ? ` (${patient})` : "";
-
-            // Smart employee alert: assigned_to changed and now points at ME.
-            if (isEmployee) {
-              if (assignmentChanged && newAssigned && newAssigned !== "-" && newAssigned === viewerName) {
-                queueAssignedToYou();
-              }
-              return;
-            }
-
-            const self = isRecentSelfMutation(leadId);
-            if (self) return;
-
-            if (assignmentChanged) {
-              queue("assignment", {
-                id: `ASSIGNMENT-${leadId}-${Date.now()}-${Math.random()}`,
-                type: "ASSIGNMENT",
-                message: `Lead assigned to ${newAssigned && newAssigned !== "-" ? newAssigned : "Unassigned"}${patientSuffix}`,
-                at: Date.now(),
-              });
-              return;
-            }
-
-            queue("update", {
-              id: `UPDATE-${leadId}-${Date.now()}-${Math.random()}`,
-              type: "UPDATE",
-              message: `A teammate updated a lead${patientSuffix}.`,
-              at: Date.now(),
-            });
           },
         )
         .subscribe();
-
-      if (isAdminUser) setIsActive(true);
+      await loadNotifications(viewer.id);
     }
 
     void start();
-
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && userId) void loadNotifications(userId);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange",onVisible);
-      if(refreshTimer) clearTimeout(refreshTimer);
-      if(assignmentCountInterval) clearInterval(assignmentCountInterval);
-      if(pendingRef.current.timer) clearTimeout(pendingRef.current.timer);
+      document.removeEventListener("visibilitychange", onVisible);
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [loadNotifications, router]);
 
-  if (!isActive) return null;
+  async function markRead(id: string) {
+    if (!viewerId || busyId) return;
+    setBusyId(id);
+    setError("");
+    const { error: deleteError } = await createClient()
+      .from("crm_notifications")
+      .delete()
+      .eq("id", id)
+      .eq("recipient_id", viewerId);
+    setBusyId(null);
+    if (deleteError) {
+      setError("This notification could not be cleared. Please try again.");
+      return;
+    }
+    setNotifications((current) => current.filter((item) => item.id !== id));
+    setUnreadCount((count) => Math.max(0, count - 1));
+  }
+
+  async function markAllRead() {
+    if (!viewerId || busyId) return;
+    setBusyId("all");
+    setError("");
+    const { error: deleteError } = await createClient()
+      .from("crm_notifications")
+      .delete()
+      .eq("recipient_id", viewerId);
+    setBusyId(null);
+    if (deleteError) {
+      setError("Notifications could not be cleared. Please try again.");
+      return;
+    }
+    setNotifications([]);
+    setUnreadCount(0);
+  }
+
+  if (!viewerId) return null;
 
   return (
     <div className="relative">
       <button
         type="button"
-        aria-label="Team activity notifications"
-        title="Team activity"
-        className="relative rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-        onClick={() => {
-          setIsOpen((open) => !open);
-          if (!isOpen) setUnreadCount(0);
-        }}
+        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}
+        aria-expanded={isOpen}
+        aria-controls="crm-notification-panel"
+        title="Notifications"
+        className="relative rounded-full p-2 text-slate-500 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+        onClick={() => setIsOpen((open) => !open)}
       >
         <Bell className="size-5" aria-hidden="true" />
         {unreadCount > 0 && (
-          <span
-            className="absolute right-1.5 top-1.5 flex size-2.5 rounded-full bg-red-500 ring-2 ring-white"
-            aria-hidden="true"
-          />
+          <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-700 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white" aria-hidden="true">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <p className="border-b border-slate-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Team activity
-          </p>
-          <div className="max-h-72 overflow-y-auto">
-            {activity.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-slate-400">No recent activity yet.</p>
-            ) : (
-              activity.map((event) => (
-                <div key={event.id} className="border-b border-slate-50 px-4 py-2.5 last:border-b-0">
-                  <p className="text-sm text-slate-700">
-                    <span aria-hidden="true">
-                      {event.type === "INSERT" ? "🟢" : event.type === "ASSIGNMENT" ? "✅" : "🔵"}
-                    </span>{" "}
-                    {event.message}
-                  </p>
-                  {event.detail && <p className="mt-0.5 text-xs text-slate-500">{event.detail}</p>}
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </p>
-                </div>
-              ))
-            )}
+        <section id="crm-notification-panel" aria-label="Unread notifications" className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-emerald-900/10 bg-white shadow-xl">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Notifications</h2>
+              <p className="text-xs text-slate-500">Unread items stay here until you clear them.</p>
+            </div>
+            {unreadCount > 0 && <button type="button" disabled={busyId !== null} onClick={() => void markAllRead()} className="min-h-9 rounded-md px-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50">Mark all read</button>}
           </div>
-        </div>
+          {error && <p role="alert" className="border-b border-rose-100 bg-rose-50 px-4 py-2 text-xs text-rose-800">{error}</p>}
+          <div className="max-h-[min(24rem,65vh)] overflow-y-auto" aria-live="polite">
+            {notifications.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">You’re all caught up.</p>
+            ) : notifications.map((item) => (
+              <article key={item.id} className="border-b border-slate-100 px-4 py-3 last:border-b-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium text-slate-900">{item.title}</h3>
+                    <p className="mt-0.5 text-sm leading-5 text-slate-600">{item.message}</p>
+                    <time className="mt-1 block text-xs text-slate-400" dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</time>
+                  </div>
+                  <button type="button" aria-label="Mark notification as read" title="Mark as read" disabled={busyId !== null} onClick={() => void markRead(item.id)} className="shrink-0 rounded-md p-2 text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50"><Check className="size-4" aria-hidden="true" /></button>
+                </div>
+                {item.lead_id && <button type="button" onClick={() => { setIsOpen(false); router.push(`/dashboard/leads?openLead=${encodeURIComponent(item.lead_id!)}`); }} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"><ExternalLink className="size-3.5" aria-hidden="true" />Open lead</button>}
+              </article>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

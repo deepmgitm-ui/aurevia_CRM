@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/leads";
 import { clinicDate } from "@/lib/attendance";
 import { TeamActivityPanel } from "../team-activity-panel";
+import { CampaignAssignmentRules } from "../campaign-assignment-rules";
 import { AgentSection } from "../overview/agent-section";
 import { LeadListTable } from "../overview/lead-list-table";
 import { PipelineDetail } from "../overview/pipeline-detail";
@@ -378,6 +379,7 @@ function renderSection(
             title="Marketing"
             description="Which channels bring the leads in, and how each channel performs."
           />
+          {isTeamLead && <CampaignAssignmentRules />}
           <KpiCards kpis={metrics.kpis} />
           <SectionCard title="Lead Source Performance">
             <SourcesChart rows={metrics.sources} />

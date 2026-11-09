@@ -201,12 +201,34 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabaseAdmin();
-    const results: { leadId?: string; duplicate?: boolean; reviewQueued?: boolean }[] = [];
+    const results: { leadId?: string; duplicate?: boolean; reviewQueued?: boolean; assignedTo?: string }[] = [];
     for (const { leadgenId } of events) {
+      // A retry for a Meta lead already stored can be acknowledged immediately,
+      // even if the Graph token has since expired.
+      const { data: existingMetaLead, error: existingMetaLeadError } = await supabase
+        .from("leads")
+        .select("id, assigned_to")
+        .eq("meta_leadgen_id", leadgenId)
+        .maybeSingle();
+      if (existingMetaLeadError) {
+        console.error("[Meta Webhook][POST] Meta lead idempotency lookup failed", {
+          requestId,
+          error: existingMetaLeadError.message,
+        });
+        return NextResponse.json(
+          { success: false, error: "Unable to verify whether this lead was already received." },
+          { status: 503 },
+        );
+      }
+      if (existingMetaLead) {
+        results.push({ leadId: existingMetaLead.id, assignedTo: existingMetaLead.assigned_to ?? "-", duplicate: true });
+        continue;
+      }
+
       // `campaign_name` / `form_id` give every lead a traceable origin without
       // another API call.
       const graphResponse = await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${leadgenId}?fields=field_data,campaign_id,campaign_name,form_id&access_token=${encodeURIComponent(accessToken)}`,
         { signal: AbortSignal.timeout(12_000) },
       );
       const graphResult = (await graphResponse.json()) as JsonValue;
@@ -229,62 +251,79 @@ export async function POST(request: NextRequest) {
         : [];
       const leadData = extractLeadData(fields);
       const campaignName = getString(graphObject.campaign_name) ?? "-";
+      const campaignId = getString(graphObject.campaign_id) ?? "-";
       const formId = getString(graphObject.form_id) ?? "-";
 
-      // A retry is idempotent by Meta's unique leadgen ID. Same-phone leads
-      // remain deduplicated for the existing 24-hour window.
+      // Different Meta lead IDs with a recently seen phone enter the existing
+      // duplicate-review workflow instead of being silently discarded.
       if (leadData.phone && leadData.phone !== "-") {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: existing } = await supabase
+        const { data: existing, error: duplicateLookupError } = await supabase
           .from("leads")
           .select("id")
           .ilike("phone", `%${leadData.phone}`)
           .gte("created_at", since)
           .limit(1);
+        if (duplicateLookupError) {
+          console.error("[Meta Webhook][POST] Phone duplicate lookup failed", {
+            requestId,
+            error: duplicateLookupError.message,
+          });
+          return NextResponse.json(
+            { success: false, error: "Unable to check whether this lead already exists." },
+            { status: 503 },
+          );
+        }
         if (existing?.length) {
           const phoneIdentity = leadData.phone.replace(/\D/g, "").slice(-10);
-          await supabase.rpc("crm_capture_duplicate_review_candidates", {
+          const { error: reviewError } = await supabase.rpc("crm_capture_duplicate_review_candidates", {
             p_candidates: [{ phone_identity: phoneIdentity, name: leadData.name }],
             p_source: "Meta Ads",
           });
+          if (reviewError) {
+            console.error("[Meta Webhook][POST] Duplicate review could not be queued", {
+              requestId,
+              error: reviewError.message,
+            });
+            return NextResponse.json(
+              { success: false, error: "Unable to save the duplicate review." },
+              { status: 503 },
+            );
+          }
           results.push({ leadId: existing[0].id, duplicate: true, reviewQueued: true });
           continue;
         }
       }
 
-      const { data: lead, error: leadError } = await supabase
-        .from("leads")
-        .insert({
-          meta_leadgen_id: leadgenId,
-          name: leadData.name,
-          phone: leadData.phone,
-          email: leadData.email,
-          lead_date: leadData.lead_date,
-          gender: leadData.gender,
-          city: leadData.city,
-          disease: leadData.disease,
-          insurance_status: leadData.insurance_status,
-          remarks: leadData.remarks,
-          source: "Meta Ads",
-          source_batch_id: requestId,
-          source_batch_label: `Meta Ads${campaignName !== "-" ? ` — ${campaignName}` : ""}${formId !== "-" ? ` · Form ${formId}` : ""}`.slice(0, 240),
-          source_batch_created_at: new Date().toISOString(),
-          status: "New",
-          assigned_to: "-",
-        })
-        .select("id")
-        .single();
+      const { data: created, error: leadError } = await supabase.rpc("crm_insert_meta_lead", {
+        p_meta_leadgen_id: leadgenId,
+        p_campaign_id: campaignId === "-" ? null : campaignId,
+        p_campaign_name: campaignName === "-" ? null : campaignName,
+        p_form_id: formId === "-" ? null : formId,
+        p_request_id: requestId,
+        p_lead: leadData,
+      });
 
       if (leadError?.code === "23505") {
         const phoneIdentity = leadData.phone.replace(/\D/g, "").slice(-10);
-        await supabase.rpc("crm_capture_duplicate_review_candidates", {
+        const { error: reviewError } = await supabase.rpc("crm_capture_duplicate_review_candidates", {
           p_candidates: [{ phone_identity: phoneIdentity, name: leadData.name }],
           p_source: "Meta Ads",
         });
+        if (reviewError) {
+          console.error("[Meta Webhook][POST] Duplicate review could not be queued", {
+            requestId,
+            error: reviewError.message,
+          });
+          return NextResponse.json(
+            { success: false, error: "Unable to save the duplicate review." },
+            { status: 503 },
+          );
+        }
         results.push({ duplicate: true, reviewQueued: true });
         continue;
       }
-      if (leadError || !lead) {
+      if (leadError || !Array.isArray(created) || !created[0]?.lead_id) {
         console.error("[Meta Webhook][POST] Lead insertion failed", {
           requestId,
           error: leadError?.message ?? "No lead returned after insertion.",
@@ -294,7 +333,8 @@ export async function POST(request: NextRequest) {
           { status: 503 },
         );
       }
-      results.push({ leadId: lead.id });
+      const result = created[0] as { lead_id: string; assigned_to: string; duplicate: boolean };
+      results.push({ leadId: result.lead_id, assignedTo: result.assigned_to, duplicate: result.duplicate });
     }
 
     return NextResponse.json({ success: true, processed: results.length, results }, { status: 200 });
