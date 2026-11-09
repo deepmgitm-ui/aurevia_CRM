@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   CalendarDays,
   CheckSquare,
@@ -55,6 +56,7 @@ const destinations: readonly DashboardDestination[] = [
   { group: "Analytics", label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false, roles: ["admin"], surfaces: ["sidebar", "search"] },
+  { group: "Tools", label: "Activity", href: "/dashboard/activity", icon: Activity, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Assignment History", href: "/dashboard/assignment-history", icon: History, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Clinic", label: "Patients", href: "/dashboard/patients", icon: UserRound, exact: false, roles: teamRoles, surfaces: ["search"] },
