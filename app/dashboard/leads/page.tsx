@@ -50,9 +50,7 @@ export default async function LeadsPage({
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
-  const pipelineSummary = employeeSummaryResult.success
-    ? employeeSummaryResult.data
-    : { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
+  const pipelineSummary = employeeSummaryResult.success ? employeeSummaryResult.data : null;
   const cardAssignedTo = viewer?.role === "employee" ? viewer.name : filters.assigned;
   const dailyNewLeadsCount = viewer?.role !== "employee" && filters.assigned
     ? team?.employees.find((employee) => employee.name.toLocaleLowerCase() === filters.assigned.toLocaleLowerCase())?.newLeads ?? null
@@ -62,7 +60,7 @@ export default async function LeadsPage({
   // filtered result — the difference is what the filters are hiding. When that is
   // the whole pipeline (e.g. 892 leads, 0 shown) the page says so instead of
   // looking like an empty database.
-  const totalInScope = pipelineSummary.total;
+  const totalInScope = pipelineSummary?.total ?? leadsPage.total;
   const hiddenByFilters = Math.max(totalInScope - leadsPage.total, 0);
 
   return (
@@ -83,7 +81,7 @@ export default async function LeadsPage({
           Some lead information could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.
         </Alert>
       )}
-      {viewer && employeeSummaryResult.success && <DashboardStats
+      {viewer && pipelineSummary && <DashboardStats
         summary={pipelineSummary}
         assignedTo={cardAssignedTo}
         dailyNewLeads={{ count: dailyNewLeadsCount, day: today }}
@@ -105,7 +103,7 @@ export default async function LeadsPage({
                 Tap a category to view that agent’s matching leads, or their name to view all assigned leads.
               </p>
             </div>
-            <TeamOverview team={team} filters={filters} today={today} />
+            <TeamOverview team={team} filters={filters} />
           </section>
         </>
       )}
