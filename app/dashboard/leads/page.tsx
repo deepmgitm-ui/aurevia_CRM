@@ -86,6 +86,7 @@ export default async function LeadsPage({
         assignedTo={cardAssignedTo}
         dailyNewLeads={{ count: dailyNewLeadsCount, day: today }}
         showTotal={viewer?.role !== "employee"}
+        showPreviousMonthAppointments={!filters.assigned}
       />}
       {viewer && !dailyNewLeadsResult.success && !filters.assigned && (
         <Alert severity="warning">Today’s new lead count is temporarily unavailable. Reload this page to try again.</Alert>
