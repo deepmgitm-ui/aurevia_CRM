@@ -7,9 +7,9 @@ import { leadsHref, type LeadListFilters } from "./lead-filters";
 
 function StatChip({ label, value, className, href, name }: { label: string; value: number; className: string; href: string; name: string }) {
   return (
-    <Link href={`${href}#lead-list`} aria-label={`${name}: ${label}, ${value} leads. View leads`} className={`rounded-lg px-2 py-3 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`}>
-      <p className="text-xl font-semibold leading-none tabular-nums">{value.toLocaleString()}</p>
-      <p className="mt-2 text-xs font-medium">{label}</p>
+    <Link href={`${href}#lead-list`} aria-label={`${name}: ${label}, ${value} leads. View leads`} className={`flex min-h-[58px] flex-col items-center justify-center rounded-lg px-1.5 py-1.5 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`}>
+      <p className="text-lg font-semibold leading-none tabular-nums">{value.toLocaleString()}</p>
+      <p className="mt-1 min-h-6 text-[10px] font-medium leading-tight">{label}</p>
     </Link>
   );
 }
@@ -61,7 +61,7 @@ export function TeamOverview({
         <article
           key={employee.id}
           style={{ animationDelay: `${index * 55}ms` }}
-          className="crm-motion-in crm-card-interactive group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm hover:border-slate-300 hover:shadow-lg"
+          className="crm-motion-in crm-card-interactive group rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow-lg"
         >
           <Link href={`${leadsHref({ assigned: employee.name, month: currentMonth })}#lead-list`} className="flex items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-blue-600">
             <div className="flex items-center gap-3">
@@ -80,9 +80,9 @@ export function TeamOverview({
               aria-hidden="true"
             />
           </Link>
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold text-slate-600">Lead workflow</p>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="mt-3">
+            <p className="mb-1.5 text-xs font-semibold text-slate-600">Lead workflow</p>
+            <div className="grid grid-cols-2 gap-1.5">
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name })} label="Total leads" value={employee.total} className="bg-slate-100 text-slate-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "new", allMonths: true })} label="New (untouched carryover)" value={employee.newLeads} className="bg-indigo-50 text-indigo-700" />
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "fresh" })} label="Fresh (today)" value={employee.fresh} className="bg-blue-50 text-blue-700" />
@@ -90,9 +90,9 @@ export function TeamOverview({
             <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "lost" })} label="Lost review queue" value={employee.lost} className="bg-rose-50 text-rose-700" />
             </div>
           </div>
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold text-slate-600">Permanent current dispositions · all dates</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="mt-3">
+            <p className="mb-1.5 text-xs font-semibold text-slate-600">Permanent current dispositions · all dates</p>
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-5">
               {PERMANENT_STATUSES.map((status) => (
                 <StatChip
                   key={status}
@@ -105,24 +105,24 @@ export function TeamOverview({
               ))}
             </div>
           </div>
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold text-slate-600">Monthly appointments · {appointmentPeriodLabel(team.appointmentPeriod)}</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div aria-label={employee.name + ": OPD Booked this month"} className="rounded-lg bg-amber-50 px-2 py-3 text-center text-amber-700">
-                <p className="text-xl font-semibold leading-none tabular-nums">{employee.opdBooked.toLocaleString()}</p><p className="mt-2 text-xs font-medium">OPD Booked</p>
+          <div className="mt-3">
+            <p className="mb-1.5 text-xs font-semibold text-slate-600">Monthly appointments · {appointmentPeriodLabel(team.appointmentPeriod)}</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div aria-label={employee.name + ": OPD Booked this month"} className="rounded-lg bg-amber-50 px-2 py-2 text-center text-amber-700">
+                <p className="text-lg font-semibold leading-none tabular-nums">{employee.opdBooked.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">OPD Booked</p>
               </div>
-              <div aria-label={employee.name + ": OPD Done this month"} className="rounded-lg bg-emerald-50 px-2 py-3 text-center text-emerald-700">
-                <p className="text-xl font-semibold leading-none tabular-nums">{employee.opdDone.toLocaleString()}</p><p className="mt-2 text-xs font-medium">OPD Done</p>
+              <div aria-label={employee.name + ": OPD Done this month"} className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-700">
+                <p className="text-lg font-semibold leading-none tabular-nums">{employee.opdDone.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">OPD Done</p>
               </div>
-              <div aria-label={employee.name + ": IPD Booked this month"} className="rounded-lg bg-violet-50 px-2 py-3 text-center text-violet-700">
-                <p className="text-xl font-semibold leading-none tabular-nums">{employee.ipdBooked.toLocaleString()}</p><p className="mt-2 text-xs font-medium">IPD Booked</p>
+              <div aria-label={employee.name + ": IPD Booked this month"} className="rounded-lg bg-violet-50 px-2 py-2 text-center text-violet-700">
+                <p className="text-lg font-semibold leading-none tabular-nums">{employee.ipdBooked.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">IPD Booked</p>
               </div>
-              <div aria-label={employee.name + ": IPD Done this month"} className="rounded-lg bg-purple-50 px-2 py-3 text-center text-purple-700">
-                <p className="text-xl font-semibold leading-none tabular-nums">{employee.ipd.toLocaleString()}</p><p className="mt-2 text-xs font-medium">IPD Done</p>
+              <div aria-label={employee.name + ": IPD Done this month"} className="rounded-lg bg-purple-50 px-2 py-2 text-center text-purple-700">
+                <p className="text-lg font-semibold leading-none tabular-nums">{employee.ipd.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">IPD Done</p>
               </div>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-slate-500">Permanent disposition counts never reset monthly. Appointment totals use appointment dates inside the current clinic month.</p>
+          <p className="mt-2 text-[10px] text-slate-500">Permanent disposition counts never reset monthly. Appointment totals use this month&apos;s appointment dates.</p>
         </article>
       ))}
     </section>

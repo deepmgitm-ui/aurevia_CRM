@@ -101,20 +101,20 @@ export function DashboardStats({
     ? monthlyAppointmentLabel(summary.previousMonthAppointmentPeriod)
     : "last month";
 
-  const renderCard = (card: { label: string; detail?: string; value: number | null; href: string; tone: string }, index: number) => (
+  const renderCard = (card: { label: string; detail?: string; value: number | null; href: string; tone: string }, index: number, compact = false) => (
     <Link
       key={card.label}
       href={`${card.href}#lead-list`}
       style={{ animationDelay: `${index * 30}ms` }}
       aria-label={`${card.label}: ${card.value === null ? "unavailable" : card.value.toLocaleString()}. View matching leads`}
-      className={`crm-motion-in crm-card-interactive rounded-lg border px-3 py-3 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${card.tone}`}
+      className={`crm-motion-in crm-card-interactive rounded-lg border shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${compact ? "flex min-h-[62px] flex-col items-center justify-center px-1.5 py-1.5 text-center" : "px-3 py-2.5"} ${card.tone}`}
     >
-      <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums">{card.value === null ? "—" : card.value.toLocaleString()}</p>
-      {card.detail && <p className="mt-1 text-[11px] leading-snug opacity-80">{card.detail}</p>}
-      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium">
+      <p className={compact ? "line-clamp-2 min-h-7 text-[10px] font-semibold leading-tight" : "text-[11px] font-semibold leading-snug"}>{card.label}</p>
+      <p className={`${compact ? "mt-0.5 text-lg" : "mt-1 text-xl"} font-semibold tabular-nums leading-none`}>{card.value === null ? "-" : card.value.toLocaleString()}</p>
+      {card.detail && <p className="mt-1 text-[10px] leading-snug opacity-80">{card.detail}</p>}
+      {!compact && <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium">
         View leads <ArrowRight className="size-3" aria-hidden="true" />
-      </span>
+      </span>}
     </Link>
   );
 
@@ -122,24 +122,24 @@ export function DashboardStats({
     <div className="space-y-5">
       <section aria-label="Lead workflow summary" className="space-y-2">
         <h2 className="text-sm font-semibold text-slate-800">Workflow overview</h2>
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">{workflowCards.map(renderCard)}</div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{workflowCards.map((card, index) => renderCard(card, index))}</div>
       </section>
       <section aria-label="Lead counts by current status" className="space-y-2">
         <div><h2 className="text-sm font-semibold text-slate-800">Permanent disposition counts</h2><p className="mt-1 text-xs text-slate-500">Counts show each lead&apos;s current disposition across all dates. They do not reset monthly. Follow-Up Work above is an untouched-work queue.</p></div>
-        <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">{statusCards.map(renderCard)}</div>
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8">{statusCards.map((card, index) => renderCard(card, index, true))}</div>
       </section>
       <section aria-label="Monthly appointment counts" className="space-y-2">
         <div>
           <h2 className="text-sm font-semibold text-slate-800">Monthly appointment counts</h2>
           <p className="mt-1 text-xs text-slate-500">Current month appointment totals, with last month retained here for comparison.</p>
         </div>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {monthlyAppointmentCards.map((card) => (
-            <div key={card.label} aria-label={card.label + ": " + card.value.toLocaleString() + " this month" + (showPreviousMonthAppointments ? ", " + card.previousMonthValue.toLocaleString() + " last month" : "")} className={"crm-motion-in rounded-lg border px-3 py-3 shadow-sm " + card.tone}>
+            <div key={card.label} aria-label={card.label + ": " + card.value.toLocaleString() + " this month" + (showPreviousMonthAppointments ? ", " + card.previousMonthValue.toLocaleString() + " last month" : "")} className={"crm-motion-in rounded-lg border px-2.5 py-2 shadow-sm " + card.tone}>
               <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
-              <p className="mt-1.5 text-2xl font-semibold tabular-nums">{card.value.toLocaleString()}</p>
-              <p className="mt-1 text-[11px] leading-snug opacity-80">This month</p>
-              {showPreviousMonthAppointments && <p className="mt-1 text-[10px] leading-snug opacity-75">{previousMonthLabel}: {card.previousMonthValue.toLocaleString()}</p>}
+              <p className="mt-1 text-xl font-semibold tabular-nums leading-none">{card.value.toLocaleString()}</p>
+              <p className="mt-1 text-[10px] leading-snug opacity-80">This month</p>
+              {showPreviousMonthAppointments && <p className="mt-0.5 text-[10px] leading-snug opacity-75">{previousMonthLabel}: {card.previousMonthValue.toLocaleString()}</p>}
             </div>
           ))}
         </div>
