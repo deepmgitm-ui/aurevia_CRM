@@ -11,7 +11,7 @@ import { TeamOverview } from "./team-overview";
 
 type AssignmentTab = "unassigned" | "assigned";
 
-export function LeadAssignmentTabs({ team, today }: { team: TeamStats; today: string }) {
+export function LeadAssignmentTabs({ team }: { team: TeamStats }) {
   const [activeTab, setActiveTab] = useState<AssignmentTab>(
     "assigned",
   );
@@ -121,7 +121,7 @@ export function LeadAssignmentTabs({ team, today }: { team: TeamStats; today: st
             </p>
           </CardContent>
         </Card>
-        <TeamOverview team={team} today={today} />
+        <TeamOverview team={team} />
       </div>
     </section>
   );

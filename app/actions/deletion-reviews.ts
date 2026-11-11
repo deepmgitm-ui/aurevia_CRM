@@ -19,6 +19,52 @@ export interface LeadDeletionReviewView {
   agentNote: string | null;
 }
 
+export interface LostLeadReminderItem {
+  id: string;
+  leadId: string;
+  leadName: string;
+  phone: string;
+  status: string;
+  assignedTo: string;
+  closedSince: string;
+}
+
+/** Small dashboard preview; the complete queue remains available on its own page. */
+export async function getLostLeadReminderItems(): Promise<{
+  items: LostLeadReminderItem[];
+  error: string | null;
+}> {
+  const viewer = await getViewer();
+  if (!viewer.success || viewer.data?.role !== "admin") return { items: [], error: null };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("crm_lead_deletion_reviews")
+    .select("id, lead_id, closed_since, lead:leads(id, name, phone, status, assigned_to)")
+    .eq("decision", "pending")
+    .lte("delete_after", new Date().toISOString())
+    .order("closed_since", { ascending: true })
+    .limit(5);
+  if (error) return { items: [], error: "Lost-lead reminders could not be loaded. Refresh to try again." };
+
+  return {
+    items: (data ?? []).flatMap((row) => {
+      const lead = Array.isArray(row.lead) ? row.lead[0] : row.lead;
+      if (!lead) return [];
+      return [{
+        id: row.id,
+        leadId: row.lead_id,
+        leadName: lead.name ?? "Unnamed lead",
+        phone: lead.phone ?? "",
+        status: lead.status ?? "Lost",
+        assignedTo: lead.assigned_to && lead.assigned_to !== "-" ? lead.assigned_to : "Unassigned",
+        closedSince: row.closed_since,
+      }];
+    }),
+    error: null,
+  };
+}
+
 export async function getDeletionReviews(): Promise<{
   role: string;
   reviews: LeadDeletionReviewView[];
@@ -33,6 +79,7 @@ export async function getDeletionReviews(): Promise<{
     .from("crm_lead_deletion_reviews")
     .select("id, lead_id, assigned_to, closed_status, closed_since, delete_after, snoozed_until, agent_note, lead:leads(name, phone, status, assigned_to, had_previous_assignment)")
     .eq("decision", "pending")
+    .lte("delete_after", new Date().toISOString())
     .order("created_at", { ascending: true });
   if (error) return { role, reviews: [], error: "Deletion reviews could not be loaded. Please refresh." };
 
@@ -118,7 +165,8 @@ export async function getPendingDeletionReviewCount(): Promise<number> {
   const { count, error } = await supabase
     .from("crm_lead_deletion_reviews")
     .select("id", { count: "exact", head: true })
-    .eq("decision", "pending");
+    .eq("decision", "pending")
+    .lte("delete_after", new Date().toISOString());
   return error ? 0 : count ?? 0;
 }
 
@@ -168,14 +216,12 @@ export async function submitDeletionReviewNote(formData: FormData): Promise<void
 export async function resolveDeletionReview(formData: FormData): Promise<void> {
   const reviewId = formText(formData, "reviewId");
   const action = formText(formData, "action");
-  if (!reviewId || !["delete", "keep", "snooze"].includes(action)) return;
-  const snoozeDays = Number(formText(formData, "snoozeDays"));
-  if (action === "snooze" && ![1, 2].includes(snoozeDays)) return;
+  if (!reviewId || action !== "delete") return;
   const supabase = await createClient();
   const { error } = await supabase.rpc("crm_admin_resolve_deletion_review", {
     p_review_id: reviewId,
     p_action: action,
-    p_snooze_days: action === "snooze" ? snoozeDays : null,
+    p_snooze_days: null,
   });
   if (error) throw new Error("The deletion review could not be updated. Refresh and try again.");
   revalidatePath("/dashboard", "layout");

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { cache } from "react";
 import { normaliseCallOutcome, isCallTime } from "@/lib/calls";
 import { clinicDate } from "@/lib/attendance";
-import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
+import { applyAssignmentDayFilter, applyDailyFreshLeadFilter, applyUntouchedNewLeadFilter, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 
 import {
   ageBucketWindow,
@@ -51,6 +51,7 @@ export type LeadStatus = string;
 
 export interface Lead {
   id: string;
+  lead_sequence_id?: number;
   name: string;
   phone: string | null;
   email: string | null;
@@ -59,6 +60,7 @@ export interface Lead {
   disease: string;
   insurance_status: string;
   remarks: string;
+  remarks_updated_at?: string | null;
   lead_date: string;
   follow_up_date: string;
   source: string;
@@ -94,10 +96,9 @@ export interface Lead {
 // Keep the retired temperature field out of dashboard responses while
 // preserving its stored legacy values in Supabase.
 const LEAD_SELECT_COLUMNS = [
-  "id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
-  "remarks", "lead_date", "follow_up_date", "source", "status", "assigned_to",
-  "imported_status", "intake_status",
-  "created_at", "updated_at", "assigned_at", "assigned_fresh_since", "fresh_pending_since", "first_agent_touch_at", "workflow_bucket",
+  "id", "lead_sequence_id", "name", "phone", "email", "gender", "city", "disease", "insurance_status",
+  "remarks", "remarks_updated_at", "lead_date", "follow_up_date", "source", "status", "assigned_to",
+  "created_at", "updated_at", "imported_status", "intake_status", "assigned_at", "assigned_fresh_since", "fresh_pending_since", "first_agent_touch_at", "workflow_bucket",
   "source_batch_id", "source_batch_label",
   "source_batch_created_at", "assignment_batch_id", "had_previous_assignment", "opd_booked_date", "opd_done_date",
   "ipd_done_date",
@@ -487,6 +488,8 @@ interface ResolvedLeadFilters {
   ageWindow: AgeWindow | null;
   monthWindow: AgeWindow | null;
   city: string | null;
+  name: string | null;
+  disease: string | null;
   source: string | null;
   assigned: string | null;
   assignmentStatus: "" | "assigned" | "unassigned";
@@ -505,6 +508,8 @@ function emptyResolvedFilters(): ResolvedLeadFilters {
     ageWindow: null,
     monthWindow: null,
     city: null,
+    name: null,
+    disease: null,
     source: null,
     assigned: null,
     assignmentStatus: "",
@@ -539,10 +544,14 @@ interface LeadFilterQuery<Q> {
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
   if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
-  else if (resolved.work === "assigned" && resolved.day === clinicDate()) filtered = applyCurrentNewLeadFilter(filtered, resolved.day);
+  else if (resolved.work === "assigned" && resolved.day === clinicDate()) filtered = applyDailyFreshLeadFilter(filtered);
   else if (resolved.work === "assigned") filtered = applyAssignmentDayFilter(filtered, resolved.day);
   if (resolved.bucket === "dnp") {
     filtered = filtered.in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
+  } else if (resolved.bucket === "new") {
+    filtered = applyUntouchedNewLeadFilter(filtered);
+  } else if (resolved.bucket === "fresh") {
+    filtered = applyDailyFreshLeadFilter(filtered);
   } else if (resolved.bucket) {
     filtered = filtered.eq("workflow_bucket", resolved.bucket === "lost" ? "closed" : resolved.bucket);
     if (resolved.bucket === "followup") {
@@ -553,9 +562,6 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
         'status.is.null,status.in.(New,"New Lead","-","--",Follow-Up,"Follow Up",Contacted)',
       );
     }
-  }
-  if (resolved.bucket === "fresh") {
-    filtered = filtered.or(olderFreshLeadFilter(clinicDate()));
   }
   for (const filter of resolved.inFilters) filtered = filtered.in(filter.column, filter.values);
   // Every entry is its own `or=(...)` param, so separate entries AND together
@@ -569,6 +575,8 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
     if (dateWindow.toIso) filtered = filtered.lt("created_at", dateWindow.toIso);
   }
   if (resolved.city) filtered = filtered.ilike("city", resolved.city);
+  if (resolved.name) filtered = filtered.ilike("name", `%${resolved.name}%`);
+  if (resolved.disease) filtered = filtered.ilike("disease", `%${resolved.disease}%`);
   if (resolved.source) filtered = filtered.ilike("source", resolved.source);
   if (resolved.assigned) filtered = filtered.eq("assigned_to", resolved.assigned);
   if (resolved.assignmentBatchId) filtered = filtered.eq("assignment_batch_id", resolved.assignmentBatchId);
@@ -611,13 +619,15 @@ async function resolveLeadFilters(
   const age = (filters.age ?? "").trim();
   const month = (filters.month ?? "").trim();
   const city = (filters.city ?? "").trim();
+  const name = (filters.name ?? "").trim().slice(0, 120);
+  const disease = (filters.disease ?? "").trim().slice(0, 120);
   const source = (filters.source ?? "").trim();
   const assigned = (filters.assigned ?? "").trim();
   const assignmentBatchId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filters.assignmentBatchId ?? "") ? filters.assignmentBatchId!.trim() : "";
   const assignmentStatus = filters.assignmentStatus === "assigned" || filters.assignmentStatus === "unassigned"
     ? filters.assignmentStatus
     : "";
-  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !source && !assigned && !assignmentStatus && !assignmentBatchId) {
+  if (stageKeys.length === 0 && !treatment && !age && !month && !city && !name && !disease && !source && !assigned && !assignmentStatus && !assignmentBatchId) {
     return resolved;
   }
   resolved.assignmentBatchId = assignmentBatchId;
@@ -670,6 +680,8 @@ async function resolveLeadFilters(
 
   // --- Exact-match filters: ilike without wildcards = case-insensitive equality.
   if (city) resolved.city = escapeLikePattern(city);
+  if (name) resolved.name = escapeLikePattern(name);
+  if (disease) resolved.disease = escapeLikePattern(disease);
   if (source) resolved.source = escapeLikePattern(source);
   if (assigned) resolved.assigned = assigned;
 
@@ -758,8 +770,10 @@ export async function getLeadsPage(
     }
     leadsQuery = applyLeadFilters(leadsQuery, resolved);
     const { data, error, count } = await leadsQuery
-      .order("assigned_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
+      // Keep every page deterministic and put recently touched leads first.
+      // `id` breaks timestamp ties so records do not jump between pages.
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false })
       .range(from, to);
 
     if (error) {
@@ -828,7 +842,9 @@ export async function getLeadsForExport(
     const resolved = await resolveLeadFilters(supabase, filters);
     if (resolved.empty) return { success: true, data: [] };
 
-    let exportQuery = supabase.from("leads").select(LEAD_SELECT_COLUMNS);
+    // Deletion backups need the complete lead row, including fields not shown
+    // in the table projection; ordinary page queries remain narrow.
+    let exportQuery = supabase.from("leads").select("*");
     if (ids && ids.length > 0) exportQuery = exportQuery.in("id", ids);
     if (assignedTo.trim()) exportQuery = exportQuery.eq("assigned_to", assignedTo.trim());
     const searchFilter = buildLeadSearchFilter(search);
@@ -856,6 +872,49 @@ export async function getLeadsForExport(
   }
 }
 
+/** Export activity rows for the exact lead IDs being deleted; never exposes a team-wide feed. */
+export async function getLeadActivitiesForExport(ids: string[]): Promise<ActionResult<LeadActivity[]>> {
+  const EXPORT_LEAD_LIMIT = 5000;
+  const EXPORT_ACTIVITY_LIMIT = 50000;
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > EXPORT_LEAD_LIMIT || ids.some((id) =>
+    typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  )) return { success: false, error: "Select up to 5,000 valid leads for the activity backup." };
+
+  try {
+    const supabase = await createClient();
+    const role = await getViewerRole(supabase);
+    if (role !== "admin" && role !== "manager") return { success: false, error: "Only admins and managers can export deletion history." };
+
+    const activities: LeadActivity[] = [];
+    for (let leadOffset = 0; leadOffset < ids.length; leadOffset += 200) {
+      const leadIds = ids.slice(leadOffset, leadOffset + 200);
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase.from("lead_activities")
+          .select("id,lead_id,user_id,action_type,description,created_at")
+          .in("lead_id", leadIds)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + 999);
+        if (error) return { success: false, error: "The activity history backup could not be prepared." };
+        activities.push(...(data ?? []) as LeadActivity[]);
+        if (activities.length > EXPORT_ACTIVITY_LIMIT) return { success: false, error: "These leads have more than 50,000 activity records. No deletion was started." };
+        if (!data || data.length < 1000) break;
+      }
+    }
+
+    const userIds = [...new Set(activities.map((activity) => activity.user_id).filter(Boolean))];
+    const actorNames = new Map<string, string>();
+    for (let offset = 0; offset < userIds.length; offset += 200) {
+      const { data, error } = await supabase.from("profiles").select("id,name").in("id", userIds.slice(offset, offset + 200));
+      if (error) return { success: false, error: "Activity authors could not be included in the backup." };
+      for (const profile of data ?? []) actorNames.set(profile.id, profile.name ?? "Team member");
+    }
+    return { success: true, data: activities.map((activity) => ({ ...activity, actor_name: actorNames.get(activity.user_id) ?? "System" })) };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "Unable to prepare lead activity backup.") };
+  }
+}
+
 export async function getDailyWorkCounts(day=clinicDate()):Promise<ActionResult<Record<DailyWorkKind,number>>>{if(!isWorkDate(day))return {success:false,error:"Invalid work date."};const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to see daily work."};const supabase=await createClient();const {data,error}=await supabase.rpc("crm_daily_work_counts",{p_day:day});return error?{success:false,error:"Daily work could not be loaded."}:{success:true,data:data as Record<DailyWorkKind,number>};}
 
 /** Current status of today's untouched assignments or the full past-day assignment cohort. */
@@ -871,7 +930,7 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
       let query = supabase.from("leads").select("id,status")
         .ilike("assigned_to", escapeLikePattern(viewer.name)).order("id").range(offset, offset + 499);
       query = day === clinicDate()
-        ? applyCurrentNewLeadFilter(query, day)
+      ? applyDailyFreshLeadFilter(query)
         : applyAssignmentDayFilter(query, day);
       const { data, error } = await query;
       if (error) return { success: false, error: "Assignment statuses could not be loaded." };
@@ -889,7 +948,9 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
 
 export interface EmployeeLeadSummary {
   total: number;
+  new: number;
   fresh: number;
+  nextFreshAt?: string | null;
   followUp: number;
   dnp: number;
   lost: number;
@@ -898,6 +959,7 @@ export interface EmployeeLeadSummary {
   ipdBooked: number;
   ipdDone: number;
   statuses: Record<string, number>;
+  appointmentPeriod: { from: string; to: string };
 }
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
@@ -915,17 +977,26 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     const summaryQuery = supabase.rpc("crm_lead_bucket_summary", {
       p_assigned_to: assignedScope || null,
     });
+    const monthlyAppointmentsQuery = supabase.rpc("crm_monthly_appointment_summary", {
+      p_assigned_to: assignedScope || null,
+    });
     let dnpQuery = supabase.from("leads").select("id", { count: "exact", head: true })
       .in("status", ["DNP", "DNP2", "DNP 2", "DNP3", "DNP 3"]);
     if (assignedScope) dnpQuery = dnpQuery.ilike("assigned_to", escapeLikePattern(assignedScope));
-    const freshQuery = !assignedScope
-      ? supabase.from("leads").select("id", { count: "exact", head: true }).eq("workflow_bucket", "fresh").or(olderFreshLeadFilter(clinicDate()))
-      : null;
-    const [{ data, error }, { count: dnpCount, error: dnpError }, freshResult] = await Promise.all([summaryQuery, dnpQuery, freshQuery]);
+    const [
+      { data, error },
+      { count: dnpCount, error: dnpError },
+      { data: monthlyAppointments, error: monthlyAppointmentsError },
+    ] = await Promise.all([summaryQuery, dnpQuery, monthlyAppointmentsQuery]);
     if (error) return { success: false, error: "Your lead summary could not be loaded." };
     if (dnpError) return { success: false, error: "Your DNP lead count could not be loaded." };
-    if (freshResult?.error) return { success: false, error: "Your Fresh lead count could not be loaded." };
+    if (monthlyAppointmentsError) return { success: false, error: "Monthly appointment counts could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
+    const monthly = (monthlyAppointments ?? {}) as {
+      counts?: Partial<Pick<EmployeeLeadSummary, "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone">>;
+      period?: { from?: string; to?: string };
+    };
+    const monthlyCounts = monthly.counts ?? {};
     const statusCounts = row.statuses && typeof row.statuses === "object" ? row.statuses : {};
     const normalizedCounts: Record<string, number> = {};
     for (const [status, count] of Object.entries(statusCounts)) {
@@ -934,15 +1005,21 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     }
     return { success: true, data: {
       total: Number(row.total ?? 0),
-      fresh: freshResult ? (freshResult.count ?? 0) : Number(row.fresh ?? 0),
+      new: Number(row.new ?? 0),
+      fresh: Number(row.fresh ?? 0),
+      nextFreshAt: typeof row.nextFreshAt === "string" ? row.nextFreshAt : null,
       followUp: Number(row.followUp ?? 0),
       dnp: dnpCount ?? 0,
       lost: Number(row.lost ?? 0),
-      opdBooked: Number(row.opdBooked ?? 0),
-      opdDone: Number(row.opdDone ?? 0),
-      ipdBooked: Number(row.ipdBooked ?? 0),
-      ipdDone: Number(row.ipdDone ?? 0),
+      opdBooked: Number(monthlyCounts.opdBooked ?? 0),
+      opdDone: Number(monthlyCounts.opdDone ?? 0),
+      ipdBooked: Number(monthlyCounts.ipdBooked ?? 0),
+      ipdDone: Number(monthlyCounts.ipdDone ?? 0),
       statuses: normalizedCounts,
+      appointmentPeriod: {
+        from: typeof monthly.period?.from === "string" ? monthly.period.from : clinicMonthPeriod().from,
+        to: typeof monthly.period?.to === "string" ? monthly.period.to : clinicMonthPeriod().to,
+      },
     } };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Your lead summary could not be loaded.") };
@@ -1006,7 +1083,8 @@ export async function getPipelineBoard(): Promise<ActionResult<PipelineBoardData
 
         const [cardsResult, countResult] = await Promise.all([
           applyLeadFilters(scopedCards, resolved)
-            .order("created_at", { ascending: false })
+            .order("updated_at", { ascending: false, nullsFirst: false })
+            .order("id", { ascending: false })
             .limit(BOARD_CARD_LIMIT),
           applyLeadFilters(scopedCount, resolved),
         ]);
@@ -1351,6 +1429,7 @@ export interface EmployeeLeadStats {
   opdBooked: number;
   ipd: number;
   ipdBooked: number;
+  statuses: Record<string, number>;
 }
 
 export interface TeamStats {
@@ -1358,6 +1437,14 @@ export interface TeamStats {
   // Leads whose assigned_to doesn't match any profile (e.g. "-", removed users).
   unassigned: number;
   total: number;
+  appointmentPeriod: { from: string; to: string };
+}
+
+function clinicMonthPeriod(): { from: string; to: string } {
+  const [year, month] = clinicDate().split("-").map(Number);
+  const monthStart = String(year) + "-" + String(month).padStart(2, "0") + "-01";
+  const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  return { from: monthStart, to: monthEnd };
 }
 
 // Team Overview counts are grouped server-side into bounded, small result sets.
@@ -1381,7 +1468,7 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       return { success: false, error: "Your team profile could not be loaded. Please try again." };
     }
     if (viewerProfile.role === "employee") {
-      return { success: true, data: { employees: [], unassigned: 0, total: 0 } };
+      return { success: true, data: { employees: [], unassigned: 0, total: 0, appointmentPeriod: clinicMonthPeriod() } };
     }
 
     const { data: profiles, error: profilesError } = await supabase
@@ -1406,6 +1493,7 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
         opdBooked: 0,
         ipd: 0,
         ipdBooked: 0,
+        statuses: {},
       });
     }
 
@@ -1429,7 +1517,10 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
           continue;
         }
         stats.total += weight;
-        const status = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
+        const rawStatus = typeof row.status === "string" ? row.status.trim() : "";
+        const canonicalStatus = canonicalLeadStatus(rawStatus);
+        stats.statuses[canonicalStatus] = (stats.statuses[canonicalStatus] ?? 0) + weight;
+        const status = rawStatus.toLowerCase();
         if (status === "new") stats.newLeads += weight;
         else if (status === "won") stats.won += weight;
         else if (status === "lost") stats.lost += weight;
@@ -1441,8 +1532,15 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       from += chunkSize;
     }
 
-    const { data: bucketRows, error: bucketError } = await supabase.rpc("crm_team_bucket_groups");
+    const [
+      { data: bucketRows, error: bucketError },
+      { data: monthlyData, error: monthlyError },
+    ] = await Promise.all([
+      supabase.rpc("crm_team_bucket_groups"),
+      supabase.rpc("crm_monthly_appointment_summary", { p_assigned_to: null }),
+    ]);
     if (bucketError) return { success: false, error: bucketError.message };
+    if (monthlyError) return { success: false, error: "Monthly team appointment counts could not be loaded." };
     for (const stats of statsByName.values()) {
       stats.newLeads = 0;
       stats.lost = 0;
@@ -1463,9 +1561,33 @@ export async function getTeamStats(): Promise<ActionResult<TeamStats>> {
       }
     }
 
+    const monthlySummary = (monthlyData ?? {}) as {
+      period?: { from?: string; to?: string };
+      byAgent?: Array<{
+        assignedTo?: string;
+        opdBooked?: number;
+        opdDone?: number;
+        ipdBooked?: number;
+        ipdDone?: number;
+      }>;
+    };
+    for (const row of monthlySummary.byAgent ?? []) {
+      const stats = statsByName.get(String(row.assignedTo ?? "").trim());
+      if (!stats) continue;
+      stats.opdBooked = Number(row.opdBooked ?? 0);
+      stats.opdDone = Number(row.opdDone ?? 0);
+      stats.ipdBooked = Number(row.ipdBooked ?? 0);
+      stats.ipd = Number(row.ipdDone ?? 0);
+    }
+    const defaultPeriod = clinicMonthPeriod();
+    const appointmentPeriod = {
+      from: typeof monthlySummary.period?.from === "string" ? monthlySummary.period.from : defaultPeriod.from,
+      to: typeof monthlySummary.period?.to === "string" ? monthlySummary.period.to : defaultPeriod.to,
+    };
+
     return {
       success: true,
-      data: { employees: [...statsByName.values()], unassigned, total },
+      data: { employees: [...statsByName.values()], unassigned, total, appointmentPeriod },
     };
   } catch (error) {
     return { success: false, error: getErrorMessage(error, "Unable to fetch team stats.") };

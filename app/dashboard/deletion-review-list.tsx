@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
-import { assignDeletionReviewLeads, resolveDeletionReview, type LeadDeletionReviewView } from "@/app/actions/deletion-reviews";
+import { assignDeletionReviewLeads, type LeadDeletionReviewView } from "@/app/actions/deletion-reviews";
 import { toast } from "@/components/ui/toast";
 import { PhonePreview } from "./phone-preview";
 import { DeletionReviewDeleteButton } from "./deletion-review-delete-button";
@@ -193,7 +193,7 @@ export function DeletionReviewList({
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-slate-600">
                     <span className="size-2 rounded-full bg-amber-400" aria-hidden="true" />
-                    {review.snoozedUntil ? `Snoozed until ${displayDate(review.snoozedUntil)}` : `Scheduled for ${displayDate(review.deleteAfter)}`}
+                    Review due {displayDate(review.deleteAfter)}
                   </div>
                 </div>
 
@@ -201,17 +201,6 @@ export function DeletionReviewList({
 
                 <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
                   <DeletionReviewDeleteButton reviewId={review.id} />
-                  <form action={resolveDeletionReview}>
-                    <input type="hidden" name="reviewId" value={review.id} />
-                    <input type="hidden" name="action" value="keep" />
-                    <button type="submit" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50">Keep lead</button>
-                  </form>
-                  {[1, 2].map((days) => <form action={resolveDeletionReview} key={days}>
-                    <input type="hidden" name="reviewId" value={review.id} />
-                    <input type="hidden" name="action" value="snooze" />
-                    <input type="hidden" name="snoozeDays" value={days} />
-                    <button type="submit" className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100">Snooze {days} day{days === 1 ? "" : "s"}</button>
-                  </form>)}
                 </div>
               </div>
             </div>

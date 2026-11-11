@@ -20,6 +20,7 @@ import { LeadsTable } from "../leads-table";
 import { TeamOverview } from "../team-overview";
 import { AssignmentFilterTabs } from "./assignment-filter-tabs";
 import { clinicDate } from "@/lib/attendance";
+import { GlobalLeadFilters } from "./global-lead-filters";
 
 export default async function LeadsPage({
   searchParams,
@@ -76,6 +77,7 @@ export default async function LeadsPage({
             : "Review and manage every lead in your pipeline."}
         </p>
       </div>
+      {viewer && <GlobalLeadFilters filters={filters} params={params} />}
       {(!viewer || !leadsResult.success || !employeeSummaryResult.success) && (
         <Alert severity="error" role="alert">
           Some lead information could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.
@@ -140,7 +142,7 @@ export default async function LeadsPage({
           leads={leadsPage.leads}
           initialTotal={leadsPage.total}
           initialTotalPages={leadsPage.totalPages}
-          today={today}
+          workflowNow={new Date().toISOString()}
           initialOpenLeadId={initialOpenLeadId}
           role={viewer?.role ?? "employee"}
           viewerId={viewer?.id ?? ""}

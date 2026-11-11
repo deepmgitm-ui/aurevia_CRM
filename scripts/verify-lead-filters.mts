@@ -74,6 +74,21 @@ const newLeadsFilters = parseLeadFilters(Object.fromEntries(new URL(`http://loca
 assert.equal(newLeadsFilters.work, "assigned");
 assert.equal(newLeadsFilters.day, "2026-10-23");
 
+const globalFilters = parseLeadFilters({
+  name: "  Mira Shah  ",
+  bucket: "new",
+  status: "DNP",
+  treatment: "LASIK",
+  disease: "cataract",
+});
+assert.equal(globalFilters.name, "Mira Shah");
+assert.equal(globalFilters.bucket, "new");
+assert.equal(globalFilters.status, "DNP");
+assert.equal(globalFilters.treatment, "lasik");
+assert.equal(globalFilters.disease, "cataract");
+assert.equal(hasLeadFilters(globalFilters), true);
+assert.deepEqual(describeActiveFilters(globalFilters), ["LASIK", "DNP", "New Leads", "Name: Mira Shah", "Disease: cataract"]);
+
 // Every current-status card opens that exact all-time status list, scoped to
 // the selected agent when one is supplied.
 for (const status of LEAD_STATUS_OPTIONS) {
@@ -94,7 +109,7 @@ const workflowHref = leadsHref({ assigned: "Atul Pandey", bucket: "followup", al
 const workflowFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${workflowHref}`).searchParams));
 assert.equal(workflowFilters.bucket, "followup", "workflow card links preserve their exact bucket");
 assert.equal(hasLeadFilters(workflowFilters), true, "workflow bucket activates the lead filter summary");
-assert.ok(describeActiveFilters(workflowFilters).includes("Follow-up"), "workflow bucket has a readable filter label");
+assert.ok(describeActiveFilters(workflowFilters).includes("Follow Up Work"), "workflow bucket has a readable filter label");
 assert.equal(parseLeadFilters({ bucket: "unsupported" }).bucket, "", "unknown workflow buckets are ignored");
 
 const assignmentBatchId = "4bbd4903-a954-4a6c-9ba5-11b152ced04d";

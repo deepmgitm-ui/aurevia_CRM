@@ -237,6 +237,10 @@ export interface LeadListFilters {
   day?: string;
   /** Free-text search (name / phone / treatment). */
   q: string;
+  /** Case-insensitive substring filter applied to the lead name. */
+  name: string;
+  /** Case-insensitive substring filter applied to the disease/treatment description. */
+  disease: string;
   /** Pipeline stage key(s), comma-separated for KPI cards (new | contacted | booked | attended | surgery | lost). */
   stage: string;
   /** Treatment series key from the charts (lasik | cataract | icl | retina | other | unrecorded | free-text slug). */
@@ -261,10 +265,10 @@ export interface LeadListFilters {
   assignmentBatchId?: string;
   status: string;
   /** Agent workflow bucket used by dashboard cards. */
-  bucket: "" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp" | "lost";
+  bucket: "" | "new" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp" | "lost";
 }
 
-const LEAD_BUCKET_KEYS = ["fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"] as const;
+const LEAD_BUCKET_KEYS = ["new", "fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"] as const;
 
 export function isLeadBucketKey(value: string): value is Exclude<LeadListFilters["bucket"], ""> {
   return (LEAD_BUCKET_KEYS as readonly string[]).includes(value);
@@ -274,6 +278,8 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   work: "",
   day: "",
   q: "",
+  name: "",
+  disease: "",
   stage: "",
   treatment: "",
   except: "",
@@ -302,8 +308,10 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     work: isDailyWorkKind(firstValue(params.work)) && isWorkDate(firstValue(params.day)) ? firstValue(params.work) as DailyWorkKind : "",
     day: isWorkDate(firstValue(params.day)) ? firstValue(params.day) : "",
     q: firstValue(params.q),
+    name: firstValue(params.name).slice(0, 120),
+    disease: firstValue(params.disease).slice(0, 120),
     stage: firstValue(params.stage),
-    treatment: firstValue(params.treatment),
+    treatment: firstValue(params.treatment).slice(0, 120).toLowerCase().replace(/[\s_]+/g, "-"),
     except: firstValue(params.except),
     age: firstValue(params.age),
     month: isMonthFilterKey(firstValue(params.month)) ? firstValue(params.month) : "",
@@ -329,6 +337,8 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
   return (
     Boolean(filters.work) ||
     filters.q.length > 0 ||
+    filters.name.length > 0 ||
+    filters.disease.length > 0 ||
     filters.stage.length > 0 ||
     filters.treatment.length > 0 ||
     filters.age.length > 0 ||
@@ -417,7 +427,9 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   }
   if (filters.assignmentBatchId) chips.push(`Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`);
   if (filters.status) chips.push(filters.status);
-  if (filters.bucket) chips.push({ fresh: "Fresh Leads", followup: "Follow-up", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP", lost: "Lost Leads" }[filters.bucket]);
+  if (filters.bucket) chips.push({ new: "New Leads", fresh: "Fresh Leads", followup: "Follow Up Work", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP", lost: "Lost Leads" }[filters.bucket]);
+  if (filters.name) chips.push(`Name: ${filters.name}`);
+  if (filters.disease) chips.push(`Disease: ${filters.disease}`);
   if (filters.q) chips.push(`Search: ${filters.q}`);
   return chips;
 }

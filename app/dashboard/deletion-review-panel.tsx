@@ -16,11 +16,11 @@ export async function DeletionReviewPanel({ role }: { role: string }) {
         </span>
         <div>
           <h2 className="text-base font-semibold text-slate-950">
-            Closed lead reviews
+            Review &amp; Delete Lost Leads
             {result.reviews.length > 0 && <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-950">{result.reviews.length}</span>}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Filter by closed status or assigned agent, reassign selected leads, or keep, snooze, and delete before cleanup.
+            This reminder appears after a lead has been closed for a week and remains until its status changes or it is deleted. You can reassign a lead as Fresh to reopen it.
           </p>
         </div>
       </div>

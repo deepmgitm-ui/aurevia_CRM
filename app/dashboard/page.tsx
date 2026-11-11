@@ -26,8 +26,9 @@ import { clinicDate } from "@/lib/attendance";
 import { isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 import { EMPTY_LEAD_FILTERS } from "./lead-filters";
 import { DashboardStats } from "./dashboard-stats";
+import { LostLeadReminderWidget } from "./lost-lead-reminder-widget";
 
-const emptyTeam = { employees: [], unassigned: 0, total: 0 };
+const emptyTeam = { employees: [], unassigned: 0, total: 0, appointmentPeriod: { from: "", to: "" } };
 
 export default async function DashboardPage({
   searchParams,
@@ -59,7 +60,7 @@ export default async function DashboardPage({
       const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
       const summary = summaryResult.success
         ? summaryResult.data
-        : { total: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {} };
+        : { total: 0, new: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {}, appointmentPeriod: { from: "", to: "" } };
 
       return (
         <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -92,7 +93,7 @@ export default async function DashboardPage({
             leads={leadsPage.leads}
             initialTotal={leadsPage.total}
             initialTotalPages={leadsPage.totalPages}
-            today={clinicDate()}
+            workflowNow={new Date().toISOString()}
             assignedTo={employeeStats.name}
             role={viewer?.role ?? "employee"}
             viewerId={viewer?.id ?? ""}
@@ -128,6 +129,7 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
+        {viewer.role === "admin" && <LostLeadReminderWidget />}
         <OverviewDashboard
           rows={rows}
           employees={employees}
@@ -142,7 +144,7 @@ export default async function DashboardPage({
           showTotal
         /> : <Alert severity="error">Lead summary could not be loaded. <a href="" className="font-semibold underline">Reload this page</a> to try again.</Alert>}
 
-        {teamResult.success ? <LeadAssignmentTabs team={team} today={today} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
+        {teamResult.success ? <LeadAssignmentTabs team={team} /> : <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Agent totals could not be loaded. Please refresh.</p>}
 
         {insights ? <PipelineInsights insights={insights} /> : <Alert severity="error">Pipeline insights could not be loaded. <Link href="/dashboard" className="font-semibold underline">Reload this page</Link> to try again.</Alert>}
         <TeamActivityPanel day={today} />
@@ -257,7 +259,7 @@ export default async function DashboardPage({
             <p className="mt-2 text-sm text-slate-500">Choose another date or open All my leads to continue working on your pipeline.</p>
           </div>
         ) : (
-          <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} today={today} filters={filters} role={viewer?.role ?? "employee"} viewerId={viewer?.id ?? ""} />
+        <LeadsTable key={`${work}-${day}-${selectedStatus}`} leads={leadsPage.leads} initialTotal={leadsPage.total} initialTotalPages={leadsPage.totalPages} workflowNow={new Date().toISOString()} filters={filters} role={viewer?.role ?? "employee"} viewerId={viewer?.id ?? ""} />
         )}
       </section>
     </div>

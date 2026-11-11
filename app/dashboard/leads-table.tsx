@@ -22,6 +22,7 @@ import {
   deleteLeadSourceBatches,
   getEmployees,
   getLeadActivities,
+  getLeadActivitiesForExport,
   getLeadById,
   getLeadDeletionBackupForExport,
   getLeadDeletionBackups,
@@ -70,6 +71,7 @@ import {
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
 import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
 import { getMasterData } from "@/app/actions/master-data";
+import { downloadLeadJsonBackup } from "@/lib/lead-json-backup";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -88,12 +90,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 import { celebrateLeadWin } from "./celebrate";
-import { DAILY_WORK_LABELS, leadWorkflowLabel } from "@/lib/daily-work";
+import { clinicDayBounds, DAILY_WORK_LABELS, leadWorkflowLabel } from "@/lib/daily-work";
 import { getInitials } from "@/lib/utils";
 
-async function downloadLeadsExcel(leads: Lead[], fileName: string): Promise<void> {
+async function downloadLeadsExcel(leads: Lead[], fileName: string, activities: LeadActivity[] = []): Promise<void> {
   const excel = await import("@/lib/lead-excel");
-  await excel.downloadLeadsExcel(leads, fileName);
+  await excel.downloadLeadsExcel(leads, fileName, activities);
 }
 import {
   AGE_CHIP_BUCKETS,
@@ -445,7 +447,7 @@ export function LeadsTable({
   viewerId = "",
   filters = EMPTY_LEAD_FILTERS,
   initialOpenLeadId = "",
-  today,
+  workflowNow,
 }: {
   leads: Lead[];
   initialTotal: number;
@@ -462,10 +464,21 @@ export function LeadsTable({
   // They travel with EVERY server call so paging/export stays filtered.
   filters?: LeadListFilters;
   initialOpenLeadId?: string;
-  /** Current clinic date supplied by the server so New/Fresh badges use IST. */
-  today: string;
+  /** Server render timestamp keeps New/Fresh labels hydration-stable. */
+  workflowNow: string;
 }) {
   const router = useRouter();
+  useEffect(() => {
+    const now = Date.parse(workflowNow);
+    const hasFreshToday = initialLeads.some((lead) =>
+      lead.workflow_bucket === "fresh" && leadWorkflowLabel(lead, now) === "Fresh",
+    );
+    if (!hasFreshToday) return;
+    const resetAt = Date.parse(clinicDayBounds(now).to);
+    if (!Number.isFinite(resetAt)) return;
+    const timer = window.setTimeout(() => router.refresh(), Math.max(0, resetAt - Date.now() + 25));
+    return () => window.clearTimeout(timer);
+  }, [initialLeads, router, workflowNow]);
   // Role gates (plain booleans — zero runtime cost, standard conditional rendering).
   const isAdmin = role === "admin";
   const isManager = role === "manager";
@@ -1038,7 +1051,12 @@ export function LeadsTable({
           setDuplicateReviewError(`${exportResult.error} Nothing was deleted.`);
           return;
         }
-        await downloadLeadsExcel(exportResult.data, `duplicate-leads-backup-before-delete-${new Date().toISOString().slice(0, 10)}.xlsx`);
+        const history = await getLeadActivitiesForExport(exportResult.data.map((lead) => lead.id));
+        if (!history.success) {
+          setDuplicateReviewError(`${history.error} Nothing was deleted.`);
+          return;
+        }
+        await downloadLeadJsonBackup(exportResult.data, history.data, `duplicate-leads-backup-before-delete-${new Date().toISOString().slice(0, 10)}.json`);
       }
       const result = await resolveDuplicateLeadReviews({
         reviewIds: selectedDuplicateReviewIds,
@@ -1054,7 +1072,7 @@ export function LeadsTable({
       toast.add({
         title: action === "delete" ? "Duplicate leads deleted" : action === "keep" ? "Reviews completed" : "Duplicate leads assigned",
         description: action === "delete"
-          ? `${result.data.affected} ${noun} deleted. An Excel copy was downloaded and a recovery snapshot was saved in Recent Deletions.`
+          ? `${result.data.affected} ${noun} deleted. A JSON backup was downloaded and a recovery snapshot was saved in Recent Deletions.`
           : action === "keep"
             ? `${result.data.affected} assigned ${noun} marked reviewed.`
             : `${result.data.affected} ${noun} assigned to ${duplicateReviewTarget}${duplicateReviewAsFresh ? " as Fresh Leads; previous history is retained" : " with current statuses retained"}.`,
@@ -1747,20 +1765,26 @@ export function LeadsTable({
         if (!backup.success || backup.data.length === 0) {
           toast.add({
             title: "Batch deletion cancelled",
-            description: backup.success ? "No active leads were found in this batch." : `An Excel backup could not be prepared. ${backup.error}`,
+            description: backup.success ? "No active leads were found in this batch." : `A JSON backup could not be prepared. ${backup.error}`,
             type: "error",
           });
           return;
         }
-        await downloadLeadsExcel(
+        const history = await getLeadActivitiesForExport(backup.data.map((lead) => lead.id));
+        if (!history.success) {
+          toast.add({ title: "Batch deletion cancelled", description: `${history.error} Nothing was deleted.`, type: "error" });
+          return;
+        }
+        await downloadLeadJsonBackup(
           backup.data,
-          `assignment-batch-backup-${batch.label.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
+          history.data,
+          `assignment-batch-backup-${batch.label.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`,
         );
         const response = await deleteLeadAssignmentBatch(batch.id);
         if (!response.success) {
           toast.add({ title: "Batch deletion failed", description: response.error, type: "error" });
         } else {
-          toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. An Excel file and recovery snapshot were saved.`, type: "success" });
+          toast.add({ title: "Assignment batch deleted", description: `${response.data.deleted.toLocaleString()} leads removed. A JSON file and recovery snapshot were saved.`, type: "success" });
           setAssignmentBatchAction(null);
           refreshAfterAssignment();
           await refreshAssignmentBatches();
@@ -1828,12 +1852,18 @@ export function LeadsTable({
         });
         return;
       }
+      const history = await getLeadActivitiesForExport(backup.data.map((lead) => lead.id));
+      if (!history.success) {
+        toast.add({ title: "Batch deletion cancelled", description: `${history.error} Nothing was deleted.`, type: "error" });
+        return;
+      }
       const batchLabel = selectedSourceBatches.length === 1
         ? selectedSourceBatches[0].label
         : `${selectedSourceBatches.length} selected batches`;
-      await downloadLeadsExcel(
+      await downloadLeadJsonBackup(
         backup.data,
-        `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
+        history.data,
+        `leads-batch-backup-${batchLabel.replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`,
       );
       const response = await deleteLeadSourceBatches(batchRefs);
       if (!response.success) {
@@ -1845,7 +1875,7 @@ export function LeadsTable({
       router.refresh();
       toast.add({
         title: "Import batches deleted",
-        description: `${response.data.deleted.toLocaleString()} leads from ${response.data.batches} batch${response.data.batches === 1 ? "" : "es"} were deleted. An Excel file and recovery snapshot were saved.`,
+        description: `${response.data.deleted.toLocaleString()} leads from ${response.data.batches} batch${response.data.batches === 1 ? "" : "es"} were deleted. A JSON file and recovery snapshot were saved.`,
         type: "success",
       });
     } catch (error) {
@@ -1883,9 +1913,15 @@ export function LeadsTable({
         });
         return;
       }
-      await downloadLeadsExcel(
+      const history = await getLeadActivitiesForExport(selectedIds);
+      if (!history.success) {
+        toast.add({ title: "Delete cancelled - activity backup could not be prepared", description: `${history.error} Nothing was deleted.`, type: "error" });
+        return;
+      }
+      await downloadLeadJsonBackup(
         backup.data,
-        `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`,
+        history.data,
+        `leads-backup-before-delete-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`,
       );
       backupDownloaded = true;
 
@@ -2610,8 +2646,9 @@ export function LeadsTable({
           </div>
         )}
         <CardContent>
-          <Table className="min-w-[1480px] table-fixed">
+          <Table className="min-w-[1520px] table-fixed">
             <TableHeader><TableRow>
+              <TableHead className="w-[90px]">Lead ID</TableHead>
               {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads on this page" checked={sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeads.includes(lead.id))} onChange={(event) => { const checked = event.target.checked; setSelectedLeads((current) => checked ? [...new Set([...current, ...sortedLeads.map((lead) => lead.id)])] : current.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[150px]">Contact</TableHead>
@@ -2625,7 +2662,7 @@ export function LeadsTable({
             <TableBody>
               {sortedLeads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canDelete ? 9 : 8} className="py-10">
+                  <TableCell colSpan={canDelete ? 10 : 9} className="py-10">
                     {/*
                       Never look broken: distinguish "the database is empty" from
                       "your filters hide everything", and put the fix (import /
@@ -2693,7 +2730,7 @@ export function LeadsTable({
               ) : sortedLeads.map((lead) => {
                 // New/Fresh are assignment workflow categories, not synonyms
                 // for the lead's editable disposition value.
-                const workflowLabel = leadWorkflowLabel(lead, today);
+                const workflowLabel = leadWorkflowLabel(lead, Date.parse(workflowNow));
                 const isNew = workflowLabel === "New";
                 const leadStatus = canonicalLeadStatus(lead.status);
                 const statusBadgeClass = workflowLabel === "New"
@@ -2709,12 +2746,14 @@ export function LeadsTable({
                       : workflowLabel === "Dropped"
                           ? "border-rose-200 bg-rose-50 text-rose-700"
                           : "border-slate-200 bg-slate-50 text-slate-600";
-                const ageLabel = isNew ? (lead.assigned_at ? "Assigned today" : "Added today") : relativeLeadAge(lead.lead_date);
+                const ageLabel = isNew ? "Under 24 hours" : workflowLabel === "Fresh" ? "Untouched over 24 hours" : relativeLeadAge(lead.lead_date);
+                const originalSourceStatus = lead.imported_status?.trim() || lead.intake_status?.trim() || "";
                 const treatment = treatmentCellData(lead);
                 return (
                 <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-emerald-50/50" : undefined)}>
+                  <TableCell className="py-3 font-mono text-xs tabular-nums text-slate-500">{lead.lead_sequence_id == null ? "—" : `#${lead.lead_sequence_id.toLocaleString("en-IN")}`}</TableCell>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{originalSourceStatus && <p className="mt-1 max-w-full break-words whitespace-normal text-[11px] text-slate-500">Source status: {originalSourceStatus}</p>}{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <span className="font-medium tabular-nums">
                       <PhonePreview value={lead.phone} className="text-sm text-slate-700" />
@@ -2729,8 +2768,9 @@ export function LeadsTable({
                       <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
                         {ageLabel ?? "No date"}
                       </p>
+                      <p className="text-[10px] text-slate-500">Added: {formatDate(lead.created_at)}</p>
                       <p className="text-[10px] text-slate-400">
-                        {lead.assigned_at ? "Assigned" : "Added"} {formatLeadTimeDisplay(lead.assigned_at || lead.created_at) || "time unavailable"}
+                        Added {formatLeadTimeDisplay(lead.created_at) || "time unavailable"}
                       </p>
                     </div>
                   </TableCell>
@@ -2789,7 +2829,7 @@ export function LeadsTable({
                     <SelectTrigger size="sm" aria-label={`Assigned employee for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks === "-" ? "" : lead.remarks}>{lead.remarks === "-" ? "" : lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div></TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks === "-" ? "" : lead.remarks}>{lead.remarks === "-" ? "" : lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div>{lead.remarks_updated_at && <p className="mt-1 text-[10px] font-medium text-emerald-700">Remark updated {formatLeadTimeDisplay(lead.remarks_updated_at)}</p>}</TableCell>
                 </TableRow>
                 );
               })}

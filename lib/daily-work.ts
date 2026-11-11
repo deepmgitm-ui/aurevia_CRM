@@ -39,49 +39,62 @@ interface DailyQuery<Q> {
   or(expression: string): Q;
 }
 
+const CLINIC_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function clinicDateKey(instant: Date): string {
+  return CLINIC_DATE_FORMATTER.format(instant);
+}
+
+/** Current clinic-day bounds in India Standard Time. */
+export function clinicDayBounds(now: Date | number = Date.now()): { from: string; to: string } {
+  const instant = typeof now === "number" ? now : now.getTime();
+  const day = clinicDateKey(new Date(instant));
+  const start = new Date(`${day}T00:00:00.000+05:30`);
+  return { from: start.toISOString(), to: new Date(start.getTime() + 86_400_000).toISOString() };
+}
+
 /** Historic assignment lists use assigned_at; appointment lists use the RLS-scoped CRM appointment RPC. */
 export function applyAssignmentDayFilter<Q extends DailyQuery<Q>>(query: Q, day: string): Q {
   const window = assignmentDayWindow(day);
   return query.gte("assigned_at", window.from).lt("assigned_at", window.to);
 }
 
-/**
- * Today's New Leads are untouched assignments made today plus untouched
- * unassigned leads created today, not rows whose imported disposition happens
- * to say "New". The same predicate drives counts and the New Leads drill-down.
- */
-export function applyCurrentNewLeadFilter<Q extends DailyQuery<Q>>(query: Q, day: string): Q {
-  const window = assignmentDayWindow(day);
-  return query
-    .eq("workflow_bucket", "fresh")
-    .or(
-      `and(assigned_fresh_since.gte.${window.from},assigned_fresh_since.lt.${window.to}),` +
-      `and(fresh_pending_since.gte.${window.from},fresh_pending_since.lt.${window.to},` +
-      "or(assigned_to.is.null,assigned_to.eq.-,assigned_to.eq.unassigned))",
-    );
+/** Fresh means an untouched lead received during today's India clinic date. */
+export function applyDailyFreshLeadFilter<Q extends DailyQuery<Q>>(query: Q, now: Date | number = Date.now()): Q {
+  const { from, to } = clinicDayBounds(now);
+  return query.eq("workflow_bucket", "fresh").gte("fresh_pending_since", from).lt("fresh_pending_since", to);
 }
 
-/** Older untouched leads use their assignment date, or intake date if unassigned. */
-export function olderFreshLeadFilter(day: string): string {
-  const start = assignmentDayWindow(day).from;
-  return `assigned_fresh_since.lt.${start},and(assigned_fresh_since.is.null,fresh_pending_since.lt.${start})`;
+/** New means untouched leads received before today's India clinic date. */
+export function applyUntouchedNewLeadFilter<Q extends DailyQuery<Q>>(query: Q, now: Date | number = Date.now()): Q {
+  const { from } = clinicDayBounds(now);
+  return query.eq("workflow_bucket", "fresh").lt("fresh_pending_since", from);
 }
 
 export interface LeadWorkflowFields {
   workflow_bucket?: string | null;
   assigned_fresh_since?: string | null;
   fresh_pending_since?: string | null;
+  created_at?: string | null;
   assigned_to?: string | null;
   status?: string | null;
 }
 
-/** Category label used on lead rows so status "New" cannot masquerade as Fresh. */
-export function leadWorkflowLabel(lead: LeadWorkflowFields, today: string): string {
+/** Today's untouched leads are Fresh; older untouched leads are New. */
+export function leadWorkflowLabel(lead: LeadWorkflowFields, now: Date | number = Date.now()): string {
   const bucket = lead.workflow_bucket ?? "";
   if (bucket === "fresh") {
-    const window = assignmentDayWindow(today);
-    const since = lead.assigned_fresh_since ?? lead.fresh_pending_since ?? "";
-    return since >= window.from && since < window.to ? "New" : "Fresh";
+    const since = lead.fresh_pending_since ?? lead.assigned_fresh_since ?? lead.created_at ?? "";
+    const instant = typeof now === "number" ? now : now.getTime();
+    const intakeTime = Date.parse(since);
+    return Number.isFinite(intakeTime) && clinicDateKey(new Date(intakeTime)) === clinicDateKey(new Date(instant))
+      ? "Fresh"
+      : "New";
   }
   const status = (lead.status ?? "").trim();
   const defaultNewStatus = ["", "-", "--", "new", "new lead"].includes(status.toLowerCase());

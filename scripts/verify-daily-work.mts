@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyAssignmentDayFilter, applyCurrentNewLeadFilter, olderFreshLeadFilter, assignmentDayWindow, isWorkDate, isValidTaskPageRequest, leadWorkflowLabel } from "../lib/daily-work.ts";
+import { applyAssignmentDayFilter, applyDailyFreshLeadFilter, applyUntouchedNewLeadFilter, clinicDayBounds, assignmentDayWindow, isWorkDate, isValidTaskPageRequest, leadWorkflowLabel } from "../lib/daily-work.ts";
 import { clinicDate } from "../lib/attendance.ts";
 import { parseLeadFilters, leadsHref, hasLeadFilters, describeActiveFilters } from "../app/dashboard/lead-filters.ts";
 
@@ -19,29 +19,6 @@ class Query {
   gte(column: string, value: string) { this.predicates.push(row => row[column] !== null && (row[column] ?? "") >= value); return this; }
   lt(column: string, value: string) { this.predicates.push(row => row[column] !== null && (row[column] ?? "") < value); return this; }
   eq(column: string, value: string) { this.predicates.push(row => row[column] === value); return this; }
-  or(expression: string) {
-    const olderFresh = expression.match(/^assigned_fresh_since\.lt\.([^,]+),and\(assigned_fresh_since\.is\.null,fresh_pending_since\.lt\.([^,]+)\)$/);
-    if (olderFresh) {
-      const [, assignedBefore, pendingBefore] = olderFresh;
-      this.predicates.push(row => Boolean(
-        (row.assigned_fresh_since && row.assigned_fresh_since < assignedBefore) ||
-        (row.assigned_fresh_since == null && row.fresh_pending_since && row.fresh_pending_since < pendingBefore),
-      ));
-      return this;
-    }
-    const freshWindow = expression.match(/^and\(assigned_fresh_since\.gte\.([^,]+),assigned_fresh_since\.lt\.([^,]+)\),and\(fresh_pending_since\.gte\.([^,]+),fresh_pending_since\.lt\.([^,]+),or\(assigned_to\.is\.null,assigned_to\.eq\.-,assigned_to\.eq\.unassigned\)\)$/);
-    if (freshWindow) {
-      const [, assignedFrom, assignedTo, pendingFrom, pendingTo] = freshWindow;
-      this.predicates.push(row => Boolean(
-        (row.assigned_fresh_since && row.assigned_fresh_since >= assignedFrom && row.assigned_fresh_since < assignedTo) ||
-        (row.fresh_pending_since && row.fresh_pending_since >= pendingFrom && row.fresh_pending_since < pendingTo && (row.assigned_to == null || row.assigned_to === "-" || row.assigned_to === "unassigned")),
-      ));
-      return this;
-    }
-    const alternatives = expression.split(",").map(part => part.split(".eq."));
-    this.predicates.push(row => alternatives.some(([column, value]) => row[column] === value));
-    return this;
-  }
   matches(row: Row) { return this.predicates.every(predicate => predicate(row)); }
 }
 const rows: Row[] = [
@@ -61,25 +38,30 @@ const rows: Row[] = [
   assert.ok(describeActiveFilters(filters).some(label => label.includes("2026-10-11")));
 }
 assert.equal(parseLeadFilters({ work: "assigned", day: "2026-02-30" }).work, "");
-const currentNewFilter = applyCurrentNewLeadFilter(new Query(), "2026-10-11");
-const currentNewRows: Row[] = [
-  { id: "today-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:31:00.000Z", workflow_bucket: "fresh" },
-  { id: "yesterday-untouched", assigned_at: "2026-10-10T18:00:00.000Z", assigned_fresh_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
-  { id: "today-touched", assigned_at: "2026-10-10T18:40:00.000Z", assigned_fresh_since: "2026-10-10T18:40:00.000Z", workflow_bucket: "followup" },
-  { id: "today-unassigned", assigned_to: "-", fresh_pending_since: "2026-10-10T18:40:00.000Z", workflow_bucket: "fresh" },
-  { id: "yesterday-unassigned", assigned_to: "-", fresh_pending_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
+const now = new Date("2026-10-11T18:30:00.000Z"); // 12 Oct, exactly midnight in India
+assert.deepEqual(clinicDayBounds(now), { from: "2026-10-11T18:30:00.000Z", to: "2026-10-12T18:30:00.000Z" });
+const freshTodayFilter = applyDailyFreshLeadFilter(new Query(), now);
+const untouchedNewFilter = applyUntouchedNewLeadFilter(new Query(), now);
+const bucketRows: Row[] = [
+  { id: "today-exactly-midnight", fresh_pending_since: "2026-10-11T18:30:00.000Z", workflow_bucket: "fresh" },
+  { id: "today-after-midnight", fresh_pending_since: "2026-10-11T18:31:00.000Z", workflow_bucket: "fresh" },
+  { id: "previous-day-last-millisecond", fresh_pending_since: "2026-10-11T18:29:59.999Z", workflow_bucket: "fresh" },
+  { id: "older-untouched", fresh_pending_since: "2026-10-10T18:30:00.000Z", workflow_bucket: "fresh" },
+  { id: "reassigned-but-old-intake", assigned_fresh_since: "2026-10-11T18:00:00.000Z", fresh_pending_since: "2026-10-10T18:29:00.000Z", workflow_bucket: "fresh" },
+  { id: "today-touched", fresh_pending_since: "2026-10-11T18:40:00.000Z", workflow_bucket: "followup" },
+  { id: "unassigned-today", assigned_to: "-", fresh_pending_since: "2026-10-11T18:40:00.000Z", workflow_bucket: "fresh" },
+  { id: "unassigned-older", assigned_to: "-", fresh_pending_since: "2026-10-11T18:29:00.000Z", workflow_bucket: "fresh" },
 ];
-assert.deepEqual(currentNewRows.filter(row => currentNewFilter.matches(row)).map(row => row.id), ["today-untouched", "today-unassigned"]);
-const olderFreshFilter = new Query().eq("workflow_bucket", "fresh").or(olderFreshLeadFilter("2026-10-11"));
-assert.deepEqual(currentNewRows.filter(row => olderFreshFilter.matches(row)).map(row => row.id), ["yesterday-untouched", "yesterday-unassigned"]);
-assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "New");
+assert.deepEqual(bucketRows.filter(row => freshTodayFilter.matches(row)).map(row => row.id), ["today-exactly-midnight", "today-after-midnight", "unassigned-today"]);
+assert.deepEqual(bucketRows.filter(row => untouchedNewFilter.matches(row)).map(row => row.id), ["previous-day-last-millisecond", "older-untouched", "reassigned-but-old-intake", "unassigned-older"]);
+assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", fresh_pending_since: "2026-10-11T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, now), "Fresh");
 for (const status of ["Follow-Up", "DNP", "OPD Booked", "Dropped"]) {
-  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "New", `Untouched ${status} imports should retain their workflow bucket`);
-  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-09T18:31:00.000Z", assigned_to: "Agent A", status }, "2026-10-11"), "Fresh", `Older untouched ${status} imports should be Fresh`);
+  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", fresh_pending_since: "2026-10-11T18:31:00.000Z", assigned_to: "Agent A", status }, now), "Fresh", `Today's untouched ${status} imports should retain the Fresh bucket`);
+  assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", fresh_pending_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status }, now), "New", `Earlier untouched ${status} should be New`);
 }
-assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", assigned_fresh_since: "2026-10-10T18:29:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Fresh");
-assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, "2026-10-11"), "Follow-up");
-assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "DNP" }, "2026-10-11"), "DNP");
+assert.equal(leadWorkflowLabel({ workflow_bucket: "fresh", fresh_pending_since: "2026-10-11T18:29:59.999Z", assigned_to: "Agent A", status: "New" }, now), "New");
+assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "New" }, now), "Follow-up");
+assert.equal(leadWorkflowLabel({ workflow_bucket: "followup", assigned_fresh_since: "2026-10-10T18:31:00.000Z", assigned_to: "Agent A", status: "DNP" }, now), "DNP");
 const statusFilters = parseLeadFilters({ work: "assigned", day: "2026-10-11", status: "OPD Booked" });
 const statusUrl = new URL(leadsHref(statusFilters), "https://crm.test");
 assert.deepEqual(parseLeadFilters(Object.fromEntries(statusUrl.searchParams)), statusFilters);

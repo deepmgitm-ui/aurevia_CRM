@@ -74,11 +74,12 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
         values('00000000-0000-4000-8000-000000000103','Dropped','2026-10-11T05:00:00Z','2026-10-18T05:00:00Z')`);
     }
   }
-  const legacyUntouched = (await db.query(`select status, assigned_to, workflow_bucket,
+  const legacyUntouched = (await db.query(`select status, intake_status, assigned_to, workflow_bucket,
     assigned_fresh_since, first_agent_touch_at from leads
     where id='00000000-0000-4000-8000-000000000101'`)).rows[0];
   assert.equal(legacyUntouched.workflow_bucket, "fresh", "legacy imported disposition remains Fresh until CRM touch");
-  assert.equal(legacyUntouched.status, "Follow-Up", "legacy imported disposition remains unchanged");
+  assert.equal(legacyUntouched.status, "Follow-Up", "untouched legacy leads retain their source status");
+  assert.equal(legacyUntouched.intake_status, "Follow-Up", "legacy intake status remains recorded");
   assert.equal(legacyUntouched.assigned_to, "Agent A", "legacy owner remains unchanged");
   assert.equal(legacyUntouched.assigned_fresh_since.toISOString(), "2026-10-12T05:00:00.000Z", "Fresh day uses the last known assignment date");
   assert.equal(legacyUntouched.first_agent_touch_at, null);
@@ -87,19 +88,104 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
   assert.equal(legacyTouched.workflow_bucket, "followup", "a recorded historical CRM interaction ends Fresh");
   assert.equal(legacyTouched.status, "Follow-Up", "historical touch reconstruction preserves disposition");
   assert.equal(legacyTouched.first_agent_touch_at.toISOString(), "2026-10-13T05:00:00.000Z");
-  const legacyClosed = (await db.query(`select status, workflow_bucket, closed_status_since,
+  const legacyClosed = (await db.query(`select status, intake_status, workflow_bucket, closed_status_since,
     fresh_pending_since from leads where id='00000000-0000-4000-8000-000000000103'`)).rows[0];
   assert.equal(legacyClosed.workflow_bucket, "fresh", "untouched imported closed status does not enter cleanup");
-  assert.equal(legacyClosed.status, "Dropped", "legacy closed disposition remains unchanged");
+  assert.equal(legacyClosed.status, "Dropped", "untouched imported closed leads retain their source status");
+  assert.equal(legacyClosed.intake_status, "Dropped", "legacy closed status remains recorded at intake");
   assert.equal(legacyClosed.closed_status_since, null, "unworked imported closed status has no cleanup clock");
   assert.equal(legacyClosed.fresh_pending_since.toISOString(), "2026-10-11T05:00:00.000Z", "unassigned Fresh date uses intake date");
   assert.equal((await db.query("select count(*)::int as n from crm_lead_deletion_reviews where lead_id='00000000-0000-4000-8000-000000000103' and decision='pending'")).rows[0].n, 0,
     "an unworked imported closed status is removed from the pending cleanup queue");
+  const sourceStatusLead = (await db.query(
+    "insert into leads(name,phone,status,assigned_to) values('Source disposition fixture','9190000099','Not Interested','Agent A') returning id,status,intake_status,workflow_bucket,fresh_pending_since",
+  )).rows[0];
+  assert.equal(sourceStatusLead.status, "New", "all inserts start in the New disposition");
+  assert.equal(sourceStatusLead.intake_status, "Not Interested", "the original source disposition remains visible");
+  assert.equal(sourceStatusLead.workflow_bucket, "fresh", "the untouched lead enters the New workflow bucket");
+  assert.ok(sourceStatusLead.fresh_pending_since, "the 24-hour clock starts when the lead is inserted");
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
+  await db.query("update leads set remarks='First callback attempt' where id=$1", [sourceStatusLead.id]);
+  const remarkOnly = (await db.query("select status,intake_status,workflow_bucket,first_agent_touch_at,remarks_updated_at from leads where id=$1", [sourceStatusLead.id])).rows[0];
+  assert.equal(remarkOnly.status, "New", "a remark does not replace the current disposition");
+  assert.equal(remarkOnly.workflow_bucket, "fresh", "a remark alone leaves the lead untouched in its bucket");
+  assert.equal(remarkOnly.first_agent_touch_at, null, "remarks do not count as first contact");
+  assert.ok(remarkOnly.remarks_updated_at, "remark-only edits record a visible update timestamp");
+  await db.exec("reset role;");
   await db.query("delete from leads where id=any($1::uuid[])", [[
     "00000000-0000-4000-8000-000000000101",
     "00000000-0000-4000-8000-000000000102",
     "00000000-0000-4000-8000-000000000103",
   ]]);
+  const newIntake = (await db.query(`insert into leads(name, phone, status, source)
+    values('New intake fixture', '9876500001', 'DNP', 'Excel/CSV')
+    returning id, status, intake_status`)).rows[0];
+  assert.equal(newIntake.status, "New", "database insertion rule starts every lead in the New disposition");
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [newIntake.id])).rows[0].workflow_bucket, "fresh",
+    "a source disposition does not prevent a new lead from entering Fresh");
+  assert.equal(newIntake.intake_status, "DNP", "database insertion rule retains the supplied intake status");
+  const immutableIntake = (await db.query(`update leads set status='Follow-Up', intake_status='RNR'
+    where id=$1 returning status, intake_status`, [newIntake.id])).rows[0];
+  assert.equal(immutableIntake.status, "Follow-Up", "later CRM status changes remain editable");
+  assert.equal(immutableIntake.intake_status, "DNP", "later edits cannot replace the intake status");
+  assert.equal((await db.query("select workflow_bucket,first_agent_touch_at from leads where id=$1", [newIntake.id])).rows[0].workflow_bucket, "fresh",
+    "a status-only change keeps an untouched lead Fresh");
+  await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000001','Touch','Lead opened')", [newIntake.id]);
+  const openedLead = (await db.query("select workflow_bucket,first_agent_touch_at from leads where id=$1", [newIntake.id])).rows[0];
+  assert.equal(openedLead.workflow_bucket, "fresh", "a timeline note does not change the lead's Fresh workflow bucket");
+  assert.equal(openedLead.first_agent_touch_at, null, "a timeline note without a disposition change does not mark a lead worked");
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1 and action_type='Touch'", [newIntake.id])).rows[0].n, 1,
+    "opening a lead remains visible in its activity timeline");
+  await db.query("delete from leads where id=$1", [newIntake.id]);
+
+  const monthlyLeads = (await db.query(`insert into leads(name,phone,assigned_to,status)
+    values ('Monthly OPD booked','9190000101','Agent A','New'),
+           ('Monthly OPD completed','9190000102','Agent A','New'),
+           ('Monthly IPD booked','9190000103','Agent A','New'),
+           ('Monthly IPD completed','9190000104','Agent A','New'),
+           ('Next month OPD booked','9190000105','Agent A','New')
+    returning id`)).rows.map((row) => row.id);
+  const monthlyAppointmentBaseline = (await db.query(
+    "select crm_monthly_appointment_summary('Agent A') as summary",
+  )).rows[0].summary;
+  await db.query(`insert into crm_appointments(lead_id,kind,status,starts_on)
+    values ($1,'opdBooked','booked',(now() at time zone 'Asia/Kolkata')::date),
+           ($2,'opdBooked','completed',(now() at time zone 'Asia/Kolkata')::date),
+           ($3,'ipdDone','booked',(now() at time zone 'Asia/Kolkata')::date),
+           ($4,'ipdDone','completed',(now() at time zone 'Asia/Kolkata')::date),
+           ($5,'opdBooked','booked',(date_trunc('month',now() at time zone 'Asia/Kolkata') + interval '1 month')::date)`,
+    monthlyLeads,
+  );
+  await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  const monthlyAppointmentResult = (await db.query(
+    "select crm_monthly_appointment_summary('Agent A') as summary",
+  )).rows[0].summary;
+  assert.deepEqual({
+    opdBooked: monthlyAppointmentResult.counts.opdBooked - monthlyAppointmentBaseline.counts.opdBooked,
+    opdDone: monthlyAppointmentResult.counts.opdDone - monthlyAppointmentBaseline.counts.opdDone,
+    ipdBooked: monthlyAppointmentResult.counts.ipdBooked - monthlyAppointmentBaseline.counts.ipdBooked,
+    ipdDone: monthlyAppointmentResult.counts.ipdDone - monthlyAppointmentBaseline.counts.ipdDone,
+  }, { opdBooked: 2, opdDone: 1, ipdBooked: 1, ipdDone: 1 },
+  "appointment counts use the clinic calendar month and exclude the next month");
+  const monthlyAgent = monthlyAppointmentResult.byAgent.find((row) => row.assignedTo === "Agent A");
+  const baselineAgent = monthlyAppointmentBaseline.byAgent.find((row) => row.assignedTo === "Agent A") ?? {
+    opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0,
+  };
+  assert.deepEqual({
+    opdBooked: monthlyAgent.opdBooked - baselineAgent.opdBooked,
+    opdDone: monthlyAgent.opdDone - baselineAgent.opdDone,
+    ipdBooked: monthlyAgent.ipdBooked - baselineAgent.ipdBooked,
+    ipdDone: monthlyAgent.ipdDone - baselineAgent.ipdDone,
+  }, { opdBooked: 2, opdDone: 1, ipdBooked: 1, ipdDone: 1 },
+  "each agent receives the same scoped monthly appointment counts");
+  const expectedMonth = (await db.query(`select
+    date_trunc('month',now() at time zone 'Asia/Kolkata')::date as month_start,
+    (date_trunc('month',now() at time zone 'Asia/Kolkata') + interval '1 month')::date - 1 as month_end`)).rows[0];
+  assert.equal(monthlyAppointmentResult.period.from, expectedMonth.month_start.toISOString().slice(0, 10));
+  assert.equal(monthlyAppointmentResult.period.to, expectedMonth.month_end.toISOString().slice(0, 10));
+  await db.exec("reset role;");
+  await db.query("delete from leads where id=any($1::uuid[])", [monthlyLeads]);
+
   const hardened = (await db.query(`select
     has_function_privilege('anon','public.handle_new_user()','execute') as anon_handle,
     has_function_privilege('anon','public.crm_existing_phone_identities(text[])','execute') as anon_phone_lookup,
@@ -246,7 +332,7 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
   );
   assert.equal(
     (
-      await db.query("select follow_up_at from leads")
+      await db.query("select follow_up_at from leads where id=$1", [id])
     ).rows[0].follow_up_at.toISOString(),
     "2026-10-13T04:00:00.000Z",
   );
@@ -461,7 +547,7 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
   ).rows[0];
   assert.equal(
     appointmentStatusActivity.description,
-    "New → OPD Done",
+    "Patient: Legacy fixture · 9876543210 | New → OPD Done",
     "appointment completion records the exact lead status transition",
   );
   assert.equal(
@@ -497,7 +583,7 @@ daily=(await db.query('select crm_daily_work_counts($1) x',[today])).rows[0].x;a
 const completedIpdIds=(await db.query("select id::text from crm_daily_lead_ids('ipdDone',$1)",[today])).rows.map((row)=>row.id);
 assert.ok(completedIpdIds.includes(id),'IPD completion card opens the completed patient');
 const ipdTransition=(await db.query("select description from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc,id desc limit 1",[id])).rows[0].description;
-assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and completion both record status transitions');
+assert.equal(ipdTransition,'Patient: Legacy fixture · 9876543210 | IPD Booked → IPD Done','calendar edits and completion both record status transitions');
 // A recovered legacy duplicate can be merged only with fresh versions and phone confirmation.
   await db.exec(
     `reset role;alter table leads disable trigger crm_phone_guard;`,
@@ -554,13 +640,20 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("delete from leads where id=any($1::uuid[])", [[followUpA, followUpB]]);
   const importedLeadId = (await db.query("insert into leads(name,phone,assigned_to,status) values('Untouched import','9192222299','-','DNP') returning id")).rows[0].id;
   await db.query("update leads set assigned_to='Agent A' where id=$1", [importedLeadId]);
-  let importedLead = (await db.query("select status,workflow_bucket from leads where id=$1", [importedLeadId])).rows[0];
-  assert.equal(importedLead.status, 'DNP', 'assignment preserves the imported disposition');
+  let importedLead = (await db.query("select status,intake_status,workflow_bucket,remarks_updated_at from leads where id=$1", [importedLeadId])).rows[0];
+  assert.equal(importedLead.status, 'New', 'newly ingested leads always start in the New disposition');
+  assert.equal(importedLead.intake_status, 'DNP', 'assignment preserves the supplied intake disposition');
   assert.equal(importedLead.workflow_bucket, 'fresh', 'assignment alone keeps the imported lead untouched');
   await db.query("update leads set remarks='First CRM update' where id=$1", [importedLeadId]);
-  importedLead = (await db.query("select status,workflow_bucket from leads where id=$1", [importedLeadId])).rows[0];
-  assert.equal(importedLead.status, 'DNP');
-  assert.notEqual(importedLead.workflow_bucket, 'fresh', 'CRM work ends the untouched state');
+  importedLead = (await db.query("select status,intake_status,workflow_bucket,remarks_updated_at from leads where id=$1", [importedLeadId])).rows[0];
+  assert.equal(importedLead.status, 'New');
+  assert.equal(importedLead.intake_status, 'DNP');
+  assert.equal(importedLead.workflow_bucket, 'fresh', 'a remarks-only edit leaves the lead in its existing workflow bucket');
+  assert.ok(importedLead.remarks_updated_at, 'a remarks-only edit records a dedicated timestamp for the lead card');
+  const remarkUpdatedAt = importedLead.remarks_updated_at;
+  await db.query("update leads set city='Mumbai' where id=$1", [importedLeadId]);
+  assert.equal(new Date((await db.query("select remarks_updated_at from leads where id=$1", [importedLeadId])).rows[0].remarks_updated_at).toISOString(), new Date(remarkUpdatedAt).toISOString(),
+    'editing another detail does not rewrite the remark timestamp');
   await db.query("delete from leads where id=$1", [importedLeadId]);
   const concurrentLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Concurrent edit','9192222298','Agent A','New') returning id,updated_at::text")).rows[0];
   await db.query("update leads set status='DNP' where id=$1", [concurrentLead.id]);
@@ -586,11 +679,15 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal(assignmentState.first_agent_touch_at, null);
   const beforeAdminEdit = Number((await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned);
   await db.query("update leads set status='Language' where id=$1", [newAssignmentId]);
+  assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at, assigned_fresh_since, fresh_pending_since, imported_status from leads where id=$1", [newAssignmentId])).rows[0];
+  assert.equal(assignmentState.workflow_bucket, "followup", "a status update moves an untouched lead into its disposition bucket");
+  assert.ok(assignmentState.first_agent_touch_at);
+  await db.query("update leads set remarks='Admin worked this lead' where id=$1", [newAssignmentId]);
   assignmentState = (await db.query("select workflow_bucket, first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
-  assert.equal(assignmentState.workflow_bucket, "followup", "admin disposition update removes the lead from New Today");
+  assert.equal(assignmentState.workflow_bucket, "followup", "a real admin edit moves the lead out of Fresh");
   assert.ok(assignmentState.first_agent_touch_at);
   const afterAdminEdit = Number((await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned);
-  assert.equal(beforeAdminEdit - afterAdminEdit, 1, "daily New count matches the changed disposition");
+  assert.equal(beforeAdminEdit - afterAdminEdit, 1, "daily New count matches the actual first work event");
   await db.query("update leads set assigned_to='Agent B',status='New',first_agent_touch_at=null where id=$1", [newAssignmentId]);
   assignmentEvent = (await db.query("select assigned_to, previous_assigned_to, event_kind, actor_id from crm_assignment_events where lead_id=$1 order by id desc limit 1", [newAssignmentId])).rows[0];
   assert.equal(assignmentEvent.previous_assigned_to, "Agent A");
@@ -617,10 +714,11 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("update leads set status='RNR' where id=$1", [newAssignmentId]);
   let employeeStatus = (await db.query("select status,workflow_bucket,first_agent_touch_at from leads where id=$1", [newAssignmentId])).rows[0];
   assert.equal(employeeStatus.status, "RNR", "assigned employee can save a disposition through lead RLS");
-  assert.equal(employeeStatus.workflow_bucket, "followup", "employee status change ends the fresh bucket");
-  assert.ok(employeeStatus.first_agent_touch_at, "employee status change records first CRM touch");
+  assert.equal(employeeStatus.workflow_bucket, "followup", "employee disposition change moves the lead out of New/Fresh");
+  assert.ok(employeeStatus.first_agent_touch_at, "a disposition change records the first agent touch");
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000003','Status changed','New → RNR')", [newAssignmentId]);
   assert.equal((await db.query("select status from leads where id=$1", [newAssignmentId])).rows[0].status, "RNR", "status timeline activity does not revert the disposition");
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0].workflow_bucket, "followup", "status timeline activity does not revert the disposition bucket");
   await db.query("update leads set remarks='Agent B note' where id=$1", [newAssignmentId]);
   employeeStatus = (await db.query("select status,workflow_bucket from leads where id=$1", [newAssignmentId])).rows[0];
   assert.equal(employeeStatus.status, "RNR", "a later employee remarks edit does not revert the saved disposition");
@@ -649,9 +747,10 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     "insert into crm_assignment_batches(label,created_by,created_by_name,target_names,lead_count) values('Keep status transfer',auth.uid(),'Admin',array['Agent A'],2) returning id",
   )).rows[0].id;
   const keepBatchLeads = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Keep status DNP','9192222281','Agent A','DNP',$1),('Keep status OPD','9192222282','Agent A','OPD Booked',$1) returning id,status",
+    "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Keep status DNP','9192222281','Agent A','New',$1),('Keep status OPD','9192222282','Agent A','New',$1) returning id,status",
     [keepBatchId],
   )).rows;
+  await db.query("update leads set status=case when id=$1 then 'DNP' else 'OPD Booked' end where id=any($2::uuid[])", [keepBatchLeads[0].id, keepBatchLeads.map((lead) => lead.id)]);
   await db.exec("set role authenticated;");
   const keepTransfer = (await db.query(
     "select public.crm_transfer_assignment_batch($1,'Agent B',false) as transferred",
@@ -680,6 +779,8 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     "insert into leads(name,phone,assigned_to,status,follow_up_date,assignment_batch_id,first_agent_touch_at) values('Fresh transfer lead','9192222283','Agent A','DNP','2026-11-06',$1,now()) returning id",
     [freshBatchId],
   )).rows[0].id;
+  await db.query("update leads set status='DNP' where id=$1", [freshBatchLeadId]);
+  await db.query("update leads set first_agent_touch_at=now() where id=$1", [freshBatchLeadId]);
   assert.equal(Number((await db.query(
     "select public.crm_transfer_assignment_batch($1,'Agent B',true) as transferred",
     [freshBatchId],
@@ -708,6 +809,7 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     "insert into leads(name,phone,assigned_to,status,assignment_batch_id) values('Same transaction fresh transfer lead','9192222286','Agent A','DNP',$1) returning id",
     [sameTransactionBatchId],
   )).rows[0].id;
+  await db.query("update leads set status='DNP' where id=$1", [sameTransactionLeadId]);
   assert.equal(Number((await db.query(
     "select public.crm_transfer_assignment_batch($1,'Agent B',true) as transferred",
     [sameTransactionBatchId],
@@ -761,8 +863,9 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await db.query("delete from crm_assignment_batches where id=any($1::uuid[])", [[keepBatchId, freshBatchId, atomicBatchId]]);
 
   const bulkLeads = (await db.query(
-    "insert into leads(name,phone,assigned_to,status) values('Bulk DNP','9192222290','-','DNP'),('Bulk New','9192222291','-','New') returning id,name,status",
+    "insert into leads(name,phone,assigned_to,status) values('Bulk DNP','9192222290','-','New'),('Bulk New','9192222291','-','New') returning id,name,status",
   )).rows;
+  await db.query("update leads set status='DNP' where id=$1", [bulkLeads.find((lead) => lead.name === "Bulk DNP").id]);
   const bulkResult = (await db.query(
     "select public.crm_assign_leads_bulk($1::jsonb,'Bulk assignment',false,true,null) as result",
     [JSON.stringify(bulkLeads.map((lead) => ({ id: lead.id, name: 'Agent A' })))],
@@ -779,8 +882,9 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     { target_names: ["Agent A"], lead_count: 2 });
 
   const freshLeadId = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Bulk Fresh','9192222292','-','DNP','2026-11-06',now()) returning id",
+    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Bulk Fresh','9192222292','-','New','2026-11-06',now()) returning id",
   )).rows[0].id;
+  await db.query("update leads set status='DNP' where id=$1", [freshLeadId]);
   const freshResult = (await db.query(
     "select public.crm_assign_leads_bulk($1::jsonb,'Fresh bulk',true,true,null) as result",
     [JSON.stringify([{ id: freshLeadId, name: "Agent B" }])],
@@ -809,8 +913,9 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     "stale bulk assignment does not leave an empty batch");
 
   const rollbackLeads = (await db.query(
-    "insert into leads(name,phone,assigned_to,status) values('Bulk allowed','9192222294','-','New'),('Bulk blocked','9192222295','-','DNP') returning id,name",
+    "insert into leads(name,phone,assigned_to,status) values('Bulk allowed','9192222294','-','New'),('Bulk blocked','9192222295','-','New') returning id,name",
   )).rows;
+  await db.query("update leads set status='DNP' where id=$1", [rollbackLeads.find((lead) => lead.name === "Bulk blocked").id]);
   const batchCountBeforeFailure = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
   await db.exec(`reset role;
     create function public.fixture_block_bulk_assignment() returns trigger language plpgsql as $$
@@ -849,8 +954,9 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     [appendBatchId],
   )).rows[0].id;
   const appendLeads = (await db.query(
-    "insert into leads(name,phone,assigned_to,status) values('Append A','9192222301','-','Follow-Up'),('Append B','9192222302','-','OPD Booked') returning id,name,status",
+    "insert into leads(name,phone,assigned_to,status) values('Append A','9192222301','-','New'),('Append B','9192222302','-','New') returning id,name,status",
   )).rows;
+  await db.query("update leads set status=case when id=$1 then 'Follow-Up' else 'OPD Booked' end where id=any($2::uuid[])", [appendLeads[0].id, appendLeads.map((lead) => lead.id)]);
   const appendResult = (await db.query(
     "select public.crm_add_leads_to_assignment_batch($1,$2::jsonb) as result",
     [appendBatchId, JSON.stringify(appendLeads.map((lead,index) => ({ id: lead.id, name: index === 0 ? 'Agent A' : 'Agent B' })))],
@@ -903,11 +1009,12 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
 
   await db.exec("set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
   const editedLead = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,follow_up_date) values('Atomic edit','9192222310','Agent A','DNP','2026-11-07') returning id,updated_at",
+    "insert into leads(name,phone,assigned_to,status,follow_up_date) values('Atomic edit','9192222310','Agent A','New','2026-11-07') returning id",
   )).rows[0];
+  const editedLeadVersion = (await db.query("update leads set status='DNP' where id=$1 returning updated_at", [editedLead.id])).rows[0].updated_at;
   const editedResult = (await db.query(
     "select * from public.crm_update_lead_details_admin($1,$2::jsonb,$3,false)",
-    [editedLead.id, JSON.stringify({ assigned_to: "Agent B", status: "RNR", remarks: "Saved with transfer" }), editedLead.updated_at],
+    [editedLead.id, JSON.stringify({ assigned_to: "Agent B", status: "RNR", remarks: "Saved with transfer" }), editedLeadVersion],
   )).rows[0];
   assert.deepEqual(
     { assigned_to: editedResult.assigned_to, status: editedResult.status, remarks: editedResult.remarks, follow_up_date: editedResult.follow_up_date },
@@ -916,9 +1023,11 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   );
   assert.deepEqual((await db.query("select target_names,lead_count from crm_assignment_batches where id=$1", [editedResult.assignment_batch_id])).rows[0],
     { target_names: ["Agent B"], lead_count: 1 }, "detail reassignment batch matches the saved owner");
-  assert.deepEqual((await db.query("select user_id::text,action_type,description from lead_activities where lead_id=$1 and description=$2", [editedLead.id, "Changed: Remarks updated; Status: DNP → RNR; Assignment updated."])).rows[0],
-    { user_id: "00000000-0000-4000-8000-000000000001", action_type: "Status changed", description: "Changed: Remarks updated; Status: DNP → RNR; Assignment updated." },
-    "admin reassignment, disposition and edit receipt commit in the same transaction");
+  const editReceipt = (await db.query("select user_id::text,action_type,description from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc,id desc limit 1", [editedLead.id])).rows[0];
+  assert.equal(editReceipt?.user_id, "00000000-0000-4000-8000-000000000001", "admin edit receipt records its actor");
+  assert.equal(editReceipt?.action_type, "Status changed", "admin disposition update is logged in lead history");
+  assert.ok(editReceipt?.description?.includes("Remarks updated") && editReceipt.description.includes("Status:") && editReceipt.description.includes("Assignment updated"),
+    "admin reassignment, disposition and changed fields are recorded in the same activity receipt");
 
   const staleLead = (await db.query("insert into leads(name,phone,assigned_to,status) values('Stale edit','9192222311','Agent A','New') returning id")).rows[0];
   const batchCountBeforeStaleEdit = (await db.query("select count(*)::int n from crm_assignment_batches")).rows[0].n;
@@ -931,11 +1040,12 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     "stale detail edits leave no orphan batch");
 
   const freshEditLead = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Atomic fresh edit','9192222312','Agent A','DNP','2026-11-08',now()) returning id,updated_at",
+    "insert into leads(name,phone,assigned_to,status,follow_up_date,first_agent_touch_at) values('Atomic fresh edit','9192222312','Agent A','New','2026-11-08',now()) returning id",
   )).rows[0];
+  const freshEditVersion = (await db.query("update leads set status='DNP' where id=$1 returning updated_at", [freshEditLead.id])).rows[0].updated_at;
   const freshEdit = (await db.query(
     "select * from public.crm_update_lead_details_admin($1,$2::jsonb,$3,true)",
-    [freshEditLead.id, JSON.stringify({ assigned_to: "Agent B" }), freshEditLead.updated_at],
+    [freshEditLead.id, JSON.stringify({ assigned_to: "Agent B" }), freshEditVersion],
   )).rows[0];
   assert.deepEqual({ status: freshEdit.status, follow_up_date: freshEdit.follow_up_date, first_agent_touch_at: freshEdit.first_agent_touch_at },
     { status: "New", follow_up_date: "-", first_agent_touch_at: null }, "Send as Fresh resets workflow only when ownership changes");
@@ -989,33 +1099,43 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   ]) {
     bucketIds[key] = (await db.query(
       "insert into leads(name,phone,assigned_to,status,first_agent_touch_at) values($1,$2,'Agent A',$3,case when $4 then now() else null end) returning id",
-      [name, String(9100000000 + Object.keys(bucketIds).length), status, !['edited', 'activity'].includes(key)],
+      [name, String(9100000000 + Object.keys(bucketIds).length), "New", !['edited', 'activity'].includes(key)],
     )).rows[0].id;
+    if (status !== "New") await db.query("update leads set status=$2 where id=$1", [bucketIds[key], status]);
   }
-  const oldFreshId = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,assigned_at) values('Bucket old fresh','9191000000','Agent A','New',(date_trunc('day',now() at time zone 'Asia/Kolkata') - interval '1 day') at time zone 'Asia/Kolkata') returning id",
+  const oldUntouchedId = (await db.query(
+    "insert into leads(name,phone,assigned_to,status,assigned_at,fresh_pending_since) values('Bucket old untouched','9191000000','Agent A','New',(now() - interval '2 days'),(now() - interval '2 days')) returning id",
   )).rows[0].id;
-  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [oldFreshId])).rows[0].workflow_bucket, "fresh");
+  await db.query(
+    "insert into leads(name,phone,assigned_to,status,fresh_pending_since) values('Bucket midnight Fresh','9191000001','Agent A','New',((now() at time zone 'Asia/Kolkata')::date::timestamp at time zone 'Asia/Kolkata')) returning id",
+  );
+  await db.query(
+    "insert into leads(name,phone,assigned_to,status,fresh_pending_since) values('Bucket midnight New','9191000002','Agent A','New',(((now() at time zone 'Asia/Kolkata')::date::timestamp at time zone 'Asia/Kolkata') - interval '1 microsecond')) returning id",
+  );
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [oldUntouchedId])).rows[0].workflow_bucket, "fresh");
   assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "fresh");
   const initialGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
-  assert.ok(initialGroups.some((row) => row.bucket === "new" && Number(row.lead_count) >= 2), "today's untouched assignments are grouped as New Today");
-  assert.ok(initialGroups.some((row) => row.bucket === "fresh" && Number(row.lead_count) >= 1), "untouched assignments from earlier days are grouped as Fresh");
+  assert.ok(initialGroups.some((row) => row.bucket === "fresh" && Number(row.lead_count) >= 3), "today's untouched intake, including exact IST midnight, is grouped as Fresh");
+  assert.ok(initialGroups.some((row) => row.bucket === "new" && Number(row.lead_count) >= 2), "untouched intake from before IST midnight is grouped as New");
   assert.ok(initialGroups.some((row) => row.bucket === "lost" && Number(row.lead_count) >= 1), "closed outcomes are grouped as Lost");
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   const dailyBeforeTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
   await db.query("update leads set remarks='First agent edit' where id=$1", [bucketIds.edited]);
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,auth.uid(),'Note','First agent activity')", [bucketIds.activity]);
-  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "followup");
-  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.activity])).rows[0].workflow_bucket, "followup");
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.edited])).rows[0].workflow_bucket, "fresh", "remarks-only edits stay in their current workflow bucket");
+  assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds.activity])).rows[0].workflow_bucket, "fresh", "a note activity does not move a lead between buckets");
   const dailyAfterTouch = (await db.query("select crm_daily_work_counts((now() at time zone 'Asia/Kolkata')::date) x")).rows[0].x.assigned;
-  assert.equal(Number(dailyBeforeTouch) - Number(dailyAfterTouch), 2, "first note or field edit removes the lead from New Today");
+  assert.equal(Number(dailyBeforeTouch) - Number(dailyAfterTouch), 0, "remarks-only edits leave the daily Fresh count unchanged");
   for (const [key, expected] of [["opdBooked", "opdBooked"], ["opdDone", "opdDone"], ["ipdBooked", "ipdBooked"], ["ipdDone", "ipdDone"]]) {
     assert.equal((await db.query("select workflow_bucket from leads where id=$1", [bucketIds[key]])).rows[0].workflow_bucket, expected);
   }
   const bucketSummary = (await db.query("select crm_lead_bucket_summary('Agent A') x")).rows[0].x;
-  assert.ok(bucketSummary.fresh >= 1, "earlier untouched assignment counts as Fresh");
-  assert.ok(!((await db.query("select bucket from crm_team_bucket_groups() where assigned_to='Agent A' and bucket='fresh'")).rows.length === 0), "earlier untouched lead remains in Fresh grouping");
-  assert.ok(bucketSummary.followUp >= 2, "first edits and activities count as Follow-up");
+  assert.ok(bucketSummary.new >= 2, "earlier untouched intake counts as New");
+  assert.ok(bucketSummary.fresh >= 3, "today's untouched intake counts as Fresh");
+  const resetAt = (await db.query("select (((now() at time zone 'Asia/Kolkata')::date + 1)::timestamp at time zone 'Asia/Kolkata')::text as value")).rows[0].value;
+  assert.equal(Date.parse(bucketSummary.nextFreshAt), Date.parse(resetAt), "daily Fresh count resets at the next IST midnight");
+  assert.ok(!((await db.query("select bucket from crm_team_bucket_groups() where assigned_to='Agent A' and bucket='new'")).rows.length === 0), "earlier untouched lead remains in New grouping");
+  assert.equal(bucketSummary.followUp, 0, "remarks and activity-only edits do not enter Follow-up Work");
   assert.ok(bucketSummary.lost >= 1, "closed outcomes are included in role-scoped lead summaries");
   assert.ok(bucketSummary.ipdBooked >= 1 && bucketSummary.ipdDone >= 1, "IPD booked and done are separate");
 
@@ -1023,18 +1143,21 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   // Follow-up Work continuation queue.
   const callOutcomeIds = [];
   for (const [index, status] of ["DNP", "RNR", "CallBack", "Follow-Up"].entries()) {
-    callOutcomeIds.push((await db.query(
-      "insert into leads(name,phone,assigned_to,status,first_agent_touch_at) values($1,$2,'Agent A',$3,now()) returning id",
-      [`Bucket ${status}`, String(9100000200 + index), status],
-    )).rows[0].id);
+    const id = (await db.query(
+      "insert into leads(name,phone,assigned_to,status,first_agent_touch_at) values($1,$2,'Agent A','New',now()) returning id",
+      [`Bucket ${status}`, String(9100000200 + index)],
+    )).rows[0].id;
+    await db.query("update leads set status=$2 where id=$1", [id, status]);
+    callOutcomeIds.push(id);
   }
   const isolatedSummary = (await db.query("select crm_lead_bucket_summary('Agent A') x")).rows[0].x;
-  assert.equal(isolatedSummary.followUp, 3, "only touched New and explicit Follow-Up work enters Follow-up Work");
+  assert.equal(isolatedSummary.followUp, 1, "remark-only edits stay in New/Fresh while explicit Follow-Up disposition enters Follow-up Work");
   assert.equal(isolatedSummary.statuses.DNP, 1);
   assert.equal(isolatedSummary.statuses.RNR, 1);
   assert.equal(isolatedSummary.statuses.CallBack, 1);
   const isolatedGroups = (await db.query("select bucket,lead_count from crm_team_bucket_groups() where assigned_to='Agent A'")).rows;
-  assert.equal(Number(isolatedGroups.find((row) => row.bucket === "followup").lead_count), 3);
+  assert.equal(Number(isolatedGroups.find((row) => row.bucket === "followup").lead_count), 1,
+    "only the explicit Follow-Up disposition is grouped as Follow-up Work");
 
   // Appointment RLS follows the current employee assignment and changes on reassignment.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
@@ -1067,18 +1190,19 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [ownAppointment])).rows[0].n, 1, "reassignment grants the new employee access");
   await db.exec("reset role;");
 
-  // Reviews appear during the seven-day window; admin Keep prevents cleanup.
+  // Reminders appear after a full week, persist through cron runs, and clear on status change.
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
   const keepLead = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','Not Interested',now()-interval '2 days') returning id",
+    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Keep','9190000001','Agent A','New',now()-interval '2 days') returning id",
   )).rows[0].id;
+  await db.query("update leads set status='Not Interested' where id=$1", [keepLead]);
   await db.query("update leads set remarks='Reviewed' where id=$1", [keepLead]);
   await db.exec("alter table leads disable trigger crm_track_agent_lead_workflow");
-  await db.query("update leads set closed_status_since=now()-interval '2 days' where id=$1", [keepLead]);
+  await db.query("update leads set closed_status_since=now()-interval '8 days' where id=$1", [keepLead]);
   await db.exec("alter table leads enable trigger crm_track_agent_lead_workflow");
   await db.query("select crm_private.daily_lost_lead_reviews()");
   const keepReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1", [keepLead])).rows[0].id;
-  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [keepLead])).rows[0].n, 1, "leads younger than seven closed days are retained");
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [keepLead])).rows[0].n, 1, "a due reminder never auto-deletes its lead");
   await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002';");
   await db.query("select crm_submit_deletion_review_note($1,'Patient requested a callback')", [keepReview]);
   assert.equal((await db.query("select agent_note from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].agent_note, "Patient requested a callback");
@@ -1087,29 +1211,41 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   await assert.rejects(db.query("select crm_submit_deletion_review_note($1,'Unauthorized note')", [keepReview]));
   await assert.rejects(db.query("select crm_admin_resolve_deletion_review($1,'delete',null)", [keepReview]));
   await db.exec("reset role;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';set role authenticated;");
-  await db.query("select crm_admin_resolve_deletion_review($1,'keep',null)", [keepReview]);
-  assert.equal((await db.query("select decision from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].decision, "kept");
+  await assert.rejects(db.query("select crm_admin_resolve_deletion_review($1,'keep',null)", [keepReview]), "review cannot be cleared without status change or deletion");
+  await db.exec("reset role;");
+  await db.query("select crm_private.daily_lost_lead_reviews()");
+  assert.equal((await db.query("select count(*)::int n from crm_lead_deletion_reviews where id=$1 and decision='pending'", [keepReview])).rows[0].n, 1, "repeated cron runs keep the reminder pending");
+  await db.query("update leads set status='Wrong Number' where id=$1", [keepLead]);
+  assert.equal((await db.query("select count(*)::int n from crm_lead_deletion_reviews where id=$1", [keepReview])).rows[0].n, 0, "a status change clears the old reminder");
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [keepLead])).rows[0].n, 1, "status change keeps the lead");
 
-  // After seven closed days, linked data is removed only after a complete
-  // Recent Deletions snapshot is saved. Older duplicate snapshots are scrubbed.
+  // A due lead stays in the review queue until an explicit admin delete takes
+  // a complete database snapshot of the lead and activity history.
   await db.exec("reset role;");
   const purgeLead = (await db.query(
-    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Purge','9190000002','Agent A','Wrong Number',now()-interval '8 days') returning id",
+    "insert into leads(name,phone,assigned_to,status,closed_status_since) values('Review Purge','9190000002','Agent A','New',now()-interval '8 days') returning id",
   )).rows[0].id;
+  await db.query("update leads set status='Wrong Number' where id=$1", [purgeLead]);
   await db.query("insert into lead_activities(lead_id,user_id,action_type,description) values($1,'00000000-0000-4000-8000-000000000002','Note','Private patient note')", [purgeLead]);
   await db.exec("alter table leads disable trigger crm_track_agent_lead_workflow");
   await db.query("update leads set closed_status_since=now()-interval '8 days' where id=$1", [purgeLead]);
   await db.exec("alter table leads enable trigger crm_track_agent_lead_workflow");
   const purgeAppointment = (await db.query("insert into crm_appointments(lead_id,kind,status,starts_on) values($1,'opdBooked','booked',$2) returning id", [purgeLead, today])).rows[0].id;
-  await db.query("insert into lead_deletion_backups(scope,search,row_count,activity_count,lead_rows,activity_rows) values('selected','',1,1,jsonb_build_array(jsonb_build_object('id',$1::text,'name','Review Purge')),jsonb_build_array(jsonb_build_object('lead_id',$1::text,'description','Private patient note')))", [purgeLead]);
   await db.query("select crm_private.daily_lost_lead_reviews()");
-  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [purgeLead])).rows[0].n, 0, "unanswered due review removes lead");
+  const purgeReview = (await db.query("select id from crm_lead_deletion_reviews where lead_id=$1 and decision='pending'", [purgeLead])).rows[0].id;
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [purgeLead])).rows[0].n, 1, "a due review leaves the lead in place");
+  assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [purgeLead])).rows[0].n, 1);
+  assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [purgeAppointment])).rows[0].n, 1);
+  await db.exec("set role authenticated;set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001';");
+  await db.query("select crm_admin_resolve_deletion_review($1,'delete',null)", [purgeReview]);
+  await db.exec("reset role;");
+  assert.equal((await db.query("select count(*)::int n from leads where id=$1", [purgeLead])).rows[0].n, 0, "explicit admin delete removes the lead");
   assert.equal((await db.query("select count(*)::int n from lead_activities where lead_id=$1", [purgeLead])).rows[0].n, 0);
   assert.equal((await db.query("select count(*)::int n from crm_appointments where id=$1", [purgeAppointment])).rows[0].n, 0);
   assert.equal((await db.query("select count(*)::int n from crm_assignment_events where lead_id=$1", [purgeLead])).rows[0].n, 0);
   const savedBackup = (await db.query("select scope,lead_rows from lead_deletion_backups where lead_rows @> jsonb_build_array(jsonb_build_object('id',$1::text))", [purgeLead])).rows;
   assert.equal(savedBackup.length, 1, "the newest recoverable snapshot survives lead deletion");
-  assert.equal(savedBackup[0].scope, "Lost leads — 7-day auto-cleanup");
+  assert.equal(savedBackup[0].scope, "Admin lost lead review delete");
   assert.equal(savedBackup[0].lead_rows[0].name, "Review Purge");
 
   // Exercise the production-style activity policy with a second actor on one lead.
@@ -1142,10 +1278,11 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   // Follow-up mutation and its timeline entry commit or roll back together.
   await db.exec("reset role; create policy fixture_employee_activity_insert on public.lead_activities for insert to authenticated with check (public.current_user_role() = 'employee' and user_id = auth.uid() and exists (select 1 from public.leads l where l.id = lead_activities.lead_id)); set request.jwt.claim.sub='00000000-0000-4000-8000-000000000001'");
   const followUpIds = (await db.query(`insert into leads(name,phone,assigned_to,status,follow_up_date,follow_up_at)
-    values ('Task reschedule fixture','9190000091','Agent A','DNP','2026-11-06','2026-11-06T05:00:00Z'),
-           ('Task complete fixture','9190000092','Agent A','DNP','2026-11-06','2026-11-06T05:00:00Z')
+    values ('Task reschedule fixture','9190000091','Agent A','New','2026-11-06','2026-11-06T05:00:00Z'),
+           ('Task complete fixture','9190000092','Agent A','New','2026-11-06','2026-11-06T05:00:00Z')
     returning id`)).rows.map(row => row.id);
   const [rescheduleLead, completeLead] = followUpIds;
+  await db.query("update leads set status='DNP' where id=any($1::uuid[])", [followUpIds]);
   const appointmentLead = (await db.query(`insert into leads(name,phone,assigned_to,status,opd_booked_date)
     values ('Appointment date fixture','9190000095','Agent A','OPD Booked',null) returning id`)).rows[0].id;
   await db.exec("set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000002'");
@@ -1217,7 +1354,7 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
   )).rows, [{
     user_id: '00000000-0000-4000-8000-000000000002',
     action_type: 'Status changed',
-    description: 'New → DNP',
+    description: 'Patient: Status employee fixture · 9190000093 | New → DNP',
   }], 'status timeline preserves the exact transition and actor');
   await assert.rejects(
     db.query("select crm_change_lead_status($1,'RNR','New')", [statusLead]),
@@ -1235,14 +1372,14 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     [statusLead, JSON.stringify({ status: 'RNR', remarks: 'Drawer edit' }), detailsVersion],
   )).rows[0];
   assert.equal(drawerStatus.status, 'RNR', 'detail drawer can commit a status and other fields together');
-  assert.deepEqual((await db.query(
-    "select user_id::text,action_type,description from lead_activities where lead_id=$1 and description=$2",
-    [statusLead, 'Changed: Remarks updated; Status: DNP → RNR.'],
-  )).rows, [{
-    user_id: '00000000-0000-4000-8000-000000000002',
-    action_type: 'Status changed',
-    description: 'Changed: Remarks updated; Status: DNP → RNR.',
-  }], 'detail drawer status, changed fields, actor and timestamp receipt are atomic');
+  const detailAudit = (await db.query(
+    "select user_id::text,action_type,description,created_at from lead_activities where lead_id=$1 and action_type='Status changed' order by created_at desc,id desc limit 1",
+    [statusLead],
+  )).rows[0];
+  assert.equal(detailAudit.user_id, '00000000-0000-4000-8000-000000000002');
+  assert.equal(detailAudit.action_type, 'Status changed');
+  assert.match(detailAudit.description, /Changed: Remarks updated; Status: DNP.*RNR/);
+  assert.ok(detailAudit.created_at, 'detail drawer audit entry has an exact timestamp');
   const currentDetailVersion = (await db.query("select updated_at::text from leads where id=$1", [statusLead])).rows[0].updated_at;
   const detailNoOp = (await db.query(
     "select * from crm_update_lead_details($1,$2::jsonb,$3)",
@@ -1287,13 +1424,13 @@ assert.equal(ipdTransition,'IPD Booked → IPD Done','calendar edits and complet
     'admin can change a team lead disposition');
   await db.exec("reset role; update profiles set role='manager' where id='00000000-0000-4000-8000-000000000003'; set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-000000000003';");
   await db.query("select crm_change_lead_status($1,'DNP','Follow-Up')", [otherOwnerStatusLead]);
-  assert.equal((await db.query("select user_id from lead_activities where lead_id=$1 and action_type='Status changed' and description='Follow-Up → DNP'", [otherOwnerStatusLead])).rows[0].user_id,
+  assert.equal((await db.query("select user_id from lead_activities where lead_id=$1 and action_type='Status changed' and description like '%DNP'", [otherOwnerStatusLead])).rows[0].user_id,
     '00000000-0000-4000-8000-000000000003', 'manager can update a team lead and is recorded as the actor');
   const managerDetailVersion = (await db.query("select updated_at::text from leads where id=$1", [otherOwnerStatusLead])).rows[0].updated_at;
   await db.query("select crm_update_lead_details($1,$2::jsonb,$3)",
     [otherOwnerStatusLead, JSON.stringify({ status: 'CallBack', remarks: 'Manager drawer edit' }), managerDetailVersion]);
   assert.equal((await db.query("select status from leads where id=$1", [otherOwnerStatusLead])).rows[0].status, 'CallBack', 'manager detail drawer can save a team disposition');
-  assert.equal((await db.query("select user_id::text from lead_activities where lead_id=$1 and description='Changed: Remarks updated; Status: DNP → CallBack.'", [otherOwnerStatusLead])).rows[0].user_id,
+  assert.equal((await db.query("select user_id::text from lead_activities where lead_id=$1 and description like '%CallBack.'", [otherOwnerStatusLead])).rows[0].user_id,
     '00000000-0000-4000-8000-000000000003', 'manager detail edit timeline records the correct actor');
   await db.exec("reset role; update profiles set role='employee' where id='00000000-0000-4000-8000-000000000003';");
   await db.exec(`reset role; create function public.reject_status_activity() returns trigger language plpgsql as $$
