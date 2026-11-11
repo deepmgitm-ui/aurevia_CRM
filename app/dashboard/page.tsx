@@ -52,15 +52,16 @@ export default async function DashboardPage({
       : undefined;
 
     if (employeeStats) {
+      const currentMonth = clinicDate().slice(0, 7);
       // Server-side pagination scoped to this employee (assigned_to filter).
       const [leadsResult, summaryResult] = await Promise.all([
-        getLeadsPage(1, 50, "", selectedEmployee),
+        getLeadsPage(1, 50, "", selectedEmployee, "", { month: currentMonth }),
         getLeadPipelineSummary(selectedEmployee),
       ]);
       const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
       const summary = summaryResult.success
         ? summaryResult.data
-        : { total: 0, new: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {}, appointmentPeriod: { from: "", to: "" } };
+        : { total: 0, new: 0, fresh: 0, followUp: 0, dnp: 0, lost: 0, opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0, statuses: {}, appointmentPeriod: { from: "", to: "" }, previousMonthAppointments: { opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0 }, previousMonthAppointmentPeriod: { from: "", to: "" } };
 
       return (
         <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -77,7 +78,7 @@ export default async function DashboardPage({
               {employeeStats.name}
             </h1>
             <p className="mt-2 text-sm text-slate-500">
-              Leads assigned to this team member.
+              Leads added in {new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(`${currentMonth}-15T12:00:00+05:30`))}. Permanent disposition counts remain across all dates.
             </p>
           </div>
 
@@ -87,6 +88,7 @@ export default async function DashboardPage({
             assignedTo={employeeStats.name}
             dailyNewLeads={{ count: employeeStats.newLeads, day: clinicDate() }}
             showTotal
+            showPreviousMonthAppointments={false}
           />}
 
           {leadsResult.success && <LeadsTable

@@ -63,6 +63,11 @@ assert.deepEqual(parsed, original, "round trip must preserve every filter");
 assert.equal(leadsHref({ city: "Pune" }), "/dashboard/leads?month=all&city=Pune");
 assert.equal(leadsHref({ except: "hair" }), "/dashboard/leads?month=all");
 assert.equal(leadsHref(EMPTY_LEAD_FILTERS), "/dashboard/leads");
+const agentCurrentMonthHref = leadsHref({ assigned: "Atul Pandey", month: "2026-11" });
+const agentCurrentMonthFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${agentCurrentMonthHref}`).searchParams));
+assert.equal(agentCurrentMonthFilters.assigned, "Atul Pandey");
+assert.equal(agentCurrentMonthFilters.month, "2026-11", "agent drill-down preserves the current calendar month");
+assert.equal(agentCurrentMonthFilters.allMonths, false, "agent drill-down does not silently expand to all months");
 
 // Employee lead categories: DNP includes its retry variants, and daily New
 // Leads drill down to assignments received during the selected IST date.

@@ -40,6 +40,7 @@ export function TeamOverview({
   filters?: Pick<LeadListFilters, "assigned">;
 }) {
   const assignedFilter = filters?.assigned ?? "";
+  const currentMonth = team.appointmentPeriod.from.slice(0, 7);
   const employees = assignedFilter
     ? team.employees.filter((employee) => employee.name.toLocaleLowerCase() === assignedFilter.toLocaleLowerCase())
     : team.employees;
@@ -62,7 +63,7 @@ export function TeamOverview({
           style={{ animationDelay: `${index * 55}ms` }}
           className="crm-motion-in crm-card-interactive group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm hover:border-slate-300 hover:shadow-lg"
         >
-          <Link href={`${leadsHref({ assigned: employee.name })}#lead-list`} className="flex items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-blue-600">
+          <Link href={`${leadsHref({ assigned: employee.name, month: currentMonth })}#lead-list`} className="flex items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-blue-600">
             <div className="flex items-center gap-3">
               <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-semibold text-slate-700 ring-1 ring-slate-200/70 transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none">
                 {getInitials(employee.name)}

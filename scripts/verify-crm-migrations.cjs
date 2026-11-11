@@ -153,6 +153,10 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
            ($2,'opdBooked','completed',(now() at time zone 'Asia/Kolkata')::date),
            ($3,'ipdDone','booked',(now() at time zone 'Asia/Kolkata')::date),
            ($4,'ipdDone','completed',(now() at time zone 'Asia/Kolkata')::date),
+           ($1,'opdBooked','booked',(date_trunc('month',now() at time zone 'Asia/Kolkata') - interval '1 month')::date),
+           ($2,'opdBooked','completed',(date_trunc('month',now() at time zone 'Asia/Kolkata') - interval '1 month')::date),
+           ($3,'ipdDone','booked',(date_trunc('month',now() at time zone 'Asia/Kolkata') - interval '1 month')::date),
+           ($4,'ipdDone','completed',(date_trunc('month',now() at time zone 'Asia/Kolkata') - interval '1 month')::date),
            ($5,'opdBooked','booked',(date_trunc('month',now() at time zone 'Asia/Kolkata') + interval '1 month')::date)`,
     monthlyLeads,
   );
@@ -167,6 +171,14 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
     ipdDone: monthlyAppointmentResult.counts.ipdDone - monthlyAppointmentBaseline.counts.ipdDone,
   }, { opdBooked: 2, opdDone: 1, ipdBooked: 1, ipdDone: 1 },
   "appointment counts use the clinic calendar month and exclude the next month");
+  assert.deepEqual({
+    opdBooked: monthlyAppointmentResult.previousMonthCounts.opdBooked - monthlyAppointmentBaseline.previousMonthCounts.opdBooked,
+    opdDone: monthlyAppointmentResult.previousMonthCounts.opdDone - monthlyAppointmentBaseline.previousMonthCounts.opdDone,
+    ipdBooked: monthlyAppointmentResult.previousMonthCounts.ipdBooked - monthlyAppointmentBaseline.previousMonthCounts.ipdBooked,
+    ipdDone: monthlyAppointmentResult.previousMonthCounts.ipdDone - monthlyAppointmentBaseline.previousMonthCounts.ipdDone,
+  }, {
+    opdBooked: 2, opdDone: 1, ipdBooked: 1, ipdDone: 1,
+  }, "previous clinic month appointment counts remain available for the summary bar");
   const monthlyAgent = monthlyAppointmentResult.byAgent.find((row) => row.assignedTo === "Agent A");
   const baselineAgent = monthlyAppointmentBaseline.byAgent.find((row) => row.assignedTo === "Agent A") ?? {
     opdBooked: 0, opdDone: 0, ipdBooked: 0, ipdDone: 0,
@@ -180,9 +192,13 @@ values('00000000-0000-4000-8000-000000000102','00000000-0000-4000-8000-000000000
   "each agent receives the same scoped monthly appointment counts");
   const expectedMonth = (await db.query(`select
     date_trunc('month',now() at time zone 'Asia/Kolkata')::date as month_start,
+    (date_trunc('month',now() at time zone 'Asia/Kolkata') - interval '1 month')::date as previous_month_start,
+    date_trunc('month',now() at time zone 'Asia/Kolkata')::date - 1 as previous_month_end,
     (date_trunc('month',now() at time zone 'Asia/Kolkata') + interval '1 month')::date - 1 as month_end`)).rows[0];
   assert.equal(monthlyAppointmentResult.period.from, expectedMonth.month_start.toISOString().slice(0, 10));
   assert.equal(monthlyAppointmentResult.period.to, expectedMonth.month_end.toISOString().slice(0, 10));
+  assert.equal(monthlyAppointmentResult.previousPeriod.from, expectedMonth.previous_month_start.toISOString().slice(0, 10));
+  assert.equal(monthlyAppointmentResult.previousPeriod.to, expectedMonth.previous_month_end.toISOString().slice(0, 10));
   await db.exec("reset role;");
   await db.query("delete from leads where id=any($1::uuid[])", [monthlyLeads]);
 

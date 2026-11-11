@@ -946,6 +946,13 @@ export async function getDailyAssignmentStatuses(day = clinicDate()): Promise<Ac
   }
 }
 
+export interface MonthlyAppointmentCounts {
+  opdBooked: number;
+  opdDone: number;
+  ipdBooked: number;
+  ipdDone: number;
+}
+
 export interface EmployeeLeadSummary {
   total: number;
   new: number;
@@ -960,6 +967,8 @@ export interface EmployeeLeadSummary {
   ipdDone: number;
   statuses: Record<string, number>;
   appointmentPeriod: { from: string; to: string };
+  previousMonthAppointments: MonthlyAppointmentCounts;
+  previousMonthAppointmentPeriod: { from: string; to: string };
 }
 
 /** Pipeline counts scoped to the signed-in employee or a manager-selected agent. */
@@ -993,10 +1002,13 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
     if (monthlyAppointmentsError) return { success: false, error: "Monthly appointment counts could not be loaded." };
     const row = (data ?? {}) as Partial<EmployeeLeadSummary>;
     const monthly = (monthlyAppointments ?? {}) as {
-      counts?: Partial<Pick<EmployeeLeadSummary, "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone">>;
+      counts?: Partial<MonthlyAppointmentCounts>;
+      previousMonthCounts?: Partial<MonthlyAppointmentCounts>;
       period?: { from?: string; to?: string };
+      previousPeriod?: { from?: string; to?: string };
     };
     const monthlyCounts = monthly.counts ?? {};
+    const previousMonthCounts = monthly.previousMonthCounts ?? {};
     const statusCounts = row.statuses && typeof row.statuses === "object" ? row.statuses : {};
     const normalizedCounts: Record<string, number> = {};
     for (const [status, count] of Object.entries(statusCounts)) {
@@ -1019,6 +1031,16 @@ export async function getLeadPipelineSummary(assignedTo = ""): Promise<ActionRes
       appointmentPeriod: {
         from: typeof monthly.period?.from === "string" ? monthly.period.from : clinicMonthPeriod().from,
         to: typeof monthly.period?.to === "string" ? monthly.period.to : clinicMonthPeriod().to,
+      },
+      previousMonthAppointments: {
+        opdBooked: Number(previousMonthCounts.opdBooked ?? 0),
+        opdDone: Number(previousMonthCounts.opdDone ?? 0),
+        ipdBooked: Number(previousMonthCounts.ipdBooked ?? 0),
+        ipdDone: Number(previousMonthCounts.ipdDone ?? 0),
+      },
+      previousMonthAppointmentPeriod: {
+        from: typeof monthly.previousPeriod?.from === "string" ? monthly.previousPeriod.from : "",
+        to: typeof monthly.previousPeriod?.to === "string" ? monthly.previousPeriod.to : "",
       },
     } };
   } catch (error) {
