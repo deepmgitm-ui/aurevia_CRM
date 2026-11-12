@@ -5,9 +5,9 @@ import type { TeamStats } from "@/app/actions/leads";
 import { getInitials } from "@/lib/utils";
 import { leadsHref, type LeadListFilters } from "./lead-filters";
 
-function StatChip({ label, value, className, href, name }: { label: string; value: number; className: string; href: string; name: string }) {
+function StatChip({ label, value, className, href, name, countLabel = "leads" }: { label: string; value: number; className: string; href: string; name: string; countLabel?: string }) {
   return (
-    <Link href={`${href}#lead-list`} aria-label={`${name}: ${label}, ${value} leads. View leads`} className={`flex min-h-[58px] flex-col items-center justify-center rounded-lg px-1.5 py-1.5 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`}>
+    <Link href={`${href}#lead-list`} aria-label={`${name}: ${label}, ${value} ${countLabel}. View matching leads`} className={`flex min-h-[58px] flex-col items-center justify-center rounded-lg px-1.5 py-1.5 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`}>
       <p className="text-lg font-semibold leading-none tabular-nums">{value.toLocaleString()}</p>
       <p className="mt-1 min-h-6 text-[10px] font-medium leading-tight">{label}</p>
     </Link>
@@ -108,18 +108,10 @@ export function TeamOverview({
           <div className="mt-3">
             <p className="mb-1.5 text-xs font-semibold text-slate-600">Monthly appointments · {appointmentPeriodLabel(team.appointmentPeriod)}</p>
             <div className="grid grid-cols-2 gap-1.5">
-              <div aria-label={employee.name + ": OPD Booked this month"} className="rounded-lg bg-amber-50 px-2 py-2 text-center text-amber-700">
-                <p className="text-lg font-semibold leading-none tabular-nums">{employee.opdBooked.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">OPD Booked</p>
-              </div>
-              <div aria-label={employee.name + ": OPD Done this month"} className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-700">
-                <p className="text-lg font-semibold leading-none tabular-nums">{employee.opdDone.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">OPD Done</p>
-              </div>
-              <div aria-label={employee.name + ": IPD Booked this month"} className="rounded-lg bg-violet-50 px-2 py-2 text-center text-violet-700">
-                <p className="text-lg font-semibold leading-none tabular-nums">{employee.ipdBooked.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">IPD Booked</p>
-              </div>
-              <div aria-label={employee.name + ": IPD Done this month"} className="rounded-lg bg-purple-50 px-2 py-2 text-center text-purple-700">
-                <p className="text-lg font-semibold leading-none tabular-nums">{employee.ipd.toLocaleString()}</p><p className="mt-1 text-[10px] font-medium">IPD Done</p>
-              </div>
+              <StatChip name={employee.name} label="OPD Booked" countLabel="appointments" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, bucket: "opdBooked", month: currentMonth })} className="bg-amber-50 text-amber-700" />
+              <StatChip name={employee.name} label="OPD Done" countLabel="appointments" value={employee.opdDone} href={leadsHref({ assigned: employee.name, bucket: "opdDone", month: currentMonth })} className="bg-emerald-50 text-emerald-700" />
+              <StatChip name={employee.name} label="IPD Booked" countLabel="appointments" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, bucket: "ipdBooked", month: currentMonth })} className="bg-violet-50 text-violet-700" />
+              <StatChip name={employee.name} label="IPD Done" countLabel="appointments" value={employee.ipd} href={leadsHref({ assigned: employee.name, bucket: "ipdDone", month: currentMonth })} className="bg-purple-50 text-purple-700" />
             </div>
           </div>
           <p className="mt-2 text-[10px] text-slate-500">Permanent disposition counts never reset monthly. Appointment totals use this month&apos;s appointment dates.</p>
