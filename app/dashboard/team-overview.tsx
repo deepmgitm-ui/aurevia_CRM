@@ -5,13 +5,20 @@ import type { TeamStats } from "@/app/actions/leads";
 import { getInitials } from "@/lib/utils";
 import { leadsHref, type LeadListFilters } from "./lead-filters";
 
-function StatChip({ label, value, className, href, name, countLabel = "leads" }: { label: string; value: number; className: string; href: string; name: string; countLabel?: string }) {
-  return (
-    <Link href={`${href}#lead-list`} aria-label={`${name}: ${label}, ${value} ${countLabel}. View matching leads`} className={`flex min-h-[58px] flex-col items-center justify-center rounded-lg px-1.5 py-1.5 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`}>
+function StatChip({ label, value, className, href, name, countLabel = "leads", reloadOnOpen = false }: { label: string; value: number; className: string; href: string; name: string; countLabel?: string; reloadOnOpen?: boolean }) {
+  const content = (
+    <>
       <p className="text-lg font-semibold leading-none tabular-nums">{value.toLocaleString()}</p>
       <p className="mt-1 min-h-6 text-[10px] font-medium leading-tight">{label}</p>
-    </Link>
+      {reloadOnOpen && <span className="text-[10px] font-semibold underline underline-offset-2">Open matching leads →</span>}
+    </>
   );
+  const classNames = `flex min-h-[58px] flex-col items-center justify-center rounded-lg px-1.5 py-1.5 text-center transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${className}`;
+  const ariaLabel = `${name}: ${label}, ${value} ${countLabel}. View matching leads`;
+
+  return reloadOnOpen
+    ? <a href={`${href}#lead-list`} aria-label={ariaLabel} className={classNames}>{content}</a>
+    : <Link href={`${href}#lead-list`} aria-label={ariaLabel} className={classNames}>{content}</Link>;
 }
 
 // Each metric opens the same agent's exact workflow bucket.
@@ -108,10 +115,10 @@ export function TeamOverview({
           <div className="mt-3">
             <p className="mb-1.5 text-xs font-semibold text-slate-600">Monthly appointments · {appointmentPeriodLabel(team.appointmentPeriod)}</p>
             <div className="grid grid-cols-2 gap-1.5">
-              <StatChip name={employee.name} label="OPD Booked" countLabel="leads" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, appointment: "opdBooked", appointmentMonth: currentMonth })} className="bg-amber-50 text-amber-700" />
-              <StatChip name={employee.name} label="OPD Done" countLabel="leads" value={employee.opdDone} href={leadsHref({ assigned: employee.name, appointment: "opdDone", appointmentMonth: currentMonth })} className="bg-emerald-50 text-emerald-700" />
-              <StatChip name={employee.name} label="IPD Booked" countLabel="leads" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, appointment: "ipdBooked", appointmentMonth: currentMonth })} className="bg-violet-50 text-violet-700" />
-              <StatChip name={employee.name} label="IPD Done" countLabel="leads" value={employee.ipd} href={leadsHref({ assigned: employee.name, appointment: "ipdDone", appointmentMonth: currentMonth })} className="bg-purple-50 text-purple-700" />
+              <StatChip name={employee.name} label="OPD Booked" countLabel="leads" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, appointment: "opdBooked", appointmentMonth: currentMonth })} reloadOnOpen className="bg-amber-50 text-amber-700" />
+              <StatChip name={employee.name} label="OPD Done" countLabel="leads" value={employee.opdDone} href={leadsHref({ assigned: employee.name, appointment: "opdDone", appointmentMonth: currentMonth })} reloadOnOpen className="bg-emerald-50 text-emerald-700" />
+              <StatChip name={employee.name} label="IPD Booked" countLabel="leads" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, appointment: "ipdBooked", appointmentMonth: currentMonth })} reloadOnOpen className="bg-violet-50 text-violet-700" />
+              <StatChip name={employee.name} label="IPD Done" countLabel="leads" value={employee.ipd} href={leadsHref({ assigned: employee.name, appointment: "ipdDone", appointmentMonth: currentMonth })} reloadOnOpen className="bg-purple-50 text-purple-700" />
             </div>
           </div>
           <p className="mt-2 text-[10px] text-slate-500">Permanent disposition counts never reset monthly. Appointment totals use this month&apos;s appointment dates.</p>

@@ -138,12 +138,12 @@ export function DashboardStats({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {monthlyAppointmentCards.map((card) => (
             <div key={card.label} className={"crm-motion-in rounded-lg border px-2.5 py-2 shadow-sm " + card.tone}>
-              <Link href={`${leadsHref({ ...scope, appointment: card.appointment, appointmentMonth: currentAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.value.toLocaleString()} this month. View matching leads`} className="block rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+              <a href={`${leadsHref({ ...scope, appointment: card.appointment, appointmentMonth: currentAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.value.toLocaleString()} this month. View matching leads`} className="block rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
                 <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
                 <p className="mt-1 text-xl font-semibold tabular-nums leading-none">{card.value.toLocaleString()}</p>
-                <p className="mt-1 text-[10px] leading-snug opacity-80">This month</p>
-              </Link>
-              {showPreviousMonthAppointments && <Link href={`${leadsHref({ ...scope, appointment: card.appointment, appointmentMonth: previousAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.previousMonthValue.toLocaleString()} ${previousMonthLabel}. View matching leads`} className="mt-0.5 block rounded text-[10px] leading-snug opacity-75 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">{previousMonthLabel}: <span className="font-semibold tabular-nums">{card.previousMonthValue.toLocaleString()}</span></Link>}
+                <p className="mt-1 text-[10px] font-semibold leading-snug underline underline-offset-2">This month · Open matching leads →</p>
+              </a>
+              {showPreviousMonthAppointments && <a href={`${leadsHref({ ...scope, appointment: card.appointment, appointmentMonth: previousAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.previousMonthValue.toLocaleString()} ${previousMonthLabel}. View matching leads`} className="mt-0.5 block rounded py-1 text-[10px] leading-snug underline underline-offset-2 opacity-90 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">{previousMonthLabel}: <span className="font-semibold tabular-nums">{card.previousMonthValue.toLocaleString()}</span> · Open leads →</a>}
             </div>
           ))}
         </div>
