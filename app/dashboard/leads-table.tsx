@@ -262,6 +262,13 @@ function formatLeadDateDisplay(value: string): string {
   return `${day}/${month}/${year}`;
 }
 
+function monthlyAppointmentDateForLead(lead: Lead, appointment: LeadListFilters["appointment"]): string | null {
+  if (appointment === "opdBooked") return lead.opd_booked_date ?? null;
+  if (appointment === "opdDone") return lead.opd_done_date ?? lead.opd_booked_date ?? null;
+  if (appointment === "ipdBooked" || appointment === "ipdDone") return lead.ipd_done_date ?? null;
+  return null;
+}
+
 function formatLeadTimeDisplay(value: string | null | undefined): string {
   if (!value) return "";
   const date = new Date(value);
@@ -2652,7 +2659,9 @@ export function LeadsTable({
               {canDelete && <TableHead className="w-10"><input type="checkbox" aria-label="Select all leads on this page" checked={sortedLeads.length > 0 && sortedLeads.every((lead) => selectedLeads.includes(lead.id))} onChange={(event) => { const checked = event.target.checked; setSelectedLeads((current) => checked ? [...new Set([...current, ...sortedLeads.map((lead) => lead.id)])] : current.filter((id) => !sortedLeads.some((lead) => lead.id === id))); }} /></TableHead>}
               <SortableTableHead className="w-[250px]" label="Patient" sortKey="name" sortConfig={sortConfig} onSort={toggleSort} />
               <TableHead className="w-[150px]">Contact</TableHead>
-              <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />
+              {filters.appointment
+                ? <TableHead className="w-[130px]">Appointment Date</TableHead>
+                : <SortableTableHead className="w-[130px]" label="Lead Date" sortKey="lead_date" sortConfig={sortConfig} onSort={toggleSort} />}
               <TableHead className="w-[140px]">City</TableHead>
               <TableHead className="w-[150px]">Surgery / Treatment</TableHead>
               <SortableTableHead className="w-[180px]" label="Status" sortKey="status" sortConfig={sortConfig} onSort={toggleSort} />
@@ -2747,6 +2756,7 @@ export function LeadsTable({
                           ? "border-rose-200 bg-rose-50 text-rose-700"
                           : "border-slate-200 bg-slate-50 text-slate-600";
                 const ageLabel = isNew ? "Under 24 hours" : workflowLabel === "Fresh" ? "Untouched over 24 hours" : relativeLeadAge(lead.lead_date);
+                const appointmentDate = monthlyAppointmentDateForLead(lead, filters.appointment);
                 const originalSourceStatus = lead.imported_status?.trim() || lead.intake_status?.trim() || "";
                 const treatment = treatmentCellData(lead);
                 return (
@@ -2763,15 +2773,21 @@ export function LeadsTable({
                     <div className="space-y-0.5">
                       <p className="flex items-center gap-1 font-semibold text-slate-900">
                         <CalendarDays className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
-                        {formatLeadDateDisplay(lead.lead_date)}
+                        {formatLeadDateDisplay(filters.appointment ? appointmentDate ?? "" : lead.lead_date)}
                       </p>
-                      <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
-                        {ageLabel ?? "No date"}
-                      </p>
-                      <p className="text-[10px] text-slate-500">Added: {formatDate(lead.created_at)}</p>
-                      <p className="text-[10px] text-slate-400">
-                        Added {formatLeadTimeDisplay(lead.created_at) || "time unavailable"}
-                      </p>
+                      {filters.appointment ? (
+                        <p className="text-[11px] font-medium text-emerald-700">{monthFilterLabel(filters.appointmentMonth)} appointment</p>
+                      ) : (
+                        <>
+                          <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
+                            {ageLabel ?? "No date"}
+                          </p>
+                          <p className="text-[10px] text-slate-500">Added: {formatDate(lead.created_at)}</p>
+                          <p className="text-[10px] text-slate-400">
+                            Added {formatLeadTimeDisplay(lead.created_at) || "time unavailable"}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="w-[140px] max-w-[140px] py-3"><p className="break-words whitespace-normal text-sm text-slate-700">{lead.city}</p></TableCell>
