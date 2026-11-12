@@ -84,7 +84,7 @@ export function DashboardStats({
       : undefined,
     value: summary.statuses[status] ?? 0,
     href: leadsHref({ ...scope, status, age: "", month: "", allMonths: true }),
-    tone: status.includes("OPD") ? (status === "OPD Done" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
+    tone: status.includes("OPD") ? (status === "OPD Done" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-amber-200 bg-amber-50 text-amber-800")
       : status.includes("IPD") ? (status === "IPD Done" ? "border-purple-200 bg-purple-50 text-purple-800" : "border-violet-200 bg-violet-50 text-violet-800")
       : ["Dropped", "Not Interested", "Didn't Enquired", "Budget Issue", "Location Issue", "Non Surgical", "Invalid Number", "Wrong Number"].includes(status) ? "border-rose-200 bg-rose-50 text-rose-800"
       : status === "Follow-Up" ? "border-sky-200 bg-sky-50 text-sky-800"
@@ -93,7 +93,7 @@ export function DashboardStats({
 
   const monthlyAppointmentCards = [
     { label: "OPD Booked", appointment: "opdBooked" as const, value: summary.opdBooked, previousMonthValue: summary.previousMonthAppointments.opdBooked, tone: "border-amber-200 bg-amber-50 text-amber-800" },
-    { label: "OPD Done", appointment: "opdDone" as const, value: summary.opdDone, previousMonthValue: summary.previousMonthAppointments.opdDone, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+    { label: "OPD Done", appointment: "opdDone" as const, value: summary.opdDone, previousMonthValue: summary.previousMonthAppointments.opdDone, tone: "border-blue-200 bg-blue-50 text-blue-800" },
     { label: "IPD Booked", appointment: "ipdBooked" as const, value: summary.ipdBooked, previousMonthValue: summary.previousMonthAppointments.ipdBooked, tone: "border-violet-200 bg-violet-50 text-violet-800" },
     { label: "IPD Done", appointment: "ipdDone" as const, value: summary.ipdDone, previousMonthValue: summary.previousMonthAppointments.ipdDone, tone: "border-purple-200 bg-purple-50 text-purple-800" },
   ];

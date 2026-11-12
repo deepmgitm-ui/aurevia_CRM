@@ -151,7 +151,7 @@ export function CrmOperationsPanel({
             <div className="rounded-lg border border-slate-100 p-3"><p className="text-xs text-slate-500">Lead activity and assignments</p><p className="mt-1 font-semibold">{formatMb(currentCapacity.activityBytes + currentCapacity.assignmentBytes)}</p></div>
             <div className="rounded-lg border border-slate-100 p-3"><p className="text-xs text-slate-500">User and profile tables</p><p className="mt-1 font-semibold">{formatMb(currentCapacity.userBytes)}</p></div>
           </div>
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-950">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-950">
             <p className="font-semibold">Planning scenario: 6 team members and 100 new leads per day</p>
             <p className="mt-1">{estimate ? `Estimated database capacity: approximately ${estimate.lowerYears.toFixed(1)}–${estimate.upperYears.toFixed(1)} years at 1–3× today's average lead, activity and assignment storage.` : "Not enough lead data to estimate growth yet."}</p>
             <p className="mt-1 text-xs">This is an illustration, not a guarantee. Notes, backups, appointments, other tables, file storage, bandwidth and usage limits can change the result. Check Supabase usage before upgrading.</p>

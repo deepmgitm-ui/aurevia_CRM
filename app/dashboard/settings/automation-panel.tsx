@@ -163,7 +163,7 @@ export function AutomationPanel({ isAdmin }: { isAdmin: boolean }) {
                   aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.label}`}
                   onClick={() => void handleToggle(rule)}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    rule.enabled ? "bg-emerald-500" : "bg-slate-300"
+                    rule.enabled ? "bg-blue-500" : "bg-slate-300"
                   }`}
                 >
                   <span

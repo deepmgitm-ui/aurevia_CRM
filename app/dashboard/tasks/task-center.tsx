@@ -254,7 +254,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
             key={card.label}
             type="button"
             disabled={loading||Boolean(busyId)} onClick={() => void load(card.next,query,1)}
-            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${card.active ? "border-slate-900 ring-1 ring-slate-900/10" : "border-slate-200"}`}
+            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${card.active ? "border-slate-900 ring-1 ring-slate-900/10" : "border-slate-200"}`}
           >
             <p className="text-xs font-semibold text-slate-500">{card.label}</p>
             <p className="mt-2 text-3xl font-semibold text-slate-950">{card.value}</p>
@@ -311,7 +311,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                             <a href={`tel:${lead.phone}`} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                               <Phone aria-hidden="true" className="size-3" /> Call
                             </a>
-                            <a href={`https://wa.me/91${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
+                            <a href={`https://wa.me/91${lead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
                               <MessageCircle aria-hidden="true" className="size-3" /> WhatsApp
                             </a>
                           </>

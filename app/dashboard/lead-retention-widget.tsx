@@ -53,7 +53,7 @@ export async function LeadRetentionWidget() {
           {archives.length > 0 && (
             <div className="mt-4 border-t border-slate-100 pt-4">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <Archive className="size-4 text-emerald-700" aria-hidden="true" /> Recent retention archives
+                <Archive className="size-4 text-blue-700" aria-hidden="true" /> Recent retention archives
               </h3>
               <ul className="mt-2 space-y-2">
                 {archives.map((archive) => {
@@ -69,7 +69,7 @@ export async function LeadRetentionWidget() {
                       </div>
                       <a
                         href={`/dashboard/retention-archives/${archive.id}`}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 transition-colors hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900 transition-colors hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
                       >
                         <Download className="size-3.5" aria-hidden="true" /> Download JSON
                       </a>

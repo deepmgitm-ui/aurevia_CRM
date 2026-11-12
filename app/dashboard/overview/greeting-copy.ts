@@ -21,20 +21,20 @@ export const GREETING_THEMES: Record<PartOfDay, GreetingTheme> = {
   morning: {
     label: "Good Morning",
     emoji: "☀️",
-    tone: "border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white",
-    chip: "bg-emerald-100 text-emerald-700",
+    tone: "border-blue-100 bg-gradient-to-r from-blue-50 via-white to-white",
+    chip: "bg-blue-100 text-blue-700",
   },
   afternoon: {
     label: "Good Afternoon",
     emoji: "🌤️",
-    tone: "border-emerald-100 bg-gradient-to-r from-teal-50 via-white to-white",
-    chip: "bg-teal-100 text-teal-700",
+    tone: "border-blue-100 bg-gradient-to-r from-sky-50 via-white to-white",
+    chip: "bg-sky-100 text-sky-700",
   },
   evening: {
     label: "Good Evening",
     emoji: "🌙",
-    tone: "border-emerald-100 bg-gradient-to-r from-green-50 via-white to-white",
-    chip: "bg-green-100 text-green-700",
+    tone: "border-blue-100 bg-gradient-to-r from-blue-50 via-white to-white",
+    chip: "bg-blue-100 text-blue-700",
   },
 };
 

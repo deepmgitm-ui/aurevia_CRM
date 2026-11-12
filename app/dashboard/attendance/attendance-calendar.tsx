@@ -5,7 +5,7 @@
 // Attendance lives separately from the OPD/IPD appointments calendar. Managers
 // can edit the team register; employees can view their own read-only calendar.
 //
-// One dot per employee per day (green present / amber half-day / rose absent),
+// One dot per employee per day (blue present / amber half-day / rose absent),
 // and the day panel is where a manager corrects or deletes a mark, or adds one
 // for someone who never signed in.
 import { useMemo, useState } from "react";
@@ -51,13 +51,13 @@ const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 function dotClass(status: AttendanceStatus) {
   if (status === "Absent") return "bg-rose-500";
   if (status === "Half-Day") return "bg-amber-500";
-  return "bg-emerald-500";
+  return "bg-blue-500";
 }
 
 function badgeClass(status: AttendanceStatus) {
   if (status === "Absent") return "bg-rose-100 text-rose-800";
   if (status === "Half-Day") return "bg-amber-100 text-amber-800";
-  return "bg-emerald-100 text-emerald-800";
+  return "bg-blue-100 text-blue-800";
 }
 
 function monthLabel(month: string) {
@@ -489,7 +489,7 @@ export function AttendanceCalendar({
           <p className="mt-3 text-xs text-slate-500">
             {focusEmployeeId
               ? `${focusEmployeeName ?? "This employee"} — ${monthLabel(monthCursor)}. Each tile shows that day's status (P / H / A). Tap a day for details.`
-              : "Each dot is one employee — green = Present, amber = Half-Day, red = Absent. Tap a day to see everyone marked on it."}
+              : "Each dot is one employee — blue = Present, amber = Half-Day, red = Absent. Tap a day to see everyone marked on it."}
           </p>
         </CardContent>
       </Card>

@@ -146,25 +146,25 @@ export function RealtimeNotifications() {
         aria-expanded={isOpen}
         aria-controls="crm-notification-panel"
         title="Notifications"
-        className="relative rounded-full p-2 text-slate-500 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+        className="relative rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
         onClick={() => setIsOpen((open) => !open)}
       >
         <Bell className="size-5" aria-hidden="true" />
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-emerald-700 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white" aria-hidden="true">
+          <span className="absolute -right-0.5 -top-0.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-blue-700 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white" aria-hidden="true">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <section id="crm-notification-panel" aria-label="Unread notifications" className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-emerald-900/10 bg-white shadow-xl">
+        <section id="crm-notification-panel" aria-label="Unread notifications" className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-blue-900/10 bg-white shadow-xl">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Notifications</h2>
               <p className="text-xs text-slate-500">Unread items stay here until you clear them.</p>
             </div>
-            {unreadCount > 0 && <button type="button" disabled={busyId !== null} onClick={() => void markAllRead()} className="min-h-9 rounded-md px-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50">Mark all read</button>}
+            {unreadCount > 0 && <button type="button" disabled={busyId !== null} onClick={() => void markAllRead()} className="min-h-9 rounded-md px-2 text-xs font-semibold text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">Mark all read</button>}
           </div>
           {error && <p role="alert" className="border-b border-rose-100 bg-rose-50 px-4 py-2 text-xs text-rose-800">{error}</p>}
           <div className="max-h-[min(24rem,65vh)] overflow-y-auto" aria-live="polite">
@@ -178,9 +178,9 @@ export function RealtimeNotifications() {
                     <p className="mt-0.5 text-sm leading-5 text-slate-600">{item.message}</p>
                     <time className="mt-1 block text-xs text-slate-400" dateTime={item.created_at}>{new Date(item.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</time>
                   </div>
-                  <button type="button" aria-label="Mark notification as read" title="Mark as read" disabled={busyId !== null} onClick={() => void markRead(item.id)} className="shrink-0 rounded-md p-2 text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50"><Check className="size-4" aria-hidden="true" /></button>
+                  <button type="button" aria-label="Mark notification as read" title="Mark as read" disabled={busyId !== null} onClick={() => void markRead(item.id)} className="shrink-0 rounded-md p-2 text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50"><Check className="size-4" aria-hidden="true" /></button>
                 </div>
-                {item.lead_id && <button type="button" onClick={() => { setIsOpen(false); router.push(`/dashboard/leads?openLead=${encodeURIComponent(item.lead_id!)}`); }} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-emerald-800 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"><ExternalLink className="size-3.5" aria-hidden="true" />Open lead</button>}
+                {item.lead_id && <button type="button" onClick={() => { setIsOpen(false); router.push(`/dashboard/leads?openLead=${encodeURIComponent(item.lead_id!)}`); }} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"><ExternalLink className="size-3.5" aria-hidden="true" />Open lead</button>}
               </article>
             ))}
           </div>

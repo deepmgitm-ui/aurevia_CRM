@@ -186,12 +186,12 @@ function TransferDispositionChoices({
     <fieldset className="space-y-2" disabled={disabled}>
       <legend className="text-sm font-medium text-slate-800">How should the new agent receive these leads?</legend>
       <div className="grid gap-2 sm:grid-cols-2">
-        <label htmlFor={`${idPrefix}-keep`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "keep" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-          <input id={`${idPrefix}-keep`} type="radio" name={`${idPrefix}-disposition`} checked={value === "keep"} onChange={() => onChange("keep")} className="mt-0.5 accent-emerald-700" />
+        <label htmlFor={`${idPrefix}-keep`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "keep" ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"}`}>
+          <input id={`${idPrefix}-keep`} type="radio" name={`${idPrefix}-disposition`} checked={value === "keep"} onChange={() => onChange("keep")} className="mt-0.5 accent-blue-700" />
           <span><span className="block font-semibold text-slate-900">Keep current status</span><span className="mt-0.5 block text-xs text-slate-600">The lead keeps its current disposition.</span></span>
         </label>
-        <label htmlFor={`${idPrefix}-fresh`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "fresh" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-          <input id={`${idPrefix}-fresh`} type="radio" name={`${idPrefix}-disposition`} checked={value === "fresh"} onChange={() => onChange("fresh")} className="mt-0.5 accent-emerald-700" />
+        <label htmlFor={`${idPrefix}-fresh`} className={`flex cursor-pointer gap-2 rounded-lg border p-3 text-sm ${value === "fresh" ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"}`}>
+          <input id={`${idPrefix}-fresh`} type="radio" name={`${idPrefix}-disposition`} checked={value === "fresh"} onChange={() => onChange("fresh")} className="mt-0.5 accent-blue-700" />
           <span><span className="block font-semibold text-slate-900">Send as a Fresh Lead</span><span className="mt-0.5 block text-xs text-slate-600">Status becomes New; previous history stays visible.</span></span>
         </label>
       </div>
@@ -205,7 +205,7 @@ function TransferDispositionChoices({
 
 function sourceBadgeClass(source: string): string {
   if (source.toLowerCase().includes("meta")) return "border-blue-200 bg-blue-50 text-blue-700";
-  if (source.toLowerCase().includes("excel") || source.toLowerCase().includes("csv")) return "border-green-200 bg-green-50 text-green-700";
+  if (source.toLowerCase().includes("excel") || source.toLowerCase().includes("csv")) return "border-blue-200 bg-blue-50 text-blue-700";
   return "border-slate-200 bg-slate-100 text-slate-600";
 }
 
@@ -293,7 +293,7 @@ function assignmentBatchRowClass(batchId: string | null | undefined): string {
     "border-l-2 border-l-amber-300 bg-amber-50/45",
     "border-l-2 border-l-sky-300 bg-sky-50/45",
     "border-l-2 border-l-violet-300 bg-violet-50/45",
-    "border-l-2 border-l-emerald-300 bg-emerald-50/45",
+    "border-l-2 border-l-blue-300 bg-blue-50/45",
     "border-l-2 border-l-orange-300 bg-orange-50/45",
   ];
   return colors[Math.abs(hash) % colors.length];
@@ -2444,7 +2444,7 @@ export function LeadsTable({
               <Button type="button" variant={duplicateReviewItems.length > 0 ? "secondary" : "outline"} onClick={() => void openDuplicateReviews()}>
                 {isLoadingDuplicateReviews ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <UserRoundPlus aria-hidden="true" />}
                 Duplicate Reviews
-                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${duplicateReviewItems.length > 0 ? "bg-emerald-700 text-white" : "bg-slate-100 text-slate-600"}`}>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${duplicateReviewItems.length > 0 ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600"}`}>
                   {duplicateReviewItems.length.toLocaleString()}
                 </span>
               </Button>
@@ -2775,7 +2775,7 @@ export function LeadsTable({
                 const isNew = workflowLabel === "New";
                 const leadStatus = canonicalLeadStatus(lead.status);
                 const statusBadgeClass = workflowLabel === "New"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
                   : workflowLabel === "Fresh"
                     ? "border-blue-200 bg-blue-50 text-blue-700"
                     : workflowLabel === "Follow-up"
@@ -2792,7 +2792,7 @@ export function LeadsTable({
                 const originalSourceStatus = lead.imported_status?.trim() || lead.intake_status?.trim() || "";
                 const treatment = treatmentCellData(lead);
                 return (
-                <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-emerald-50/50" : undefined)}>
+                <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-blue-50/50" : undefined)}>
                   <TableCell className="py-3 font-mono text-xs tabular-nums text-slate-500">{lead.lead_sequence_id == null ? "—" : `#${lead.lead_sequence_id.toLocaleString("en-IN")}`}</TableCell>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{originalSourceStatus && <p className="mt-1 max-w-full break-words whitespace-normal text-[11px] text-slate-500">Source status: {originalSourceStatus}</p>}{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
@@ -2808,10 +2808,10 @@ export function LeadsTable({
                         {formatLeadDateDisplay(filters.appointment ? appointmentDate ?? "" : lead.lead_date)}
                       </p>
                       {filters.appointment ? (
-                        <p className="text-[11px] font-medium text-emerald-700">{monthFilterLabel(filters.appointmentMonth)} appointment</p>
+                        <p className="text-[11px] font-medium text-blue-700">{monthFilterLabel(filters.appointmentMonth)} appointment</p>
                       ) : (
                         <>
-                          <p className={`text-[11px] ${isNew ? "font-semibold text-emerald-700" : "text-slate-500"}`}>
+                          <p className={`text-[11px] ${isNew ? "font-semibold text-blue-700" : "text-slate-500"}`}>
                             {ageLabel ?? "No date"}
                           </p>
                           <p className="text-[10px] text-slate-500">Added: {formatDate(lead.created_at)}</p>
@@ -2838,7 +2838,7 @@ export function LeadsTable({
                           </p>
                         )}
                         {(treatment.hasSummary || treatment.label.length > 40 || treatment.detail.length > 60) && (
-                          <button type="button" onClick={() => handleViewLead(lead)} className="mt-1 rounded text-xs font-medium text-emerald-700 hover:underline focus-visible:outline-2 focus-visible:outline-emerald-700" aria-label={`View treatment details for ${lead.name}`}>
+                          <button type="button" onClick={() => handleViewLead(lead)} className="mt-1 rounded text-xs font-medium text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-700" aria-label={`View treatment details for ${lead.name}`}>
                             View details
                           </button>
                         )}
@@ -2865,7 +2865,7 @@ export function LeadsTable({
                           the win, so this badge can never drift from the
                           status sitting right above it. */}
                       {isWonStatus(lead.status) && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
                           Won
                         </span>
                       )}
@@ -2877,7 +2877,7 @@ export function LeadsTable({
                     <SelectTrigger size="sm" aria-label={`Assigned employee for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                     <SelectContent><SelectItem value="-">Unassigned</SelectItem>{employees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}</SelectItem>)}</SelectContent>
                   </Select></TableCell>
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks === "-" ? "" : lead.remarks}>{lead.remarks === "-" ? "" : lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div>{lead.remarks_updated_at && <p className="mt-1 text-[10px] font-medium text-emerald-700">Remark updated {formatLeadTimeDisplay(lead.remarks_updated_at)}</p>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex max-w-full items-start gap-2"><span className="line-clamp-2 min-w-0 break-words whitespace-normal text-xs text-slate-600" title={lead.remarks === "-" ? "" : lead.remarks}>{lead.remarks === "-" ? "" : lead.remarks}</span><Button type="button" variant="ghost" size="xs" className="shrink-0 whitespace-nowrap px-1.5" onClick={() => setQuickNoteLead(lead)}>✏️ Note</Button></div>{lead.remarks_updated_at && <p className="mt-1 text-[10px] font-medium text-blue-700">Remark updated {formatLeadTimeDisplay(lead.remarks_updated_at)}</p>}</TableCell>
                 </TableRow>
                 );
               })}
@@ -3003,7 +3003,7 @@ export function LeadsTable({
 
           <div className="space-y-4">
             {assignmentMode === "transfer-selected" && (
-              <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <section className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="transfer-source-employee">Choose the employee whose leads you want to move</Label>
                   <Select
@@ -3029,9 +3029,9 @@ export function LeadsTable({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2 rounded-lg border border-emerald-200 bg-white p-3">
+                <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-emerald-950" aria-live="polite">{transferLeadIds.length.toLocaleString()} leads selected to transfer</p>
+                    <p className="text-sm font-semibold text-blue-950" aria-live="polite">{transferLeadIds.length.toLocaleString()} leads selected to transfer</p>
                     {transferLeadIds.length > 0 && <Button type="button" variant="outline" size="sm" disabled={isBulkActionPending} onClick={() => setTransferLeadIds([])}>Clear selection</Button>}
                   </div>
                   <Button type="button" className="w-full" variant="outline" disabled={!transferSourceEmployee || transferLeadTotal === 0 || isSelectingAllTransferLeads || isLoadingTransferLeads || isBulkActionPending} onClick={() => void selectAllEmployeeTransferLeads()}>
@@ -3043,11 +3043,11 @@ export function LeadsTable({
                 {transferLeadError && <p role="alert" className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm text-rose-800">{transferLeadError}</p>}
                 {transferSourceEmployee && (
                   <>
-                    <div className="max-h-[34dvh] space-y-1 overflow-y-auto rounded-lg border border-emerald-200 bg-white p-2">
+                    <div className="max-h-[34dvh] space-y-1 overflow-y-auto rounded-lg border border-blue-200 bg-white p-2">
                       {isLoadingTransferLeads ? (
                         <p className="flex items-center gap-2 px-2 py-5 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" aria-hidden="true" />Loading this employee’s leads…</p>
                       ) : transferLeads.length > 0 ? transferLeads.map((lead) => (
-                        <label key={lead.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-emerald-50">
+                        <label key={lead.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-sm hover:bg-blue-50">
                           <input
                             type="checkbox"
                             className="mt-1"
@@ -3267,7 +3267,7 @@ export function LeadsTable({
             )}
 
             {(assignmentMode === "selected" || assignmentMode === "transfer-selected") && (
-              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                 {assignmentMode === "transfer-selected" ? "Choose the new owner. Selected leads will be reassigned without changing patient details or phone numbers." : "Choose one or more employees. Selected leads will be split evenly among them."}
               </p>
             )}
@@ -3571,10 +3571,10 @@ export function LeadsTable({
                 {duplicateReviewItems.map((item) => {
                   const assigned = Boolean(item.lead.assigned_to?.trim() && !["-", "unassigned"].includes(item.lead.assigned_to.trim().toLowerCase()));
                   return (
-                    <div key={item.id} className={`flex gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                    <div key={item.id} className={`flex gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-blue-300 bg-blue-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
                       <input
                         type="checkbox"
-                        className="mt-1 size-4 accent-emerald-700"
+                        className="mt-1 size-4 accent-blue-700"
                         aria-label={`Select duplicate group for ${item.lead.phone || item.phone_identity}`}
                         checked={selectedDuplicateReviewIds.includes(item.id)}
                         disabled={isResolvingDuplicateReviews}
@@ -3873,7 +3873,7 @@ export function LeadsTable({
                   </Button>
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">Current: {selectedLead.status}</span>{selectedLead.intake_status && <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-800 ring-1 ring-emerald-200">At intake: {selectedLead.intake_status}</span>}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">Current: {selectedLead.status}</span>{selectedLead.intake_status && <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-800 ring-1 ring-blue-200">At intake: {selectedLead.intake_status}</span>}</div>
                 <div className="sm:col-span-2">{renderAppointmentDateInput(selectedLead)}</div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>

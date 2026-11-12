@@ -95,7 +95,7 @@ export function DeletionReviewList({
         <label className="block text-xs font-semibold text-slate-600">Search leads
           <span className="relative mt-1 block">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-            <input type="search" value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setSelectedIds([]); }} placeholder="Search by patient name" aria-label="Search closed leads by patient name" className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+            <input type="search" value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setSelectedIds([]); }} placeholder="Search by patient name" aria-label="Search closed leads by patient name" className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
           </span>
         </label>
 
@@ -121,8 +121,8 @@ export function DeletionReviewList({
             <legend className="text-xs font-semibold text-slate-700">Assign selected ({selectedIds.length})</legend>
             {assignmentError ? <p className="mt-2 text-sm text-rose-700">{assignmentError}</p> : employees.length === 0 ? <p className="mt-2 text-sm text-slate-500">No active employees are available for assignment.</p> : (
               <div className="mt-2 flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-2">
-                {employees.map((employee) => <label key={employee} className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-sm text-slate-700 ring-1 ring-slate-200 hover:bg-emerald-50">
-                  <input type="checkbox" checked={selectedEmployees.includes(employee)} onChange={() => toggleEmployee(employee)} disabled={pending} className="accent-emerald-700" />{employee}
+                {employees.map((employee) => <label key={employee} className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-sm text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50">
+                  <input type="checkbox" checked={selectedEmployees.includes(employee)} onChange={() => toggleEmployee(employee)} disabled={pending} className="accent-blue-700" />{employee}
                 </label>)}
               </div>
             )}
@@ -130,16 +130,16 @@ export function DeletionReviewList({
           <div className="space-y-2">
             <fieldset className="space-y-1.5">
               <legend className="text-xs font-semibold text-slate-700">How should the new agent receive them?</legend>
-              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2 text-sm text-slate-700 hover:border-emerald-300">
-                <input type="radio" name="closed-transfer-mode" checked={!asFresh} onChange={() => setAsFresh(false)} disabled={pending} className="mt-0.5 accent-emerald-700" />
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-2 text-sm text-slate-700 hover:border-blue-300">
+                <input type="radio" name="closed-transfer-mode" checked={!asFresh} onChange={() => setAsFresh(false)} disabled={pending} className="mt-0.5 accent-blue-700" />
                 <span><span className="font-medium">Keep current status</span><span className="block text-xs text-slate-500">Closed status and review timing stay as they are.</span></span>
               </label>
-              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2 text-sm text-slate-700 hover:border-emerald-400">
-                <input type="radio" name="closed-transfer-mode" checked={asFresh} onChange={() => setAsFresh(true)} disabled={pending} className="mt-0.5 accent-emerald-700" />
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-blue-200 bg-blue-50/50 p-2 text-sm text-slate-700 hover:border-blue-400">
+                <input type="radio" name="closed-transfer-mode" checked={asFresh} onChange={() => setAsFresh(true)} disabled={pending} className="mt-0.5 accent-blue-700" />
                 <span><span className="font-medium">Send as a Fresh Lead</span><span className="block text-xs text-slate-500">Status resets to New and the closed review ends; history is kept.</span></span>
               </label>
             </fieldset>
-            <button type="button" onClick={() => void assignSelected()} disabled={pending || !selectedIds.length || !selectedEmployees.length || Boolean(assignmentError)} className="w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={() => void assignSelected()} disabled={pending || !selectedIds.length || !selectedEmployees.length || Boolean(assignmentError)} className="w-full rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
               {pending ? "Assigning…" : `Assign ${selectedIds.length || "selected"} lead${selectedIds.length === 1 ? "" : "s"}`}
             </button>
           </div>
@@ -154,7 +154,7 @@ export function DeletionReviewList({
             checked={allVisibleSelected}
             disabled={!visibleIds.length || pending}
             onChange={() => allVisibleSelected ? unselectAllVisible() : selectAllVisible()}
-            className="size-4 shrink-0 accent-emerald-700"
+            className="size-4 shrink-0 accent-blue-700"
           />
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Closed leads</p>
@@ -180,7 +180,7 @@ export function DeletionReviewList({
         {visibleReviews.map((review) => (
           <article key={review.id} className="crm-card-interactive rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
             <div className="flex items-start gap-3">
-              <input aria-label={`Select ${review.leadName}`} type="checkbox" checked={selectedIds.includes(review.leadId)} onChange={() => toggleReview(review.leadId)} disabled={pending} className="mt-1 size-4 shrink-0 accent-emerald-700" />
+              <input aria-label={`Select ${review.leadName}`} type="checkbox" checked={selectedIds.includes(review.leadId)} onChange={() => toggleReview(review.leadId)} disabled={pending} className="mt-1 size-4 shrink-0 accent-blue-700" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">

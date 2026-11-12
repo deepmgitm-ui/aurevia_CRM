@@ -21,7 +21,7 @@ import { toast } from "@/components/ui/toast";
 const LEAVE_TYPES: EmployeeLeaveRequest["leaveType"][] = ["Casual", "Sick", "Paid", "Unpaid", "Other"];
 
 function leaveStatusClass(status: EmployeeLeaveRequest["status"]) {
-  if (status === "Approved") return "bg-emerald-100 text-emerald-800";
+  if (status === "Approved") return "bg-blue-100 text-blue-800";
   if (status === "Rejected") return "bg-rose-100 text-rose-800";
   return "bg-amber-100 text-amber-800";
 }

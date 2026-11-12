@@ -352,10 +352,10 @@ export function AgentSection({
 
   return (
     <div className="space-y-4">
-      <div className="crm-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-950/[0.07] bg-white/85 p-4 shadow-sm backdrop-blur-sm">
+      <div className="crm-surface flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-950/[0.07] bg-white/85 p-4 shadow-sm backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <p className="flex items-center gap-2 text-xs text-slate-500">
-            <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
+            <ShieldCheck className="size-4 text-blue-600" aria-hidden="true" />
             Tap your own profile to edit it. Admins and managers can update any agent&apos;s profile details.
           </p>
           {selectedStar && (
@@ -406,7 +406,7 @@ export function AgentSection({
               card.id === editableProfileId ? "Open and edit your agent profile" : `Open secure details for ${card.name}`
             }
             className={`crm-card-interactive group flex flex-col items-center gap-3 rounded-2xl border bg-white/90 p-4 text-center shadow-sm backdrop-blur-sm ${
-              isCrowned(card.id) ? "border-amber-200 ring-1 ring-amber-200" : "border-emerald-950/[0.07] hover:border-emerald-300"
+              isCrowned(card.id) ? "border-amber-200 ring-1 ring-amber-200" : "border-blue-950/[0.07] hover:border-blue-300"
             }`}
           >
             <span className="relative">
@@ -460,7 +460,7 @@ export function AgentSection({
                   </span>
                 </DialogTitle>
                 <DialogDescription className="flex items-center gap-2 text-xs">
-                  <ShieldCheck className="size-3.5 text-emerald-600" aria-hidden="true" />
+                  <ShieldCheck className="size-3.5 text-blue-600" aria-hidden="true" />
                   {canEditSelected
                     ? "Profile details are editable by you and authorized admins/managers."
                     : "Secure panel — details are visible only while this dialog is open."}
@@ -509,9 +509,9 @@ export function AgentSection({
                   <PerformanceChip
                     label="OPD Booked"
                     value={selected.stats.consultations}
-                    tone="bg-emerald-50 text-emerald-700"
+                    tone="bg-blue-50 text-blue-700"
                   />
-                  <PerformanceChip label="IPD Done" value={selected.stats.surgeries} tone="bg-teal-50 text-teal-700" />
+                  <PerformanceChip label="IPD Done" value={selected.stats.surgeries} tone="bg-sky-50 text-sky-700" />
                   <PerformanceChip label="Lost Leads" value={selected.stats.lost} tone="bg-rose-50 text-rose-700" />
                 </div>
                 <p className="text-[11px] text-slate-400">

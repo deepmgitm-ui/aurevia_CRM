@@ -30,7 +30,7 @@ const COLUMN_ACCENTS: Record<string, string> = {
   contacted: "#0ea5e9",
   booked: "#6366f1",
   attended: "#f59e0b",
-  surgery: "#10b981",
+  surgery: "#2563eb",
   lost: "#ef4444",
 };
 
@@ -74,7 +74,7 @@ function BoardCard({
         <button
           type="button"
           onClick={onOpen}
-          className="min-w-0 rounded-sm text-left text-sm font-semibold text-slate-900 hover:text-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          className="min-w-0 rounded-sm text-left text-sm font-semibold text-slate-900 hover:text-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
         >
           <span className="line-clamp-2">{lead.name || "Unnamed lead"}</span>
         </button>
@@ -107,7 +107,7 @@ function BoardCard({
           <a
             href={`tel:${lead.phone}`}
             onClick={(event) => event.stopPropagation()}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
           >
             <Phone className="size-3" aria-hidden="true" />
             Call
@@ -119,7 +119,7 @@ function BoardCard({
           onChange={(event) => onMove(event.target.value)}
           aria-label={`Move ${lead.name || "lead"} to another stage`}
           disabled={saving}
-          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {stages.map((stage) => (
             <option key={stage.key} value={stage.status}>
@@ -231,7 +231,7 @@ function BoardColumnView({
         {hidden > 0 && (
           <Link
             href={leadsHref({ ...EMPTY_LEAD_FILTERS, stage: column.key })}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
           >
             +{hidden.toLocaleString()} more in {column.label} — open in Leads
           </Link>

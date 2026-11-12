@@ -127,16 +127,16 @@ export function CampaignAssignmentRules() {
   }
 
   return (
-    <section className="space-y-5 rounded-2xl border border-emerald-900/10 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="campaign-routing-title">
+    <section className="space-y-5 rounded-2xl border border-blue-900/10 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="campaign-routing-title">
       <div className="flex items-start gap-3">
-        <span className="rounded-xl bg-emerald-50 p-2 text-emerald-800"><Users className="size-5" aria-hidden="true" /></span>
+        <span className="rounded-xl bg-blue-50 p-2 text-blue-800"><Users className="size-5" aria-hidden="true" /></span>
         <div className="min-w-0">
           <h2 id="campaign-routing-title" className="text-lg font-semibold text-slate-950">Meta campaign lead routing</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Choose a campaign and the agents who should receive its leads. Round-robin gives each lead one owner in turn; admin review leaves the lead unassigned for your team to distribute.</p>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-900/10 bg-emerald-50/50 p-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-900/10 bg-blue-50/50 p-4">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-900">{metaConnected ? "Meta account connected" : "Connect your Meta account once"}</p>
           <p className="mt-1 text-sm text-slate-600">{metaConnected ? `${campaigns.length} active campaigns available to assign.` : "After connecting, choose campaigns here and assign their incoming leads to agents."}</p>
@@ -144,8 +144,8 @@ export function CampaignAssignmentRules() {
         </div>
         {role === "admin" && (
           <>
-            <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Meta" : "Connect to Meta"}</a>
-            {metaConnected && <button type="button" disabled={busy} onClick={() => void load()} className="inline-flex min-h-10 items-center rounded-lg border border-emerald-800/25 bg-white px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50">Refresh campaigns</button>}
+            <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Meta" : "Connect to Meta"}</a>
+            {metaConnected && <button type="button" disabled={busy} onClick={() => void load()} className="inline-flex min-h-10 items-center rounded-lg border border-blue-800/25 bg-white px-4 py-2 text-sm font-medium text-blue-900 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">Refresh campaigns</button>}
           </>
         )}
       </div>
@@ -163,7 +163,7 @@ export function CampaignAssignmentRules() {
                   setCampaignName(option.name);
                   setCampaignId(option.id ?? "");
                 }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
               >
               <option value="">{!metaConnected ? "Connect Meta to list active campaigns…" : campaigns.length ? "Choose an active Meta campaign…" : "No active campaigns found…"}</option>
                 {campaigns.map((item) => (
@@ -183,7 +183,7 @@ export function CampaignAssignmentRules() {
                 onChange={(event) => setCampaignName(event.target.value)}
                 placeholder="e.g. Pune ENT Consultation"
                 autoComplete="off"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
               />
             </label>
             <label className="space-y-1.5 text-sm font-medium text-slate-800">
@@ -194,7 +194,7 @@ export function CampaignAssignmentRules() {
                 onChange={(event) => setCampaignId(event.target.value)}
                 placeholder="Meta campaign ID"
                 autoComplete="off"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
               />
             </label>
             <label className="space-y-1.5 text-sm font-medium text-slate-800">
@@ -205,7 +205,7 @@ export function CampaignAssignmentRules() {
                 onChange={(event) => setFormId(event.target.value)}
                 placeholder="Meta lead form ID"
                 autoComplete="off"
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
               />
             </label>
           </div>
@@ -217,12 +217,12 @@ export function CampaignAssignmentRules() {
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {employees.map((employee) => (
-                  <label key={employee.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:border-emerald-300">
+                  <label key={employee.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:border-blue-300">
                     <input
                       type="checkbox"
                       checked={targetProfileIds.includes(employee.id)}
                       onChange={() => toggleTarget(employee.id)}
-                      className="size-4 rounded border-slate-300 text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-700"
+                      className="size-4 rounded border-slate-300 text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-700"
                     />
                     <span className="min-w-0 break-words">{employee.name}</span>
                   </label>
@@ -235,20 +235,20 @@ export function CampaignAssignmentRules() {
           <fieldset className="grid gap-2 sm:grid-cols-2">
             <legend className="mb-2 text-sm font-medium text-slate-800">How should new leads be assigned?</legend>
             <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-              <input type="radio" name="campaign-assignment-mode" checked={assignmentMode === "round_robin"} onChange={() => setAssignmentMode("round_robin")} className="mt-0.5 size-4 border-slate-300 text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-700" />
+              <input type="radio" name="campaign-assignment-mode" checked={assignmentMode === "round_robin"} onChange={() => setAssignmentMode("round_robin")} className="mt-0.5 size-4 border-slate-300 text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-700" />
               <span><span className="block font-medium text-slate-900">Round-robin</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Each lead gets one selected agent, balanced in turn.</span></span>
             </label>
             <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-              <input type="radio" name="campaign-assignment-mode" checked={assignmentMode === "manual"} onChange={() => setAssignmentMode("manual")} className="mt-0.5 size-4 border-slate-300 text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-700" />
+              <input type="radio" name="campaign-assignment-mode" checked={assignmentMode === "manual"} onChange={() => setAssignmentMode("manual")} className="mt-0.5 size-4 border-slate-300 text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-700" />
               <span><span className="block font-medium text-slate-900">Admin assigns manually</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Leads arrive as New and unassigned; admins choose the owner in Leads.</span></span>
             </label>
           </fieldset>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={busy || !campaignName.trim() || !targetProfileIds.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={busy || !campaignName.trim() || !targetProfileIds.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
               <Save className="size-4" aria-hidden="true" />{busy ? "Saving…" : editingId ? "Update campaign route" : "Save campaign route"}
             </button>
-            {editingId && <button type="button" onClick={resetForm} disabled={busy} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50"><RotateCcw className="size-4" aria-hidden="true" />Cancel edit</button>}
+            {editingId && <button type="button" onClick={resetForm} disabled={busy} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50"><RotateCcw className="size-4" aria-hidden="true" />Cancel edit</button>}
           </div>
         </form>
       )}
@@ -256,7 +256,7 @@ export function CampaignAssignmentRules() {
       {role === "manager" && <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can review campaign routes here. Only admins can change them.</p>}
       <div className="space-y-3" aria-live="polite">
         {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
-        {notice && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{notice}</p>}
+        {notice && <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{notice}</p>}
       </div>
 
       <div className="space-y-3">
@@ -268,15 +268,15 @@ export function CampaignAssignmentRules() {
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="break-words font-medium text-slate-900">{route.campaignName}</h4>
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${route.isActive ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{route.isActive ? "Active" : "Paused"}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${route.isActive ? "bg-blue-50 text-blue-800" : "bg-slate-100 text-slate-600"}`}>{route.isActive ? "Active" : "Paused"}</span>
               </div>
               <p className="break-words text-sm text-slate-600">{route.targetNames.join(", ") || "No agents selected"}</p>
               <p className="text-xs text-slate-500">{route.assignmentMode === "round_robin" ? "Round-robin · one owner per lead" : "Admin assigns manually"}{route.campaignId ? ` · Campaign ${route.campaignId}` : " · matched by campaign name"}{route.formId ? ` · Form ${route.formId}` : ""}</p>
             </div>
             {role === "admin" && (
               <div className="flex shrink-0 flex-wrap gap-2">
-                <button type="button" disabled={busy} onClick={() => edit(route)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50"><Pencil className="size-3.5" aria-hidden="true" />Edit</button>
-                <button type="button" disabled={busy} aria-pressed={!route.isActive} onClick={() => void toggleRoute(route)} className="min-h-9 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 disabled:opacity-50">{route.isActive ? "Pause route" : "Resume route"}</button>
+                <button type="button" disabled={busy} onClick={() => edit(route)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50"><Pencil className="size-3.5" aria-hidden="true" />Edit</button>
+                <button type="button" disabled={busy} aria-pressed={!route.isActive} onClick={() => void toggleRoute(route)} className="min-h-9 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">{route.isActive ? "Pause route" : "Resume route"}</button>
               </div>
             )}
           </article>

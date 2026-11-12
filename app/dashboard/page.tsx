@@ -174,8 +174,8 @@ export default async function DashboardPage({
   const dayLabel = new Date(`${day}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", year: "numeric" });
   const isToday = day === today;
   const dailyCards: {key:DailyWorkKind;label:string;detail:string;icon:typeof UserPlus;tone:string}[] = [
-    { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-    { key: "opdDone" as const, label: "OPD Done", detail: "Patients whose recorded OPD completion date is this day", icon: CircleCheck, tone: "border-teal-200 bg-teal-50 text-teal-800" },
+    { key: "opd" as const, label: "OPD appointments", detail: "Patients with an OPD date on this day", icon: CalendarCheck, tone: "border-blue-200 bg-blue-50 text-blue-800" },
+    { key: "opdDone" as const, label: "OPD Done", detail: "Patients whose recorded OPD completion date is this day", icon: CircleCheck, tone: "border-sky-200 bg-sky-50 text-sky-800" },
     { key: "ipd" as const, label: "IPD appointments", detail: "Patients with a recorded IPD / surgery date on this day", icon: BedDouble, tone: "border-violet-200 bg-violet-50 text-violet-800" },
   ];
   dailyCards.push({ key: "ipdDone", label: "IPD Done", detail: "Patients whose IPD appointment was completed on this day", icon: CircleCheck, tone: "border-purple-200 bg-purple-50 text-purple-800" });

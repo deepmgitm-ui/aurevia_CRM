@@ -38,7 +38,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 function rateTone(rate: number, total: number) {
   if (total === 0) return { text: "text-slate-400", bar: "bg-slate-300" };
-  if (rate >= 90) return { text: "text-emerald-600", bar: "bg-emerald-500" };
+  if (rate >= 90) return { text: "text-blue-600", bar: "bg-blue-500" };
   if (rate >= 70) return { text: "text-amber-600", bar: "bg-amber-500" };
   return { text: "text-rose-600", bar: "bg-rose-500" };
 }
@@ -46,7 +46,7 @@ function rateTone(rate: number, total: number) {
 function statusChip(status: AttendanceStatus) {
   if (status === "Absent") return "bg-rose-100 text-rose-700";
   if (status === "Half-Day") return "bg-amber-100 text-amber-700";
-  return "bg-emerald-100 text-emerald-700";
+  return "bg-blue-100 text-blue-700";
 }
 
 function RoleBadge({ role }: { role: string }) {
@@ -220,7 +220,7 @@ export function AttendanceTeam({
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
                     <div>
                       <dt className="text-[10px] tracking-wide text-slate-400 uppercase">Present</dt>
-                      <dd className="text-sm font-semibold text-emerald-600">{card.present}</dd>
+                      <dd className="text-sm font-semibold text-blue-600">{card.present}</dd>
                     </div>
                     <div>
                       <dt className="text-[10px] tracking-wide text-slate-400 uppercase">Half</dt>
@@ -244,7 +244,7 @@ export function AttendanceTeam({
                     )}
                     {card.streak > 1 && (
                       <span className="inline-flex items-center gap-1">
-                        <Flame className="size-3 text-emerald-600" aria-hidden="true" />
+                        <Flame className="size-3 text-blue-600" aria-hidden="true" />
                         {card.streak}-day streak
                       </span>
                     )}

@@ -68,7 +68,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
       <Button
         type="button"
         variant="ghost"
-        className="h-9 gap-2 rounded-xl border border-emerald-900/10 bg-white/80 px-3 text-slate-600 shadow-sm transition-[color,background-color,border-color,box-shadow] hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+        className="h-9 gap-2 rounded-xl border border-blue-900/10 bg-white/80 px-3 text-slate-600 shadow-sm transition-[color,background-color,border-color,box-shadow] hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
         aria-label="Search leads and CRM sections"
         onClick={() => setOpen(true)}
       >
@@ -79,7 +79,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
 
       <Dialog open={open} onOpenChange={(nextOpen) => nextOpen ? setOpen(true) : closeSearch()}>
         <DialogContent className="grid-rows-[auto_auto_minmax(0,1fr)_auto] h-[min(82dvh,42rem)] max-h-[min(82dvh,42rem)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
-          <DialogHeader className="border-b border-emerald-950/10 px-5 py-4">
+          <DialogHeader className="border-b border-blue-950/10 px-5 py-4">
             <DialogTitle>Search Aurevia</DialogTitle>
             <DialogDescription>Find a lead or open any section in your workspace.</DialogDescription>
           </DialogHeader>
@@ -101,9 +101,9 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
               <section aria-label="CRM sections" className="mb-2">
                 <h3 className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sections</h3>
                 {visibleDestinations.map((item) => (
-                  <Link key={item.href} href={item.href} onClick={closeSearch} className="crm-interactive-row group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-emerald-50 hover:text-emerald-800 focus-visible:bg-emerald-50 focus-visible:outline-none">
+                  <Link key={item.href} href={item.href} onClick={closeSearch} className="crm-interactive-row group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-800 focus-visible:bg-blue-50 focus-visible:outline-none">
                     <span>{item.label}</span>
-                    <ArrowRight className="size-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-700" aria-hidden="true" />
+                    <ArrowRight className="size-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700" aria-hidden="true" />
                   </Link>
                 ))}
               </section>
@@ -117,15 +117,15 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
                 ) : searchError ? (
                   <p role="status" className="px-3 py-5 text-sm text-rose-600">{searchError}</p>
                 ) : resultsFor === term && leads.length > 0 ? leads.map((lead) => (
-                  <div key={lead.id} className="crm-interactive-row group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-emerald-50">
+                  <div key={lead.id} className="crm-interactive-row group flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-blue-50">
                     <Link href={`/dashboard/leads?q=${encodeURIComponent(term)}&openLead=${encodeURIComponent(lead.id)}`} onClick={closeSearch} className="flex min-w-0 flex-1 items-center gap-3 focus-visible:outline-none">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><UserRound className="size-4" aria-hidden="true" /></span>
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700"><UserRound className="size-4" aria-hidden="true" /></span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>
                         <span className="block truncate text-xs text-slate-500">{[lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
                       </span>
                       <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{lead.status}</span>
-                      <ArrowRight className="size-4 text-slate-300 group-hover:text-emerald-700" aria-hidden="true" />
+                      <ArrowRight className="size-4 text-slate-300 group-hover:text-blue-700" aria-hidden="true" />
                     </Link>
                     <PhonePreview value={lead.phone} className="text-xs text-slate-500" />
                   </div>

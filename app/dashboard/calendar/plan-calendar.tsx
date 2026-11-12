@@ -48,8 +48,8 @@ function ReminderDot({ kind, past }: { kind: AppointmentKind; past: boolean }) {
         : "bg-violet-600"
       : kind === "opdDone"
         ? past
-          ? "bg-emerald-300"
-          : "bg-emerald-600"
+          ? "bg-blue-300"
+          : "bg-blue-600"
         : past
           ? "bg-blue-300"
           : "bg-blue-600"
@@ -258,7 +258,7 @@ export function PlanCalendar({
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            <span className="font-semibold text-blue-700">Blue</span> = OPD booked, <span className="font-semibold text-emerald-700">green</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
+            <span className="font-semibold text-sky-700">Sky</span> = OPD booked, <span className="font-semibold text-blue-700">blue</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
           </p>
           </CardContent>
         </Card>

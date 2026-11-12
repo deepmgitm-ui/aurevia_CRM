@@ -104,9 +104,9 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
                 href={href}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "crm-nav-link flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
+                  "crm-nav-link flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-blue-700",
                   isActive
-                    ? "border-emerald-700 bg-emerald-50 text-emerald-950"
+                    ? "border-blue-700 bg-blue-50 text-blue-950"
                     : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950",
                 )}
               >
@@ -124,8 +124,8 @@ function Navigation({ mobile = false, role, pendingDeletionReviews = 0 }: { mobi
               const isTotalLeads = pathname === href && searchParams.get("month") === "all" && !searchParams.get("bucket") && !searchParams.get("work") && !searchParams.get("status");
               const totalLeadsLink = (
                 <Link href="/dashboard/leads?month=all" aria-current={isTotalLeads ? "page" : undefined}
-                  className={cn("ml-7 mt-1 flex items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-emerald-700",
-                    isTotalLeads ? "bg-emerald-50 text-emerald-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
+                  className={cn("ml-7 mt-1 flex items-center rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-blue-700",
+                    isTotalLeads ? "bg-blue-50 text-blue-900" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
                 >Total Leads</Link>
               );
               return mobile
@@ -226,12 +226,12 @@ function AttendanceChip({
   return (
     <span
       title="Today's attendance — marked automatically when you signed in"
-      className="hidden items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 md:inline-flex"
+      className="hidden items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800 md:inline-flex"
     >
       <CircleCheck aria-hidden="true" />
       {attendance.status}
       {attendance.checkInLabel !== "-" && (
-        <span className="text-emerald-600">· {attendance.checkInLabel}</span>
+        <span className="text-blue-600">· {attendance.checkInLabel}</span>
       )}
     </span>
   );
@@ -275,7 +275,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
     <div className="crm-app-shell flex min-h-screen">
       <a
         href="#main-content"
-        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-3 focus-visible:z-[80] focus-visible:rounded-md focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-emerald-900 focus-visible:shadow-lg focus-visible:outline-2 focus-visible:outline-emerald-700"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-3 focus-visible:z-[80] focus-visible:rounded-md focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-blue-900 focus-visible:shadow-lg focus-visible:outline-2 focus-visible:outline-blue-700"
       >
         Skip to main content
       </a>
@@ -292,7 +292,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
               {profile.role !== "employee" && <Link
                 href="/dashboard/tasks"
                 aria-label="Tasks"
-                className="flex items-center gap-2 rounded-full border border-emerald-900/10 bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:flex"
+                className="flex items-center gap-2 rounded-full border border-blue-900/10 bg-white/70 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 sm:flex"
               >
                 <CheckSquare className="size-4" aria-hidden="true" />
                 <span className="hidden xl:inline">Tasks</span>

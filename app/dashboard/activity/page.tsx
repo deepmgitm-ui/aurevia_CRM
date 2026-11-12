@@ -26,7 +26,7 @@ function activityHref(view: "mine" | "all" | "agent", page: number, agentId = ""
 }
 
 function activityTone(action: string) {
-  if (action.toLowerCase().includes("status")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (action.toLowerCase().includes("status")) return "border-blue-200 bg-blue-50 text-blue-800";
   if (action.toLowerCase().includes("call")) return "border-sky-200 bg-sky-50 text-sky-800";
   if (action.toLowerCase().includes("assignment") || action.toLowerCase().includes("transfer")) return "border-indigo-200 bg-indigo-50 text-indigo-800";
   return "border-slate-200 bg-slate-50 text-slate-700";
@@ -99,21 +99,21 @@ export default async function ActivityPage({
         <Link
           href={activityHref("mine", 1)}
           aria-current={view === "mine" ? "page" : undefined}
-          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-emerald-700 sm:px-4 ${view === "mine" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-900"}`}
+          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-blue-700 sm:px-4 ${view === "mine" ? "bg-blue-700 text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-900"}`}
         >
           My Updates
         </Link>
         {isTeamLead && <Link
           href={activityHref("all", 1)}
           aria-current={view === "all" ? "page" : undefined}
-          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-emerald-700 sm:px-4 ${view === "all" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-900"}`}
+          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-blue-700 sm:px-4 ${view === "all" ? "bg-blue-700 text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-900"}`}
         >
           Team Activity
         </Link>}
         {isAdmin && <Link
           href={activityHref("agent", 1)}
           aria-current={view === "agent" ? "page" : undefined}
-          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-emerald-700 sm:px-4 ${view === "agent" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-900"}`}
+          className={`rounded-lg px-2 py-2 text-center text-sm font-medium focus-visible:outline-2 focus-visible:outline-blue-700 sm:px-4 ${view === "agent" ? "bg-blue-700 text-white" : "text-slate-600 hover:bg-blue-50 hover:text-blue-900"}`}
         >
           By Team Member
         </Link>}
@@ -124,14 +124,14 @@ export default async function ActivityPage({
           <input type="hidden" name="view" value="agent" />
           <label htmlFor="activity-agent" className="min-w-64 text-xs font-medium text-slate-700">
             Team member
-            <select id="activity-agent" name="agent" defaultValue={selectedAgent?.id ?? ""} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-600/20">
+            <select id="activity-agent" name="agent" defaultValue={selectedAgent?.id ?? ""} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-600/20">
               <option value="" disabled>Select a team member</option>
               {(employeesResult?.success ? employeesResult.data : []).map((employee) => (
                 <option key={employee.id} value={employee.id}>{employee.name} · {employee.role}</option>
               ))}
             </select>
           </label>
-          <button type="submit" className="min-h-10 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">View history</button>
+          <button type="submit" className="min-h-10 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">View history</button>
         </form>
       )}
 
@@ -159,7 +159,7 @@ export default async function ActivityPage({
                 ? isTeamLead ? "Your lead updates, notes and calls will appear here." : "Leads assigned or transferred to you will appear here."
                 : view === "agent" ? "Choose a team member above to load their complete lead activity." : "Your team's lead updates, notes, calls and assignments will appear here."}
             </p>
-            {view === "mine" && <Link href="/dashboard/leads" className="mt-4 inline-flex rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700">Open leads</Link>}
+            {view === "mine" && <Link href="/dashboard/leads" className="mt-4 inline-flex rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-blue-700">Open leads</Link>}
           </div>
         ) : (
           <ol className="space-y-3">
@@ -181,7 +181,7 @@ export default async function ActivityPage({
                     </div>
                     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                       {leadHref ? (
-                        <Link href={leadHref} className="break-words font-semibold text-slate-950 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-800 focus-visible:outline-2 focus-visible:outline-emerald-700">
+                        <Link href={leadHref} className="break-words font-semibold text-slate-950 underline decoration-blue-300 underline-offset-4 hover:text-blue-800 focus-visible:outline-2 focus-visible:outline-blue-700">
                           {event.lead_name || "Unavailable lead"}
                         </Link>
                       ) : <span className="font-semibold text-slate-950">{event.lead_name || "Unavailable lead"}</span>}
@@ -190,8 +190,8 @@ export default async function ActivityPage({
                     </div>
                     {(event.description || "Activity recorded.").length > 280 ? (
                       <details className="text-sm text-slate-700">
-                        <summary className="cursor-pointer break-words rounded-sm leading-6 focus-visible:outline-2 focus-visible:outline-emerald-700">
-                          {(event.description || "Activity recorded.").slice(0, 280)}… <span className="font-medium text-emerald-800">Show full details</span>
+                        <summary className="cursor-pointer break-words rounded-sm leading-6 focus-visible:outline-2 focus-visible:outline-blue-700">
+                          {(event.description || "Activity recorded.").slice(0, 280)}… <span className="font-medium text-blue-800">Show full details</span>
                         </summary>
                         <p className="mt-2 break-words whitespace-pre-wrap leading-6">{event.description}</p>
                       </details>
@@ -208,9 +208,9 @@ export default async function ActivityPage({
 
       {!error && events.length > 0 && (
         <nav aria-label="Activity pages" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
-          {page > 1 ? <Link href={activityHref(view, page - 1, agentId)} className="font-medium text-emerald-800 hover:underline focus-visible:outline-2 focus-visible:outline-emerald-700">Previous</Link> : <span />}
+          {page > 1 ? <Link href={activityHref(view, page - 1, agentId)} className="font-medium text-blue-800 hover:underline focus-visible:outline-2 focus-visible:outline-blue-700">Previous</Link> : <span />}
           <span className="text-slate-500">Page {page.toLocaleString("en-IN")}</span>
-          {hasNextPage ? <Link href={activityHref(view, page + 1, agentId)} className="font-medium text-emerald-800 hover:underline focus-visible:outline-2 focus-visible:outline-emerald-700">Next</Link> : <span />}
+          {hasNextPage ? <Link href={activityHref(view, page + 1, agentId)} className="font-medium text-blue-800 hover:underline focus-visible:outline-2 focus-visible:outline-blue-700">Next</Link> : <span />}
         </nav>
       )}
     </main>

@@ -110,7 +110,7 @@ export function TeamActivityPanel({
   );
   return (
     <section
-      className="crm-surface space-y-4 rounded-2xl border border-emerald-950/[0.07] bg-white/88 p-5 shadow-sm backdrop-blur-sm"
+      className="crm-surface space-y-4 rounded-2xl border border-blue-950/[0.07] bg-white/88 p-5 shadow-sm backdrop-blur-sm"
       aria-label={own ? "My CRM activity" : "Team activity"}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -169,7 +169,7 @@ export function TeamActivityPanel({
             const stale = Boolean(error);
             const color =
               state === "Active"
-                ? "bg-emerald-100 text-emerald-800"
+                ? "bg-blue-100 text-blue-800"
                 : state === "Idle"
                   ? "bg-amber-100 text-amber-800"
                   : "bg-slate-100 text-slate-600";

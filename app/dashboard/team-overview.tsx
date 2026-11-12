@@ -71,7 +71,7 @@ export function TeamOverview({
           className="crm-motion-in crm-card-interactive group rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm hover:border-slate-300 hover:shadow-lg"
         >
           <details className="group/agent">
-            <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 [&::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 [&::-webkit-details-marker]:hidden">
               <span className="flex min-w-0 items-center gap-3">
                 <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-semibold text-slate-700 ring-1 ring-slate-200/70">
                   {getInitials(employee.name)}
@@ -98,7 +98,7 @@ export function TeamOverview({
                       href={leadsHref({ assigned: employee.name, status })}
                       label={status}
                       value={employee.statuses[status] ?? 0}
-                      className="bg-emerald-50 text-emerald-800"
+                      className="bg-blue-50 text-blue-800"
                     />
                   ))}
                 </div>
@@ -114,7 +114,7 @@ export function TeamOverview({
               <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "new", allMonths: true })} label="New leads" value={employee.newLeads} className="bg-indigo-50 text-indigo-700" />
               <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "dnp" })} label="DNP" value={(employee.statuses.DNP ?? 0) + (employee.statuses.DNP2 ?? 0) + (employee.statuses.DNP3 ?? 0)} className="bg-amber-50 text-amber-800" />
               <StatChip name={employee.name} href={leadsHref({ assigned: employee.name, bucket: "followup" })} label="Follow up" value={employee.followUp} className="bg-sky-50 text-sky-700" />
-              <StatChip name={employee.name} label="OPD Done" value={employee.opdDone} href={leadsHref({ assigned: employee.name, appointment: "opdDone", appointmentMonth: currentMonth })} reloadOnOpen className="bg-emerald-50 text-emerald-700" />
+              <StatChip name={employee.name} label="OPD Done" value={employee.opdDone} href={leadsHref({ assigned: employee.name, appointment: "opdDone", appointmentMonth: currentMonth })} reloadOnOpen className="bg-blue-50 text-blue-700" />
               <StatChip name={employee.name} label="OPD Booked" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, appointment: "opdBooked", appointmentMonth: currentMonth })} reloadOnOpen className="bg-amber-50 text-amber-700" />
               <StatChip name={employee.name} label="IPD Done" value={employee.ipd} href={leadsHref({ assigned: employee.name, appointment: "ipdDone", appointmentMonth: currentMonth })} reloadOnOpen className="bg-purple-50 text-purple-700" />
               <StatChip name={employee.name} label="IPD Booked" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, appointment: "ipdBooked", appointmentMonth: currentMonth })} reloadOnOpen className="bg-violet-50 text-violet-700" />

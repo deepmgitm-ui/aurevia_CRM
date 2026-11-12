@@ -44,16 +44,16 @@ const KPI_ICONS: Record<KpiKey, LucideIcon> = {
 };
 
 const KPI_TONES: Record<KpiKey, { card: string; icon: string; bar: string }> = {
-  totalLeads: { card: "border-emerald-100 bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", bar: "#10b981" },
+  totalLeads: { card: "border-blue-100 bg-blue-50", icon: "bg-blue-100 text-blue-700", bar: "#2563eb" },
   consultationsBooked: {
-    card: "border-emerald-100 bg-emerald-50",
-    icon: "bg-emerald-100 text-emerald-600",
-    bar: "#10b981",
+    card: "border-blue-100 bg-blue-50",
+    icon: "bg-blue-100 text-blue-600",
+    bar: "#2563eb",
   },
   surgeriesCompleted: { card: "border-orange-100 bg-orange-50", icon: "bg-orange-100 text-orange-500", bar: "#f97316" },
   lostLeads: { card: "border-violet-100 bg-violet-50", icon: "bg-violet-100 text-violet-600", bar: "#8b5cf6" },
   conversionRate: { card: "border-pink-100 bg-pink-50", icon: "bg-pink-100 text-pink-600", bar: "#ec4899" },
-  activeAgents: { card: "border-teal-100 bg-teal-50", icon: "bg-teal-100 text-teal-600", bar: "#14b8a6" },
+  activeAgents: { card: "border-sky-100 bg-sky-50", icon: "bg-sky-100 text-sky-600", bar: "#0ea5e9" },
 };
 
 const KPI_SUBTITLES: Partial<Record<KpiKey, string>> = {
@@ -73,7 +73,7 @@ export function KpiCards({ kpis }: { kpis: KpiCard[] }) {
         const trendClass = isFlat
           ? "text-slate-500"
           : isGood
-            ? "text-emerald-600"
+            ? "text-blue-600"
             : "text-rose-600";
         const cardClass = `crm-motion-in crm-card-interactive flex flex-col justify-between rounded-2xl border p-4 shadow-sm ${tone.card}`;
         const motionStyle = { animationDelay: `${index * 45}ms` };

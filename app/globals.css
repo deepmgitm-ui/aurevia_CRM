@@ -22,15 +22,15 @@
 }
 
 .crm-app-shell .crm-card-interactive {
-  border-color: #e5eae6;
+  border-color: #e5eaf5;
   border-radius: 0.875rem;
   box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
 }
 
 .crm-app-shell {
   background:
-    radial-gradient(ellipse at 12% 0%, rgb(16 185 129 / 5%), transparent 34rem),
-    linear-gradient(145deg, #f8faf8 0%, #f4f8f5 100%);
+    radial-gradient(ellipse at 12% 0%, rgb(37 99 235 / 5%), transparent 34rem),
+    linear-gradient(145deg, #f7f9ff 0%, #f4f7ff 100%);
 }
 
 .crm-app-shell > div > header.sticky {
@@ -46,14 +46,14 @@
 }
 
 .crm-app-shell [data-slot="card"] {
-  border-color: #e5eae6;
+  border-color: #e5eaf5;
   border-radius: 0.875rem;
   background: linear-gradient(145deg, rgb(255 255 255 / 98%), rgb(251 253 251 / 94%));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 90%), 0 2px 8px rgb(15 23 42 / 3%);
 }
 
 .crm-app-shell .crm-surface {
-  border-color: #e5eae6;
+  border-color: #e5eaf5;
   border-radius: 0.875rem;
   background: rgb(255 255 255 / 78%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 92%), 0 8px 24px rgb(15 23 42 / 4%);
@@ -104,27 +104,27 @@
 }
 
 .crm-app-shell table thead {
-  background: #f7f9f7;
+  background: #f7f9fd;
 }
 
 .crm-app-shell table th {
-  color: #59665e;
+  color: #596579;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.025em;
 }
 
 .crm-app-shell table tbody tr {
-  border-color: #edf0ed;
+  border-color: #edf0f5;
 }
 
 .crm-app-shell table tbody tr:hover {
-  background: #f8faf8;
+  background: #f7f9ff;
 }
 
 .crm-tabs-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #d9e2db transparent;
+  scrollbar-color: #d9e2f0 transparent;
 }
 
 .crm-tabs-scroll::-webkit-scrollbar {
@@ -138,11 +138,11 @@
 
 .crm-tabs-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: #d9e2db;
+  background: #d9e2f0;
 }
 
 .crm-tabs-scroll::-webkit-scrollbar-thumb:hover {
-  background: #b9c9bd;
+  background: #b9c9de;
 }
 
 .crm-tabs-scroll::-webkit-scrollbar-button {
@@ -154,7 +154,7 @@
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .crm-card-interactive:hover {
     transform: translate3d(0, -3px, 0) scale(1.005);
-    border-color: #d7e2da;
+    border-color: #d7e2f0;
     box-shadow: 0 5px 14px rgb(15 23 42 / 5%);
   }
 
@@ -257,38 +257,38 @@
 :root {
   --font-ibm-plex-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "Segoe UI Mono", monospace;
-  --background: oklch(0.985 0.008 158);
+  --background: oklch(0.985 0.008 255);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.52 0.13 158);
+  --primary: oklch(0.52 0.13 255);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.025 158);
-  --secondary-foreground: oklch(0.32 0.07 158);
-  --muted: oklch(0.96 0.012 158);
-  --muted-foreground: oklch(0.51 0.025 158);
-  --accent: oklch(0.95 0.035 158);
-  --accent-foreground: oklch(0.32 0.07 158);
+  --secondary: oklch(0.95 0.025 255);
+  --secondary-foreground: oklch(0.32 0.07 255);
+  --muted: oklch(0.96 0.012 255);
+  --muted-foreground: oklch(0.51 0.025 255);
+  --accent: oklch(0.95 0.035 255);
+  --accent-foreground: oklch(0.32 0.07 255);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.016 158);
-  --input: oklch(0.89 0.018 158);
-  --ring: oklch(0.64 0.13 158);
-  --chart-1: oklch(0.68 0.12 158);
-  --chart-2: oklch(0.58 0.14 158);
-  --chart-3: oklch(0.76 0.1 175);
-  --chart-4: oklch(0.82 0.12 145);
-  --chart-5: oklch(0.49 0.11 178);
+  --border: oklch(0.91 0.016 255);
+  --input: oklch(0.89 0.018 255);
+  --ring: oklch(0.64 0.13 255);
+  --chart-1: oklch(0.68 0.12 255);
+  --chart-2: oklch(0.58 0.14 255);
+  --chart-3: oklch(0.76 0.1 255);
+  --chart-4: oklch(0.82 0.12 255);
+  --chart-5: oklch(0.49 0.11 255);
   --radius: 0.625rem;
-  --sidebar: oklch(0.995 0.004 158);
+  --sidebar: oklch(0.995 0.004 255);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.52 0.13 158);
+  --sidebar-primary: oklch(0.52 0.13 255);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.95 0.035 158);
-  --sidebar-accent-foreground: oklch(0.32 0.07 158);
-  --sidebar-border: oklch(0.91 0.016 158);
-  --sidebar-ring: oklch(0.64 0.13 158);
+  --sidebar-accent: oklch(0.95 0.035 255);
+  --sidebar-accent-foreground: oklch(0.32 0.07 255);
+  --sidebar-border: oklch(0.91 0.016 255);
+  --sidebar-ring: oklch(0.64 0.13 255);
 }
 
 .dark {
@@ -298,8 +298,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.68 0.16 255);
+  --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -309,7 +309,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.68 0.16 255);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -317,12 +317,12 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.68 0.16 255);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: oklch(0.68 0.16 255);
 }
 
 @layer base {

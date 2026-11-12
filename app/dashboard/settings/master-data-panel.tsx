@@ -88,7 +88,7 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
           <Badge
             className={
               snapshot.fromDatabase
-                ? "border-green-200 bg-green-100 text-green-700 hover:bg-green-100"
+                ? "border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100"
                 : "border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-100"
             }
           >

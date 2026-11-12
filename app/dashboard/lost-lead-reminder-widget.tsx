@@ -28,7 +28,7 @@ export async function LostLeadReminderWidget() {
             </p>
           </div>
         </div>
-        <Link href="/dashboard/closed-lead-reviews" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+        <Link href="/dashboard/closed-lead-reviews" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-medium text-amber-950 transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
           View all <ArrowRight className="size-4" aria-hidden="true" />
         </Link>
       </div>

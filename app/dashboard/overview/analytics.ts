@@ -110,17 +110,17 @@ const PIPELINE_STAGE_KEYS = new Set<StageKey>(
 // four reference colours (LASIK / Cataract / ICL / Other) so a free-text series
 // can never be painted the same blue as LASIK.
 const TREATMENT_PALETTE = [
-  "#10b981",
+  "#2563eb",
   "#f59e0b",
   "#06b6d4",
   "#8b5cf6",
   "#64748b",
   "#ef4444",
-  "#14b8a6",
+  "#0ea5e9",
   "#f97316",
   // Four extra slots so a CRM that names 12+ different treatments still gets a
   // distinct colour per segment before anything folds into "Other".
-  "#84cc16",
+  "#2563eb",
   "#d946ef",
   "#6366f1",
   "#e11d48",

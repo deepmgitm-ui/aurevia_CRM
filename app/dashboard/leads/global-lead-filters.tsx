@@ -36,7 +36,7 @@ function preservedEntries(params: SearchParams): Array<[string, string]> {
 }
 
 function fieldClassName() {
-  return "mt-1 block min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus-visible:border-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-600/20";
+  return "mt-1 block min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-600/20";
 }
 
 export function GlobalLeadFilters({
@@ -52,7 +52,7 @@ export function GlobalLeadFilters({
     : LEAD_STATUS_OPTIONS;
 
   return (
-    <section aria-labelledby="global-lead-filters-title" className="rounded-2xl border border-emerald-950/[0.08] bg-white p-4 shadow-sm sm:p-5">
+    <section aria-labelledby="global-lead-filters-title" className="rounded-2xl border border-blue-950/[0.08] bg-white p-4 shadow-sm sm:p-5">
       <div className="mb-4">
         <h2 id="global-lead-filters-title" className="text-sm font-semibold text-slate-900">Global lead filters</h2>
         <p className="mt-1 text-xs text-slate-500">Filter the full lead list by identity, workflow stage, disposition, treatment, or disease.</p>
@@ -86,10 +86,10 @@ export function GlobalLeadFilters({
           <input className={fieldClassName()} type="search" name="disease" maxLength={120} defaultValue={filters.disease} placeholder="Search disease" />
         </label>
         <div className="flex items-end gap-2 sm:col-span-2 xl:col-span-5">
-          <button type="submit" className="min-h-10 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+          <button type="submit" className="min-h-10 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
             Apply filters
           </button>
-          <Link href="/dashboard/leads?month=all" className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+          <Link href="/dashboard/leads?month=all" className="inline-flex min-h-10 items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
             Clear filters
           </Link>
         </div>

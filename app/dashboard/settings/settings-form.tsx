@@ -45,7 +45,7 @@ export function SettingsForm({ initialName, role }: { initialName: string; role:
             <Label>Role</Label>
             <div>
               {role === "admin" ? (
-                <Badge className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">Admin</Badge>
+                <Badge className="border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100">Admin</Badge>
               ) : role === "employee" ? (
                 <Badge>Employee</Badge>
               ) : (

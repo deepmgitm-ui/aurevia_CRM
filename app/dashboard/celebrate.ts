@@ -10,7 +10,7 @@
 
 import { toast } from "@/components/ui/toast";
 
-const CONFETTI_COLORS = ["#1d4ed8", "#60a5fa", "#a855f7", "#f472b6", "#10b981", "#f59e0b"];
+const CONFETTI_COLORS = ["#1d4ed8", "#60a5fa", "#a855f7", "#f472b6", "#2563eb", "#f59e0b"];
 
 type ConfettiFn = (options?: Record<string, unknown>) => unknown;
 

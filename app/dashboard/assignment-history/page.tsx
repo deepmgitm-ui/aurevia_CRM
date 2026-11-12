@@ -63,7 +63,7 @@ export default async function AssignmentHistoryPage({
                     ? "border-slate-200 bg-slate-50 text-slate-700"
                     : event.event_kind === "transfer"
                       ? "border-blue-200 bg-blue-50 text-blue-800"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-800";
+                      : "border-blue-200 bg-blue-50 text-blue-800";
                   return (
                     <tr key={event.id}>
                       <td className="px-4 py-3 text-slate-600">{dateFormat.format(new Date(event.assigned_at))}</td>
@@ -80,9 +80,9 @@ export default async function AssignmentHistoryPage({
           </div>
           {events.length === 0 && <p className="p-6 text-sm text-slate-500">No assignment records on this page.</p>}
           <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm">
-            {page > 1 ? <Link className="text-emerald-700 hover:underline" href={`/dashboard/assignment-history?page=${page - 1}`}>Previous</Link> : <span />}
+            {page > 1 ? <Link className="text-blue-700 hover:underline" href={`/dashboard/assignment-history?page=${page - 1}`}>Previous</Link> : <span />}
             <span className="text-slate-500">Page {page}</span>
-            {(data?.length ?? 0) > PAGE_SIZE && page < 10000 ? <Link className="text-emerald-700 hover:underline" href={`/dashboard/assignment-history?page=${page + 1}`}>Next</Link> : <span />}
+            {(data?.length ?? 0) > PAGE_SIZE && page < 10000 ? <Link className="text-blue-700 hover:underline" href={`/dashboard/assignment-history?page=${page + 1}`}>Next</Link> : <span />}
           </div>
         </div>
       )}

@@ -140,7 +140,7 @@ export function AdminUserPanel({ initialUsers }: { initialUsers: ManagedUser[] }
             <p className="mt-1 text-sm text-slate-500">Manage CRM roles and access.</p>
           </div>
           <div className="flex items-center gap-3">
-            <Badge className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">Admin</Badge>
+            <Badge className="border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100">Admin</Badge>
             <Button type="button" size="sm" onClick={() => setIsAddUserOpen(true)}>
               + Add User
             </Button>

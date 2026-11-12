@@ -34,19 +34,19 @@ import {
 } from "./analytics";
 
 export const TREND_COLORS = {
-  leads: "#047857",
-  consultations: "#10b981",
-  surgeries: "#5eead4",
+  leads: "#1d4ed8",
+  consultations: "#2563eb",
+  surgeries: "#7dd3fc",
 } as const;
 
-const CATEGORY_COLORS = ["#047857", "#059669", "#10b981", "#14b8a6", "#34d399", "#6ee7b7", "#5eead4", "#a7f3d0"];
+const CATEGORY_COLORS = ["#1d4ed8", "#3b82f6", "#2563eb", "#0ea5e9", "#38bdf8", "#60a5fa", "#7dd3fc", "#93c5fd"];
 
 const AXIS_TICK = { fill: "#94a3b8", fontSize: 12 } as const;
 
 const TOOLTIP_STYLE = {
   borderRadius: 12,
-  border: "1px solid #d8eee3",
-  boxShadow: "0 14px 34px rgba(6, 78, 59, 0.10)",
+  border: "1px solid #d8e7fb",
+  boxShadow: "0 14px 34px rgba(30, 64, 175, 0.10)",
   fontSize: 12,
   padding: "8px 12px",
 } as const;

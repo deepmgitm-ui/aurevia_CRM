@@ -98,7 +98,7 @@ export function LeadAssignmentTabs({ team }: { team: TeamStats }) {
             employees={team.employees.map(({ id, name }) => ({ id, name }))}
           />
         ) : (
-          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             All leads are assigned.
           </p>
         )}
