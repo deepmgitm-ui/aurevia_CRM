@@ -455,6 +455,7 @@ export function LeadsTable({
   viewerId = "",
   filters = EMPTY_LEAD_FILTERS,
   initialOpenLeadId = "",
+  initialFocusedLead = null,
   workflowNow,
 }: {
   leads: Lead[];
@@ -472,6 +473,7 @@ export function LeadsTable({
   // They travel with EVERY server call so paging/export stays filtered.
   filters?: LeadListFilters;
   initialOpenLeadId?: string;
+  initialFocusedLead?: Lead | null;
   /** Server render timestamp keeps New/Fresh labels hydration-stable. */
   workflowNow: string;
 }) {
@@ -495,7 +497,10 @@ export function LeadsTable({
   const canSeeSource = isAdmin || isManager;
   const canEditCore = isAdmin || isManager;
   const canAssign = isAdmin || isManager;
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState(() => {
+    if (!initialFocusedLead || initialLeads.some((lead) => lead.id === initialFocusedLead.id)) return initialLeads;
+    return [initialFocusedLead, ...initialLeads].slice(0, LEADS_PAGE_SIZE);
+  });
   // Server-side pagination state: only one page of 50 leads lives in memory;
   // the next page is fetched from the server on demand.
   const [page, setPage] = useState(1);
@@ -2792,7 +2797,7 @@ export function LeadsTable({
                 const originalSourceStatus = lead.imported_status?.trim() || lead.intake_status?.trim() || "";
                 const treatment = treatmentCellData(lead);
                 return (
-                <TableRow key={lead.id} className={assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-blue-50/50" : undefined)}>
+                <TableRow key={lead.id} className={lead.id === initialFocusedLead?.id ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-blue-50/50" : undefined)}>
                   <TableCell className="py-3 font-mono text-xs tabular-nums text-slate-500">{lead.lead_sequence_id == null ? "—" : `#${lead.lead_sequence_id.toLocaleString("en-IN")}`}</TableCell>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
                   <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{originalSourceStatus && <p className="mt-1 max-w-full break-words whitespace-normal text-[11px] text-slate-500">Source status: {originalSourceStatus}</p>}{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>

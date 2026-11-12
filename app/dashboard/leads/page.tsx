@@ -34,20 +34,23 @@ export default async function LeadsPage({
   const parsedFilters = parseLeadFilters(params);
   const filters = parsedFilters;
   const initialOpenLeadId = typeof params.openLead === "string" ? params.openLead : "";
+  const focusedLeadId = typeof params.focusLead === "string" ? params.focusLead : "";
   const isFiltered = hasLeadFilters(filters);
   const activeChips = isFiltered ? describeActiveFilters(filters) : [];
 
   // Server-side pagination: only the first 50 leads are fetched, counts feed
   // the stat cards so they stay accurate without loading the whole table.
-  const [leadsResult, viewerResult, teamResult, employeeSummaryResult, dailyNewLeadsResult] = await Promise.all([
+  const [leadsResult, viewerResult, teamResult, employeeSummaryResult, dailyNewLeadsResult, focusedLeadResult] = await Promise.all([
     getLeadsPage(1, 50, filters.q, "", "", filters),
     getViewer(),
     getTeamStats(),
     getLeadPipelineSummary(filters.assigned),
     getDailyWorkCounts(today),
+    focusedLeadId ? getLeadsPage(1, 1, "", "", "", {}, [focusedLeadId]) : Promise.resolve(null),
   ]);
   const viewer = viewerResult.success ? viewerResult.data : null;
   const leadsPage = leadsResult.success ? leadsResult.data : { leads: [], total: 0, totalPages: 1 };
+  const focusedLead = focusedLeadResult?.success ? focusedLeadResult.data.leads[0] ?? null : null;
   const team = teamResult.success ? teamResult.data : null;
   const canViewAssignments = viewer?.role === "admin" || viewer?.role === "manager";
   const pipelineSummary = employeeSummaryResult.success ? employeeSummaryResult.data : null;
@@ -137,12 +140,13 @@ export default async function LeadsPage({
           and refetches page 1 of the new result set. */}
       {viewer && leadsResult.success && <section id="lead-list" className="scroll-mt-6" aria-label="Matching leads">
         <LeadsTable
-          key={JSON.stringify(filters)}
+          key={`${JSON.stringify(filters)}:${focusedLeadId}`}
           leads={leadsPage.leads}
           initialTotal={leadsPage.total}
           initialTotalPages={leadsPage.totalPages}
           workflowNow={new Date().toISOString()}
           initialOpenLeadId={initialOpenLeadId}
+          initialFocusedLead={focusedLead}
           role={viewer?.role ?? "employee"}
           viewerId={viewer?.id ?? ""}
           filters={filters}

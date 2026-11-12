@@ -180,7 +180,7 @@ export function RealtimeNotifications() {
                   </div>
                   <button type="button" aria-label="Mark notification as read" title="Mark as read" disabled={busyId !== null} onClick={() => void markRead(item.id)} className="shrink-0 rounded-md p-2 text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50"><Check className="size-4" aria-hidden="true" /></button>
                 </div>
-                {item.lead_id && <button type="button" onClick={() => { setIsOpen(false); router.push(`/dashboard/leads?openLead=${encodeURIComponent(item.lead_id!)}`); }} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"><ExternalLink className="size-3.5" aria-hidden="true" />Open lead</button>}
+                {item.lead_id && <button type="button" onClick={() => { setIsOpen(false); router.push(`/dashboard/leads?focusLead=${encodeURIComponent(item.lead_id!)}#lead-list`); }} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-blue-800 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"><ExternalLink className="size-3.5" aria-hidden="true" />Open lead</button>}
               </article>
             ))}
           </div>
