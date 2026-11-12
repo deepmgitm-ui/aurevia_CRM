@@ -42,7 +42,7 @@ function monthlyAppointmentLabel(period: { from: string; to: string }): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(to);
-  return String(from.getUTCDate()) + "–" + String(to.getUTCDate()) + " " + monthYear;
+  return String(from.getUTCDate()) + "-" + String(to.getUTCDate()) + " " + monthYear;
 }
 
 export function DashboardStats({
@@ -86,17 +86,19 @@ export function DashboardStats({
     href: leadsHref({ ...scope, status, age: "", month: "", allMonths: true }),
     tone: status.includes("OPD") ? (status === "OPD Done" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")
       : status.includes("IPD") ? (status === "IPD Done" ? "border-purple-200 bg-purple-50 text-purple-800" : "border-violet-200 bg-violet-50 text-violet-800")
-      : ["Dropped", "Not Interested", "Didn’t Enquired", "Budget Issue", "Location Issue", "Non Surgical", "Invalid Number", "Wrong Number"].includes(status) ? "border-rose-200 bg-rose-50 text-rose-800"
+      : ["Dropped", "Not Interested", "Didn't Enquired", "Budget Issue", "Location Issue", "Non Surgical", "Invalid Number", "Wrong Number"].includes(status) ? "border-rose-200 bg-rose-50 text-rose-800"
       : status === "Follow-Up" ? "border-sky-200 bg-sky-50 text-sky-800"
       : "border-slate-200 bg-white text-slate-800",
   }));
 
   const monthlyAppointmentCards = [
-    { label: "OPD Booked", value: summary.opdBooked, previousMonthValue: summary.previousMonthAppointments.opdBooked, tone: "border-amber-200 bg-amber-50 text-amber-800" },
-    { label: "OPD Done", value: summary.opdDone, previousMonthValue: summary.previousMonthAppointments.opdDone, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-    { label: "IPD Booked", value: summary.ipdBooked, previousMonthValue: summary.previousMonthAppointments.ipdBooked, tone: "border-violet-200 bg-violet-50 text-violet-800" },
-    { label: "IPD Done", value: summary.ipdDone, previousMonthValue: summary.previousMonthAppointments.ipdDone, tone: "border-purple-200 bg-purple-50 text-purple-800" },
+    { label: "OPD Booked", bucket: "opdBooked" as const, value: summary.opdBooked, previousMonthValue: summary.previousMonthAppointments.opdBooked, tone: "border-amber-200 bg-amber-50 text-amber-800" },
+    { label: "OPD Done", bucket: "opdDone" as const, value: summary.opdDone, previousMonthValue: summary.previousMonthAppointments.opdDone, tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+    { label: "IPD Booked", bucket: "ipdBooked" as const, value: summary.ipdBooked, previousMonthValue: summary.previousMonthAppointments.ipdBooked, tone: "border-violet-200 bg-violet-50 text-violet-800" },
+    { label: "IPD Done", bucket: "ipdDone" as const, value: summary.ipdDone, previousMonthValue: summary.previousMonthAppointments.ipdDone, tone: "border-purple-200 bg-purple-50 text-purple-800" },
   ];
+  const currentAppointmentMonth = summary.appointmentPeriod.from.slice(0, 7);
+  const previousAppointmentMonth = summary.previousMonthAppointmentPeriod.from.slice(0, 7);
   const previousMonthLabel = summary.previousMonthAppointmentPeriod.from
     ? monthlyAppointmentLabel(summary.previousMonthAppointmentPeriod)
     : "last month";
@@ -135,11 +137,13 @@ export function DashboardStats({
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {monthlyAppointmentCards.map((card) => (
-            <div key={card.label} aria-label={card.label + ": " + card.value.toLocaleString() + " this month" + (showPreviousMonthAppointments ? ", " + card.previousMonthValue.toLocaleString() + " last month" : "")} className={"crm-motion-in rounded-lg border px-2.5 py-2 shadow-sm " + card.tone}>
-              <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
-              <p className="mt-1 text-xl font-semibold tabular-nums leading-none">{card.value.toLocaleString()}</p>
-              <p className="mt-1 text-[10px] leading-snug opacity-80">This month</p>
-              {showPreviousMonthAppointments && <p className="mt-0.5 text-[10px] leading-snug opacity-75">{previousMonthLabel}: {card.previousMonthValue.toLocaleString()}</p>}
+            <div key={card.label} className={"crm-motion-in rounded-lg border px-2.5 py-2 shadow-sm " + card.tone}>
+              <Link href={`${leadsHref({ ...scope, bucket: card.bucket, month: currentAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.value.toLocaleString()} this month. View matching leads`} className="block rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+                <p className="text-[11px] font-semibold leading-snug">{card.label}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums leading-none">{card.value.toLocaleString()}</p>
+                <p className="mt-1 text-[10px] leading-snug opacity-80">This month</p>
+              </Link>
+              {showPreviousMonthAppointments && <Link href={`${leadsHref({ ...scope, bucket: card.bucket, month: previousAppointmentMonth })}#lead-list`} aria-label={`${card.label}: ${card.previousMonthValue.toLocaleString()} ${previousMonthLabel}. View matching leads`} className="mt-0.5 block rounded text-[10px] leading-snug opacity-75 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">{previousMonthLabel}: <span className="font-semibold tabular-nums">{card.previousMonthValue.toLocaleString()}</span></Link>}
             </div>
           ))}
         </div>

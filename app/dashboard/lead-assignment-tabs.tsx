@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { UserPlus, Users } from "lucide-react";
 
@@ -80,9 +81,11 @@ export function LeadAssignmentTabs({ team }: { team: TeamStats }) {
           <CardContent className="flex flex-col gap-1 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-amber-900">Leads left to assign</p>
+              <Link href="/dashboard/leads?assignmentStatus=unassigned#lead-list" aria-label={`View ${team.unassigned.toLocaleString()} unassigned leads`} className="block rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800">
               <p className="text-3xl font-semibold tracking-tight text-amber-950 tabular-nums">
                 {team.unassigned.toLocaleString()}
               </p>
+              </Link>
             </div>
             <p className="max-w-md text-xs text-amber-800">
               Includes leads without a matching team member assignment. Assign them to make follow-up ownership clear.
@@ -111,9 +114,11 @@ export function LeadAssignmentTabs({ team }: { team: TeamStats }) {
           <CardContent className="flex items-center justify-between gap-3 p-4">
             <div>
               <p className="text-sm font-medium text-blue-900">Assigned leads</p>
+              <Link href="/dashboard/leads?assignmentStatus=assigned#lead-list" aria-label={`View ${assigned.toLocaleString()} assigned leads`} className="block rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-800">
               <p className="text-3xl font-semibold tracking-tight text-blue-950 tabular-nums">
                 {assigned.toLocaleString()}
               </p>
+              </Link>
             </div>
             <p className="text-right text-xs text-blue-800">
               Across {team.employees.length.toLocaleString()} team member
