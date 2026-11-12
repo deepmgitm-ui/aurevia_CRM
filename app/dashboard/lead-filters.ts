@@ -341,7 +341,9 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     bucket: isLeadBucketKey(bucket)
       ? bucket
       : "",
-    appointment: isAppointmentFilterKey(firstValue(params.appointment)) ? firstValue(params.appointment) : "",
+    appointment: isAppointmentFilterKey(firstValue(params.appointment))
+      ? firstValue(params.appointment) as LeadListFilters["appointment"]
+      : "",
     appointmentMonth: isMonthFilterKey(firstValue(params.appointmentMonth)) ? firstValue(params.appointmentMonth) : "",
   };
 }
