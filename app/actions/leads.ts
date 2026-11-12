@@ -1737,10 +1737,12 @@ export interface DuplicateLeadReviewItem {
   first_seen_at: string;
   last_seen_at: string;
   expires_at: string;
+  incoming_candidates: DuplicateLeadCandidate[];
   lead: Pick<Lead, "id" | "name" | "phone" | "status" | "assigned_to" | "assigned_at" | "city" | "disease" | "had_previous_assignment">;
 }
 
-type DuplicateReviewCandidate = { phone_identity: string; name: string };
+type DuplicateReviewCandidate = { phone_identity: string; name: string; lead_data?: DuplicateLeadCandidate };
+export type DuplicateLeadCandidate = Pick<BulkLeadInput, "name" | "phone" | "email" | "gender" | "city" | "disease" | "insurance_status" | "remarks" | "source" | "status" | "imported_status">;
 
 async function captureDuplicateReviewCandidates(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1752,6 +1754,7 @@ async function captureDuplicateReviewCandidates(
     .map((candidate) => ({
       phone_identity: normalizePhoneDigits(candidate.phone_identity),
       name: candidate.name.trim().slice(0, 160),
+      lead_data: candidate.lead_data,
     }))
     .filter((candidate) => candidate.phone_identity.length === 10);
   if (!normalized.length) return null;
@@ -1760,6 +1763,27 @@ async function captureDuplicateReviewCandidates(
     p_source: source.slice(0, 80),
   });
   return error?.message ?? null;
+}
+
+/** Keep the selected sheet row's details on the canonical lead and preserve its ID, assignment and history. */
+export async function chooseDuplicateLeadReview(input: { reviewId: string; candidateIndex: number | null }): Promise<ActionResult<{ kept: string }>> {
+  if (!input || !/^[0-9a-f-]{36}$/i.test(input.reviewId) || (input.candidateIndex !== null && (!Number.isInteger(input.candidateIndex) || input.candidateIndex < 0 || input.candidateIndex > 1000))) {
+    return { success: false, error: "Choose one valid lead from the duplicate group." };
+  }
+  try {
+    const supabase = await createClient();
+    const viewerRole = await getViewerRole(supabase);
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can resolve duplicate reviews (403 Forbidden)." };
+    const { data, error } = await supabase.rpc("crm_choose_duplicate_review_candidate", {
+      p_review_id: input.reviewId,
+      p_candidate_index: input.candidateIndex,
+    });
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/dashboard", "layout");
+    return { success: true, data: { kept: String((data as { kept?: string } | null)?.kept ?? "existing") } };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error, "The selected duplicate could not be kept.") };
+  }
 }
 
 /** Resolve selected duplicate reviews atomically, with the database taking a deletion backup first. */
@@ -1836,13 +1860,14 @@ export async function getDuplicateLeadReviewQueue(): Promise<ActionResult<Duplic
     for (let offset = 0; offset < 5000; offset += 500) {
       const { data, error } = await supabase
         .from("crm_duplicate_review_queue")
-        .select("id, lead_id, phone_identity, incoming_name, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, assigned_at, city, disease, had_previous_assignment)")
+        .select("id, lead_id, phone_identity, incoming_name, incoming_candidates, source, attempt_count, first_seen_at, last_seen_at, expires_at, lead:leads!crm_duplicate_review_queue_lead_id_fkey(id, name, phone, status, assigned_to, assigned_at, city, disease, had_previous_assignment)")
         .is("resolved_at", null)
         .order("first_seen_at", { ascending: false })
         .range(offset, offset + 499);
       if (error) return { success: false, error: error.message };
       const page = (data ?? []).filter((item) => item.lead).map((item) => ({
         ...item,
+        incoming_candidates: Array.isArray(item.incoming_candidates) ? item.incoming_candidates : [],
         lead: Array.isArray(item.lead) ? item.lead[0] : item.lead,
       })) as DuplicateLeadReviewItem[];
       items.push(...page);
@@ -1987,7 +2012,7 @@ export async function bulkInsertLeads(
     if (!phoneDigits) return true; // No phone to compare — keep the lead.
     if (seenFilePhones.has(phoneDigits)) {
       duplicateRows += 1;
-      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name });
+      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name, lead_data: pickLeadColumns(record as unknown as Record<string, unknown>) as DuplicateLeadCandidate });
       return false;
     }
     seenFilePhones.add(phoneDigits);
@@ -2023,7 +2048,7 @@ export async function bulkInsertLeads(
     const phoneDigits = normalizePhoneDigits(record.phone);
     if (phoneDigits && existingPhoneSet.has(phoneDigits)) {
       skippedDuplicates += 1;
-      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name });
+      duplicateCandidates.push({ phone_identity: phoneDigits, name: record.name, lead_data: pickLeadColumns(record as unknown as Record<string, unknown>) as DuplicateLeadCandidate });
       return false;
     }
     return true;
@@ -2087,7 +2112,7 @@ export async function bulkInsertLeads(
               skippedDuplicates += 1;
               const record = freshRecords[index + rowOffset];
               const phoneIdentity = normalizePhoneDigits(record?.phone ?? "");
-              if (phoneIdentity.length === 10) duplicateCandidates.push({ phone_identity: phoneIdentity, name: record.name });
+              if (phoneIdentity.length === 10) duplicateCandidates.push({ phone_identity: phoneIdentity, name: record.name, lead_data: pickLeadColumns(record as unknown as Record<string, unknown>) as DuplicateLeadCandidate });
               continue;
             }
             if (rowError) {

@@ -46,6 +46,7 @@ import {
   getLeadsForAssignmentBatch,
   getEmployeeLeadsForTransfer,
   getDuplicateLeadReviewQueue,
+  chooseDuplicateLeadReview,
   getDuplicateReviewLeadsForExport,
   resolveDuplicateLeadReviews,
   transferLeadAssignmentBatch,
@@ -583,6 +584,7 @@ export function LeadsTable({
   const [isResolvingDuplicateReviews, setIsResolvingDuplicateReviews] = useState(false);
   const [duplicateReviewError, setDuplicateReviewError] = useState("");
   const [selectedDuplicateReviewIds, setSelectedDuplicateReviewIds] = useState<string[]>([]);
+  const [duplicateKeepChoices, setDuplicateKeepChoices] = useState<Record<string, number>>({});
   const [duplicateReviewTarget, setDuplicateReviewTarget] = useState("");
   const [duplicateReviewAsFresh, setDuplicateReviewAsFresh] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -1090,6 +1092,36 @@ export function LeadsTable({
       router.refresh();
     } catch {
       setDuplicateReviewError("The review action could not be completed. Refresh the list and try again.");
+    } finally {
+      setIsResolvingDuplicateReviews(false);
+    }
+  }
+
+  async function keepSelectedDuplicateChoices() {
+    if (!selectedDuplicateReviewIds.length || isResolvingDuplicateReviews) return;
+    if (selectedDuplicateReviewIds.some((id) => duplicateKeepChoices[id] === undefined)) {
+      setDuplicateReviewError("Har selected duplicate group me ek lead choose karo jo rakhna hai.");
+      return;
+    }
+    setIsResolvingDuplicateReviews(true);
+    setDuplicateReviewError("");
+    try {
+      for (const reviewId of selectedDuplicateReviewIds) {
+        const choice = duplicateKeepChoices[reviewId];
+        const result = await chooseDuplicateLeadReview({ reviewId, candidateIndex: choice < 0 ? null : choice });
+        if (!result.success) {
+          setDuplicateReviewError(`${result.error} Jo groups pehle complete hue, woh save ho gaye; list refresh karke baaki continue karo.`);
+          await refreshDuplicateReviews();
+          return;
+        }
+      }
+      toast.add({ title: "Duplicate group resolved", description: `${selectedDuplicateReviewIds.length} group${selectedDuplicateReviewIds.length === 1 ? "" : "s"} me selected lead rakha; baaki incoming rows discard ki.`, type: "success" });
+      setSelectedDuplicateReviewIds([]);
+      setDuplicateKeepChoices({});
+      await refreshDuplicateReviews();
+      router.refresh();
+    } catch {
+      setDuplicateReviewError("Selected lead save nahi ho saka. List refresh karke dobara try karo.");
     } finally {
       setIsResolvingDuplicateReviews(false);
     }
@@ -3516,11 +3548,11 @@ export function LeadsTable({
           <DialogHeader>
             <DialogTitle>Duplicate lead review · {duplicateReviewItems.length.toLocaleString()} pending</DialogTitle>
             <DialogDescription>
-              New duplicate rows are blocked. Review the existing lead and its current owner. Closing this window keeps the review here so you can reopen it from the Duplicate Reviews button.
+              Har same-number group me existing lead aur sheet ki duplicate rows dikhengi. Ek option choose karke baaki incoming rows discard karo. Closing this window keeps the review here so you can reopen it from the Duplicate Reviews button.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            <p>Unassigned reviews close after 24 hours if unresolved. The existing lead and its history remain safe. You can assign, transfer, or manually delete a lead with a backup.</p>
+            <p>Choose which details to keep; the lead ID, assignment and activity history stay attached. Unassigned reviews close after 24 hours if unresolved. Manual deletion still creates a backup.</p>
           </div>
           {duplicateReviewError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{duplicateReviewError}</p>}
           {isLoadingDuplicateReviews ? (
@@ -3539,10 +3571,11 @@ export function LeadsTable({
                 {duplicateReviewItems.map((item) => {
                   const assigned = Boolean(item.lead.assigned_to?.trim() && !["-", "unassigned"].includes(item.lead.assigned_to.trim().toLowerCase()));
                   return (
-                    <label key={item.id} className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                    <div key={item.id} className={`flex gap-3 rounded-xl border p-3 transition-colors ${selectedDuplicateReviewIds.includes(item.id) ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
                       <input
                         type="checkbox"
                         className="mt-1 size-4 accent-emerald-700"
+                        aria-label={`Select duplicate group for ${item.lead.phone || item.phone_identity}`}
                         checked={selectedDuplicateReviewIds.includes(item.id)}
                         disabled={isResolvingDuplicateReviews}
                         onChange={(event) => setSelectedDuplicateReviewIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))}
@@ -3551,7 +3584,7 @@ export function LeadsTable({
                         <span className="grid gap-2 sm:grid-cols-2">
                         <span className="rounded-lg bg-slate-50 p-2">
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900">Existing lead: {item.lead.name || "Unnamed"}</span>
+                          <label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-900"><input type="radio" name={`keep-${item.id}`} checked={duplicateKeepChoices[item.id] === -1} disabled={isResolvingDuplicateReviews} onChange={() => { setDuplicateKeepChoices((current) => ({ ...current, [item.id]: -1 })); setSelectedDuplicateReviewIds((current) => current.includes(item.id) ? current : [...current, item.id]); }} />Keep existing: {item.lead.name || "Unnamed"}</label>
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${assigned ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-900"}`}>
                             {assigned ? `Assigned · ${item.lead.assigned_to}` : "Unassigned"}
                           </span>
@@ -3566,7 +3599,11 @@ export function LeadsTable({
                         <span className="mt-1 block text-xs text-slate-500">{assigned ? `Assigned since: ${item.lead.assigned_at ? formatDate(item.lead.assigned_at) : "Time unavailable"}` : "No current assignment"}</span>
                         </span>
                         <span className="rounded-lg bg-amber-50 p-2 text-xs text-slate-600">
-                          <span className="block font-semibold text-slate-900">Incoming duplicate: {item.incoming_name || "Name not provided"}</span>
+                          {(item.incoming_candidates ?? []).length > 0 ? item.incoming_candidates.map((candidate, index) => (
+                            <span key={`${item.id}-${index}`} className="mb-2 block rounded-md border border-amber-200 bg-white p-2">
+                              <label className="flex cursor-pointer items-start gap-2 font-semibold text-slate-900"><input type="radio" name={`keep-${item.id}`} checked={duplicateKeepChoices[item.id] === index} disabled={isResolvingDuplicateReviews} onChange={() => { setDuplicateKeepChoices((current) => ({ ...current, [item.id]: index })); setSelectedDuplicateReviewIds((current) => current.includes(item.id) ? current : [...current, item.id]); }} /><span>Keep sheet row {index + 1}: {candidate.name || "Name not provided"}<span className="mt-1 block font-normal text-slate-600">{candidate.phone}{candidate.city && candidate.city !== "-" ? ` · ${candidate.city}` : ""}{candidate.disease && candidate.disease !== "-" ? ` · ${candidate.disease}` : ""}</span></span></label>
+                            </span>
+                          )) : <span className="block font-semibold text-slate-900">Incoming duplicate: {item.incoming_name || "Name not provided"}</span>}
                           <span className="mt-1 block">Same phone · Not added or assigned</span>
                           <span className="mt-1 block">{item.source} · {item.attempt_count} duplicate attempt{item.attempt_count === 1 ? "" : "s"}</span>
                           <span className="mt-1 block">Last received: {formatDate(item.last_seen_at)}</span>
@@ -3576,12 +3613,12 @@ export function LeadsTable({
                           {!assigned ? `Review closes ${formatDate(item.expires_at)}; the existing lead stays.` : "Review stays pending while assigned. Keep, transfer, or delete this lead."}
                         </span>
                       </span>
-                    </label>
+                    </div>
                   );
                 })}
               </div>
               {duplicateReviewTarget && <div className="border-t border-slate-100 pt-3"><TransferDispositionChoices value={duplicateReviewAsFresh ? "fresh" : "keep"} onChange={(value) => setDuplicateReviewAsFresh(value === "fresh")} disabled={isResolvingDuplicateReviews} idPrefix="duplicate-transfer-disposition" /></div>}
-              <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+              <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto]">
                 <Select value={duplicateReviewTarget || "choose-target"} onValueChange={(value) => setDuplicateReviewTarget(value === "choose-target" ? "" : String(value ?? ""))} disabled={isResolvingDuplicateReviews}>
                   <SelectTrigger aria-label="Assign or transfer selected duplicate leads to" className="w-full"><SelectValue placeholder="Choose an employee" /></SelectTrigger>
                   <SelectContent>
@@ -3589,6 +3626,9 @@ export function LeadsTable({
                     {assignableEmployees.map((employee) => <SelectItem key={employee.id} value={employee.name}>{employee.name}{employee.role !== "employee" ? ` · ${employee.role}` : ""}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                <Button type="button" disabled={!selectedDuplicateReviewIds.length || isResolvingDuplicateReviews} onClick={() => void keepSelectedDuplicateChoices()}>
+                  {isResolvingDuplicateReviews && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}Keep chosen lead
+                </Button>
                 <Button type="button" disabled={!selectedDuplicateReviewIds.length || !duplicateReviewTarget || isResolvingDuplicateReviews} onClick={() => void resolveSelectedDuplicateReviews("assign")}>
                   {isResolvingDuplicateReviews && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}Assign / Transfer
                 </Button>
