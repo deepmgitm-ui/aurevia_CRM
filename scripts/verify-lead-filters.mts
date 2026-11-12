@@ -69,6 +69,17 @@ assert.equal(agentCurrentMonthFilters.assigned, "Atul Pandey");
 assert.equal(agentCurrentMonthFilters.month, "2026-11", "agent drill-down preserves the current calendar month");
 assert.equal(agentCurrentMonthFilters.allMonths, false, "agent drill-down does not silently expand to all months");
 
+const monthlyAppointmentHref = leadsHref({ assigned: "Atul Pandey", appointment: "opdBooked", appointmentMonth: "2026-11" });
+const monthlyAppointmentFilters = parseLeadFilters(Object.fromEntries(new URL(`http://localhost${monthlyAppointmentHref}`).searchParams));
+assert.equal(monthlyAppointmentFilters.assigned, "Atul Pandey");
+assert.equal(monthlyAppointmentFilters.appointment, "opdBooked");
+assert.equal(monthlyAppointmentFilters.appointmentMonth, "2026-11");
+assert.equal(monthlyAppointmentFilters.month, "", "appointment month does not become the lead-added month filter");
+assert.ok(hasLeadFilters(monthlyAppointmentFilters));
+assert.ok(describeActiveFilters(monthlyAppointmentFilters).includes("OPD Booked appointment date · Nov 2026"));
+assert.equal(parseLeadFilters({ appointment: "unsupported", appointmentMonth: "2026-11" }).appointment, "");
+assert.equal(parseLeadFilters({ appointment: "ipdBooked", appointmentMonth: "2026-13" }).appointmentMonth, "");
+
 // Employee lead categories: DNP includes its retry variants, and daily New
 // Leads drill down to assignments received during the selected IST date.
 const dnpFilters = parseLeadFilters({ bucket: "dnp" });

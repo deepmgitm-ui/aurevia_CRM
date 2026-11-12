@@ -10,6 +10,8 @@ import { applyAssignmentDayFilter, applyDailyFreshLeadFilter, applyUntouchedNewL
 import {
   ageBucketWindow,
   escapeLikePattern,
+  isAppointmentFilterKey,
+  isMonthFilterKey,
   monthWindow,
   inListExpression,
   isLeadBucketKey,
@@ -480,6 +482,7 @@ async function getDistinctStatuses(supabase: LeadsSupabaseClient): Promise<strin
 interface ResolvedLeadFilters {
   work: DailyWorkKind | null;
   workIds?: string[];
+  appointmentIds?: string[];
   day: string;
   /** No row can match — the caller short-circuits with an empty page. */
   empty: boolean;
@@ -543,7 +546,8 @@ interface LeadFilterQuery<Q> {
 
 function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: ResolvedLeadFilters): Q {
   let filtered = query;
-  if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
+  if (resolved.appointmentIds) filtered = filtered.in("id", resolved.appointmentIds);
+  else if(resolved.workIds) filtered=filtered.in("id",resolved.workIds);
   else if (resolved.work === "assigned" && resolved.day === clinicDate()) filtered = applyDailyFreshLeadFilter(filtered);
   else if (resolved.work === "assigned") filtered = applyAssignmentDayFilter(filtered, resolved.day);
   if (resolved.bucket === "dnp") {
@@ -603,6 +607,25 @@ async function resolveLeadFilters(
   if (!filters) return resolved;
   const requestedBucket = filters.bucket ?? "";
   if (isLeadBucketKey(requestedBucket)) resolved.bucket = requestedBucket;
+  const appointment = filters.appointment ?? "";
+  const appointmentMonth = filters.appointmentMonth ?? "";
+  if (isAppointmentFilterKey(appointment) && isMonthFilterKey(appointmentMonth)) {
+    const ids: string[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase
+        .rpc("crm_monthly_appointment_lead_ids", {
+          p_assigned_to: (filters.assigned ?? "").trim() || null,
+          p_kind: appointment,
+          p_month: `${appointmentMonth}-01`,
+        })
+        .range(offset, offset + 499);
+      if (error) throw new Error("Monthly appointment leads unavailable");
+      ids.push(...(data ?? []).map((row: { id: string }) => row.id));
+      if (!data || data.length < 500) break;
+    }
+    resolved.appointmentIds = ids;
+    resolved.empty = ids.length === 0;
+  }
   if(isWorkDate(filters.dateFrom??""))resolved.orExpressions.push(`lead_day.gte.${filters.dateFrom}`);
   if(isWorkDate(filters.dateTo??""))resolved.orExpressions.push(`lead_day.lte.${filters.dateTo}`);
   if (isDailyWorkKind(filters.work ?? "") && isWorkDate(filters.day ?? "")) {
@@ -617,7 +640,9 @@ async function resolveLeadFilters(
   const stageKeys = stageFilterKeys(filters.stage ?? "");
   const treatment = (filters.treatment ?? "").trim();
   const age = (filters.age ?? "").trim();
-  const month = (filters.month ?? "").trim();
+  // Appointment drilldowns are scoped by appointment dates; applying the lead
+  // added-month picker as well would hide valid appointments on older leads.
+  const month = resolved.appointmentIds ? "" : (filters.month ?? "").trim();
   const city = (filters.city ?? "").trim();
   const name = (filters.name ?? "").trim().slice(0, 120);
   const disease = (filters.disease ?? "").trim().slice(0, 120);

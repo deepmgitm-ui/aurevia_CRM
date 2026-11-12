@@ -108,10 +108,10 @@ export function TeamOverview({
           <div className="mt-3">
             <p className="mb-1.5 text-xs font-semibold text-slate-600">Monthly appointments · {appointmentPeriodLabel(team.appointmentPeriod)}</p>
             <div className="grid grid-cols-2 gap-1.5">
-              <StatChip name={employee.name} label="OPD Booked" countLabel="appointments" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, bucket: "opdBooked", month: currentMonth })} className="bg-amber-50 text-amber-700" />
-              <StatChip name={employee.name} label="OPD Done" countLabel="appointments" value={employee.opdDone} href={leadsHref({ assigned: employee.name, bucket: "opdDone", month: currentMonth })} className="bg-emerald-50 text-emerald-700" />
-              <StatChip name={employee.name} label="IPD Booked" countLabel="appointments" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, bucket: "ipdBooked", month: currentMonth })} className="bg-violet-50 text-violet-700" />
-              <StatChip name={employee.name} label="IPD Done" countLabel="appointments" value={employee.ipd} href={leadsHref({ assigned: employee.name, bucket: "ipdDone", month: currentMonth })} className="bg-purple-50 text-purple-700" />
+              <StatChip name={employee.name} label="OPD Booked" countLabel="leads" value={employee.opdBooked} href={leadsHref({ assigned: employee.name, appointment: "opdBooked", appointmentMonth: currentMonth })} className="bg-amber-50 text-amber-700" />
+              <StatChip name={employee.name} label="OPD Done" countLabel="leads" value={employee.opdDone} href={leadsHref({ assigned: employee.name, appointment: "opdDone", appointmentMonth: currentMonth })} className="bg-emerald-50 text-emerald-700" />
+              <StatChip name={employee.name} label="IPD Booked" countLabel="leads" value={employee.ipdBooked} href={leadsHref({ assigned: employee.name, appointment: "ipdBooked", appointmentMonth: currentMonth })} className="bg-violet-50 text-violet-700" />
+              <StatChip name={employee.name} label="IPD Done" countLabel="leads" value={employee.ipd} href={leadsHref({ assigned: employee.name, appointment: "ipdDone", appointmentMonth: currentMonth })} className="bg-purple-50 text-purple-700" />
             </div>
           </div>
           <p className="mt-2 text-[10px] text-slate-500">Permanent disposition counts never reset monthly. Appointment totals use this month&apos;s appointment dates.</p>

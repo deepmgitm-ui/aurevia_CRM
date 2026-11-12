@@ -266,12 +266,22 @@ export interface LeadListFilters {
   status: string;
   /** Agent workflow bucket used by dashboard cards. */
   bucket: "" | "new" | "fresh" | "followup" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone" | "dnp" | "lost";
+  /** Appointment KPI represented by actual appointment rows, not the lead current workflow state. */
+  appointment: "" | "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone";
+  /** Appointment date month (`YYYY-MM`) for appointment KPI drilldowns. */
+  appointmentMonth: string;
 }
 
 const LEAD_BUCKET_KEYS = ["new", "fresh", "followup", "opdBooked", "opdDone", "ipdBooked", "ipdDone", "dnp", "lost"] as const;
 
 export function isLeadBucketKey(value: string): value is Exclude<LeadListFilters["bucket"], ""> {
   return (LEAD_BUCKET_KEYS as readonly string[]).includes(value);
+}
+
+const APPOINTMENT_FILTER_KEYS = ["opdBooked", "opdDone", "ipdBooked", "ipdDone"] as const;
+
+export function isAppointmentFilterKey(value: string): value is Exclude<LeadListFilters["appointment"], ""> {
+  return (APPOINTMENT_FILTER_KEYS as readonly string[]).includes(value);
 }
 
 export const EMPTY_LEAD_FILTERS: LeadListFilters = {
@@ -293,6 +303,8 @@ export const EMPTY_LEAD_FILTERS: LeadListFilters = {
   assignmentBatchId: "",
   status: "",
   bucket: "",
+  appointment: "",
+  appointmentMonth: "",
 };
 
 type SearchParamsLike = Record<string, string | string[] | undefined>;
@@ -329,6 +341,8 @@ export function parseLeadFilters(params: SearchParamsLike): LeadListFilters {
     bucket: isLeadBucketKey(bucket)
       ? bucket
       : "",
+    appointment: isAppointmentFilterKey(firstValue(params.appointment)) ? firstValue(params.appointment) : "",
+    appointmentMonth: isMonthFilterKey(firstValue(params.appointmentMonth)) ? firstValue(params.appointmentMonth) : "",
   };
 }
 
@@ -350,6 +364,7 @@ export function hasLeadFilters(filters: LeadListFilters): boolean {
     Boolean(filters.assignmentBatchId) ||
     filters.status.length > 0
     || Boolean(filters.bucket)
+    || Boolean(filters.appointment && filters.appointmentMonth)
   );
 }
 
@@ -427,6 +442,12 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
   }
   if (filters.assignmentBatchId) chips.push(`Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`);
   if (filters.status) chips.push(filters.status);
+  if (filters.appointment && filters.appointmentMonth) {
+    const label = filters.appointment === "opdBooked" ? "OPD Booked"
+      : filters.appointment === "opdDone" ? "OPD Done"
+      : filters.appointment === "ipdBooked" ? "IPD Booked" : "IPD Done";
+    chips.push(`${label} appointment date · ${monthFilterLabel(filters.appointmentMonth)}`);
+  }
   if (filters.bucket) chips.push({ new: "New Leads", fresh: "Fresh Leads", followup: "Follow Up Work", opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done", dnp: "DNP", lost: "Lost Leads" }[filters.bucket]);
   if (filters.name) chips.push(`Name: ${filters.name}`);
   if (filters.disease) chips.push(`Disease: ${filters.disease}`);
