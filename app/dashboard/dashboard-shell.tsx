@@ -9,6 +9,7 @@ import {
   CircleCheck,
   LogOut,
   Menu,
+  Trash2,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -288,6 +289,15 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
               <RealtimeNotifications />
+              {profile.role === "admin" && <Link
+                href="/dashboard/closed-lead-reviews"
+                aria-label={`Review closed leads${pendingDeletionReviews ? `, ${pendingDeletionReviews} ready for review` : ""}`}
+                title="Review closed leads"
+                className="relative rounded-full p-2 text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700"
+              >
+                <Trash2 className="size-5" aria-hidden="true" />
+                {pendingDeletionReviews > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-rose-600 ring-2 ring-white" aria-hidden="true" />}
+              </Link>}
               <GlobalSearch role={profile.role} />
               {profile.role !== "employee" && <Link
                 href="/dashboard/tasks"

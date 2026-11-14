@@ -122,6 +122,11 @@ procedure changes. Keep the implementation and this guide in the same change.
 - Dashboard and Leads status cards must link to the exact matching leads.
 - OPD/IPD dates and appointment state must stay consistent with lib/appointments.ts
   and the calendar workflows.
+- A lead currently marked OPD Booked with no appointment date remains visible in
+  Upcoming Appointments under the date-needed group. Its status-change time and
+  actor come from the lead timeline; that date is labelled as a status update,
+  never as the appointment date. Monthly OPD Booked totals and drill-downs include
+  undated status changes and exclude leads whose current status is Dropped/Lost.
 - Appointment-date edits are limited to the three supported date fields and
   must save the date plus actor/time timeline receipt in one RLS-scoped
   transaction. Reject impossible calendar dates and stale edits; a timeline
@@ -172,7 +177,8 @@ procedure changes. Keep the implementation and this guide in the same change.
 | Admin assignment/transfer history | app/dashboard/assignment-history/page.tsx, crm_assignment_events |
 | Status vocabulary and workflow normalization | lib/lead-status.ts, lib/daily-work.ts, leads.fresh_pending_since |
 | Dashboard and agent summaries | app/dashboard/page.tsx, app/dashboard/overview/, app/actions/leads.ts |
-| Appointments and personal follow-up calendar | app/dashboard/calendar/, app/dashboard/follow-up-calendar/, app/actions/leads.ts, lib/appointments.ts |
+| Appointments and personal follow-up calendar | app/dashboard/calendar/, app/dashboard/follow-up-calendar/, app/actions/leads.ts, lib/appointments.ts, supabase/migrations/20261114134759_undated_opd_booking_visibility.sql |
+| Closed-lead review shortcut and pending marker | app/dashboard/dashboard-shell.tsx, app/actions/deletion-reviews.ts |
 | Follow-up tasks and calling | app/dashboard/tasks/task-center.tsx, app/actions/crm-workflows.ts, app/actions/leads.ts, crm_update_task_follow_up |
 | Attendance, weekly offs and leave | app/dashboard/attendance/, app/actions/attendance.ts |
 | Team activity and session signals | app/dashboard/team-activity-panel.tsx, app/dashboard/activity-tracker.tsx, Supabase migrations |
@@ -252,6 +258,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-14 | Added an admin header shortcut to Closed Leads Review with a pending dot. Undated current OPD Booked leads now appear in a separate date-needed section with their status-change date and actor; monthly totals/drill-downs include them and ignore Dropped/Lost leads. | Supabase migration `20261114134759_undated_opd_booking_visibility.sql` applied. Production code deploy is pending. |
 | 2026-11-07 | Added own-password change and admin password reset controls in Settings, added Aurevia branding to sign-in, and made password dialogs recover from network failures. Lead creation, source dispositions, bucket rules and stored records are unchanged. | Full ESLint and production build pass; lead-import and daily-work verifiers pass. No database migration or production data change. |
 | 2026-11-07 | Moved global notifications to the upper-right area below the app header so errors remain visible while dialogs are open. Updated toast stacking/entry direction for the top anchor and disabled toast transitions for reduced-motion users. | Full ESLint, TypeScript and production build pass; Base UI viewport keeps its polite live region and the toast layer stays above dialogs. No CRM data or workflow changed. |
 | 2026-11-07 | Pointed the global stylesheet import at the installed shadcn CSS file because Turbopack could resolve the package in Node but not through this CSS subpath. Kept the package dependency; no CRM workflows or data changed. | Fresh package install, full ESLint, production build and TypeScript pass; `npm audit --omit=dev` reports 0 vulnerabilities. |

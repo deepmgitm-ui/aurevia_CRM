@@ -343,8 +343,8 @@ function ReminderCard({
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
       {reminder.phone !== "-" && <div className="mt-2 flex flex-wrap items-center gap-2"><PhonePreview value={reminder.phone} className="text-xs text-slate-600" /><a href={`tel:${reminder.phone.replace(/[^+\d]/g, "")}`} className="inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Call patient</a></div>}
-      <AppointmentStatusActions id={reminder.appointmentId} status={reminder.appointmentStatus}/>
-      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} appointmentId={reminder.appointmentId} updatedAt={reminder.updatedAt} status={reminder.appointmentStatus} time={reminder.time} notes={reminder.notes} label="Edit appointment" /></div>}
+      {reminder.appointmentId && <AppointmentStatusActions id={reminder.appointmentId} status={reminder.appointmentStatus}/>}
+      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} appointmentId={reminder.appointmentId ?? undefined} updatedAt={reminder.updatedAt} status={reminder.appointmentStatus} time={reminder.time} notes={reminder.notes} label="Edit appointment" /></div>}
     </article>
   );
 }

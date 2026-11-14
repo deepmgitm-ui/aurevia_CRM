@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/app/actions/leads";
 import { calendarAgendaWindow } from "@/lib/calendar-entry";
 import { buildMonthCells } from "./month-grid";
-import { selectCurrentStatusAppointments, type AppointmentKind } from "@/lib/appointments";
+import { normaliseAppointmentDate, selectCurrentStatusAppointments, type AppointmentKind } from "@/lib/appointments";
 export type { AppointmentKind } from "@/lib/appointments";
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
@@ -20,7 +20,8 @@ export interface CalendarAppointment {
   agent: string;
   bookedBy: string | null;
   completedBy: string | null;
-  appointmentId: string;
+  appointmentId: string | null;
+  dateSource: "appointment" | "status-change" | "record-created";
   appointmentStatus: string;
   time: string;
   notes: string;
@@ -37,6 +38,7 @@ export interface MonthDays {
   days: CalendarDay[];
   upcoming: CalendarAppointment[];
   past: CalendarAppointment[];
+  undated: CalendarAppointment[];
   warning?: string;
 }
 interface AppointmentRow {
@@ -57,6 +59,21 @@ interface AppointmentRow {
     status: string;
     assigned_to: string | null;
   };
+}
+interface UndatedOpdLead {
+  id: string;
+  name: string;
+  phone: string | null;
+  status: string;
+  assigned_to: string | null;
+  opd_booked_date: string | null;
+  created_at: string;
+}
+interface StatusChangeRow {
+  lead_id: string;
+  user_id: string | null;
+  created_at: string;
+  description: string;
 }
 export async function getMonthDays(
   month?: string,
@@ -106,12 +123,56 @@ export async function getMonthDays(
       if (!data || data.length < 500) break;
     }
     const currentAppointments = selectCurrentStatusAppointments(rows);
+    const currentAppointmentLeadIds = new Set(currentAppointments.map((appointment) => appointment.lead.id));
+    const undatedLeads: UndatedOpdLead[] = [];
+    for (let offset = 0; ; offset += 500) {
+      let q = supabase.from("leads")
+        .select("id,name,phone,status,assigned_to,opd_booked_date,created_at")
+        .in("status", ["OPD Booked", "Consultation Booked"])
+        .or("opd_booked_date.is.null,opd_booked_date.eq.,opd_booked_date.eq.-,opd_booked_date.eq.--")
+        .order("created_at", { ascending: false })
+        .range(offset, offset + 499);
+      if (viewerData.role === "employee") {
+        q = q.ilike("assigned_to", viewerData.name.replace(/[\\%_]/g, "\\$&"));
+      }
+      const { data, error } = await q;
+      if (error) return { success: false, error: "Date-needed OPD bookings could not be loaded. Please retry." };
+      undatedLeads.push(...((data ?? []) as UndatedOpdLead[]));
+      if (!data || data.length < 500) break;
+    }
+    const needsDate = undatedLeads.filter((lead) =>
+      !normaliseAppointmentDate(lead.opd_booked_date) && !currentAppointmentLeadIds.has(lead.id),
+    );
+    const statusChanges = new Map<string, StatusChangeRow>();
+    for (let offset = 0; offset < needsDate.length; offset += 100) {
+      const leadIds = needsDate.slice(offset, offset + 100).map((lead) => lead.id);
+      for (let rowOffset = 0; ; rowOffset += 500) {
+        const { data, error } = await supabase.from("lead_activities")
+          .select("lead_id,user_id,created_at,description")
+          .in("lead_id", leadIds)
+          .eq("action_type", "Status changed")
+          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked")
+          .order("created_at", { ascending: false })
+          .range(rowOffset, rowOffset + 499);
+        if (error) return { success: false, error: "OPD booking history could not be loaded. Please retry." };
+        for (const row of (data ?? []) as StatusChangeRow[]) {
+          if (!statusChanges.has(row.lead_id)) statusChanges.set(row.lead_id, row);
+        }
+        if (!data || data.length < 500) break;
+      }
+    }
     const actorIds = viewerData.role === "admin"
-      ? [...new Set(currentAppointments.flatMap((appointment) => [appointment.created_by, appointment.performed_by]).filter((id): id is string => Boolean(id)))]
+      ? [...new Set([
+          ...currentAppointments.flatMap((appointment) => [appointment.created_by, appointment.performed_by]),
+          ...[...statusChanges.values()].map((change) => change.user_id),
+        ].filter((id): id is string => Boolean(id)))]
       : [];
     const actorNames = new Map<string, string>();
-    if (actorIds.length > 0) {
-      const { data: actors } = await supabase.from("profiles").select("id,name").in("id", actorIds);
+    for (let offset = 0; offset < actorIds.length; offset += 500) {
+      const { data: actors, error } = await supabase.from("profiles")
+        .select("id,name")
+        .in("id", actorIds.slice(offset, offset + 500));
+      if (error) return { success: false, error: "Appointment booking names could not be loaded. Please retry." };
       for (const actor of actors ?? []) actorNames.set(actor.id, actor.name?.trim() || "");
     }
     const entries: CalendarAppointment[] = currentAppointments
@@ -124,6 +185,7 @@ export async function getMonthDays(
         kind: a.kind,
         kindLabel: `${a.kind === "ipdDone" ? "IPD / Surgery" : "OPD"} · ${a.status.replace("_", " ")}`,
         date: a.starts_on,
+        dateSource: "appointment" as const,
         past: a.starts_on < today,
         agent: a.lead.assigned_to || "-",
         bookedBy: viewerData.role === "admin" ? actorNames.get(a.created_by ?? "") || null : null,
@@ -133,6 +195,29 @@ export async function getMonthDays(
         notes: a.notes,
         updatedAt: a.updated_at,
       }));
+    const undated: CalendarAppointment[] = needsDate.map((lead) => {
+      const change = statusChanges.get(lead.id);
+      const timestamp = change?.created_at ?? lead.created_at;
+      return {
+        appointmentId: null,
+        leadId: lead.id,
+        leadName: lead.name,
+        phone: lead.phone || "-",
+        leadStatus: lead.status,
+        kind: "opdBooked",
+        kindLabel: "OPD Booked · date needed",
+        date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(timestamp)),
+        dateSource: change ? "status-change" : "record-created",
+        past: false,
+        agent: lead.assigned_to || "-",
+        bookedBy: viewerData.role === "admin" ? actorNames.get(change?.user_id ?? "") || null : null,
+        completedBy: null,
+        appointmentStatus: "booked",
+        time: "",
+        notes: "",
+        updatedAt: timestamp,
+      };
+    });
     const byDay = new Map<string, CalendarAppointment[]>();
     for (const entry of entries) {
       if (entry.date < from || entry.date > to) continue;
@@ -155,6 +240,7 @@ export async function getMonthDays(
             (a, b) =>
               b.date.localeCompare(a.date) || a.time.localeCompare(b.time),
           ),
+        undated,
       },
     };
   } catch {

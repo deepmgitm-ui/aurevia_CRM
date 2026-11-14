@@ -31,7 +31,19 @@ const APPOINTMENT_BY_STATUS: Record<string, AppointmentField> = {
     label: "OPD appointment date",
     hint: "The day the patient is scheduled to attend OPD, rather than the day the booking was entered.",
   },
+  "consultation booked": {
+    kind: "opdBooked",
+    column: "opd_booked_date",
+    label: "OPD appointment date",
+    hint: "The day the patient is scheduled to attend OPD, rather than the day the booking was entered.",
+  },
   "opd done": {
+    kind: "opdDone",
+    column: "opd_done_date",
+    label: "OPD date",
+    hint: "The day the OPD actually happened.",
+  },
+  "consultation attended": {
     kind: "opdDone",
     column: "opd_done_date",
     label: "OPD date",
@@ -60,7 +72,7 @@ export function appointmentForStatus(status: string): AppointmentField | null {
   return APPOINTMENT_BY_STATUS[value] ?? null;
 }
 
-/** Pick one calendar row per lead, using only the lead's current status. */
+/** Pick one calendar row per lead, using the lead's current status and date field. */
 export function selectCurrentStatusAppointments<
   T extends {
     lead: { id: string; status: string };
@@ -86,10 +98,9 @@ export function selectCurrentStatusAppointments<
     const column = status === "surgery completed" ? "ipd_done_date" : field?.column;
     if (!kind || !column) continue;
 
-    const candidates = group.filter((row) => row.kind === kind);
+    const candidates = group.filter((row) => row.kind === kind && row.legacy_column === column);
     candidates.sort((a, b) => {
-      const columnRank = Number(b.legacy_column === column) - Number(a.legacy_column === column);
-      return columnRank || b.updated_at.localeCompare(a.updated_at) || b.starts_on.localeCompare(a.starts_on) || a.id.localeCompare(b.id);
+      return b.updated_at.localeCompare(a.updated_at) || b.starts_on.localeCompare(a.starts_on) || a.id.localeCompare(b.id);
     });
     if (candidates[0]) current.push(candidates[0]);
   }

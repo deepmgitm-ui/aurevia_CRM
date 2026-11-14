@@ -22,7 +22,7 @@ export function AppointmentEditor(props: EditorProps) {
     <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
       <Button type="button" variant={props.leadId ? "outline" : "default"} size="sm" onClick={() => setOpen(true)}>{props.label ?? "Add appointment"}</Button>
       {open && <DialogContent showCloseButton={!saving} className="max-h-[90dvh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{props.leadId ? "Edit appointment" : "Add patient appointment"}</DialogTitle><DialogDescription>Choose a patient, enter their details and select the appointment date.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{props.appointmentId ? "Edit appointment" : props.leadId ? "Schedule appointment" : "Add patient appointment"}</DialogTitle><DialogDescription>Choose a patient, enter their details and select the appointment date.</DialogDescription></DialogHeader>
         <EditorForm {...props} onSaving={setSaving} onClose={() => setOpen(false)} />
       </DialogContent>}
     </Dialog>
