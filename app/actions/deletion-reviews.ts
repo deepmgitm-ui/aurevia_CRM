@@ -35,7 +35,7 @@ export async function getLostLeadReminderItems(): Promise<{
   error: string | null;
 }> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return { items: [], error: null };
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return { items: [], error: null };
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -73,7 +73,7 @@ export async function getDeletionReviews(): Promise<{
   const supabase = await createClient();
   const viewer = await getViewer();
   const role = viewer.success ? viewer.data?.role ?? "" : "";
-  if (role !== "admin") return { role, reviews: [], error: null };
+  if (role !== "admin" && role !== "manager") return { role, reviews: [], error: null };
 
   const { data, error } = await supabase
     .from("crm_lead_deletion_reviews")
@@ -108,7 +108,7 @@ export async function getDeletionReviews(): Promise<{
 
 export async function getDeletionReviewAssignees(): Promise<{ names: string[]; error: string | null }> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return { names: [], error: "Only admins can assign reviewed leads." };
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return { names: [], error: "Only admins and managers can assign reviewed leads." };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
@@ -126,7 +126,7 @@ export async function assignDeletionReviewLeads(input: {
   asFresh: boolean;
 }): Promise<{ success: boolean; error?: string; assigned?: number }> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return { success: false, error: "Only admins can reassign closed leads." };
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return { success: false, error: "Only admins and managers can reassign closed leads." };
   if (!input || !Array.isArray(input.leadIds) || !Array.isArray(input.employeeNames) || typeof input.asFresh !== "boolean") {
     return { success: false, error: "Choose the leads, team members, and transfer status." };
   }
@@ -160,7 +160,7 @@ export async function assignDeletionReviewLeads(input: {
 
 export async function getPendingDeletionReviewCount(): Promise<number> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return 0;
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return 0;
   const supabase = await createClient();
   const { count, error } = await supabase
     .from("crm_lead_deletion_reviews")
@@ -180,8 +180,8 @@ export async function getDeletionReviewLeadForExport(reviewId: string): Promise<
     return { success: false, error: "Select a valid deletion review." };
   }
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") {
-    return { success: false, error: "Only admins can export a lead for deletion." };
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) {
+    return { success: false, error: "Only admins and managers can export a lead for deletion." };
   }
   const supabase = await createClient();
   const { data, error } = await supabase

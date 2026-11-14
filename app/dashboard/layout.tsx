@@ -85,7 +85,7 @@ async function DashboardShellData({
   const [attendance, window, pendingDeletionReviews] = await Promise.all([
     markMyAttendance({ id: userId, role: profileRole }),
     profileRole === "employee" ? Promise.resolve(null) : getDashboardWindow(),
-    profileRole === "admin" ? getPendingDeletionReviewCount() : Promise.resolve(0),
+    profileRole === "admin" || profileRole === "manager" ? getPendingDeletionReviewCount() : Promise.resolve(0),
   ]);
   if (!attendance.success) {
     console.warn("[attendance] Could not record the check-in:", attendance.error);

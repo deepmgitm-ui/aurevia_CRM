@@ -132,8 +132,8 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
-        {viewer.role === "admin" && <LostLeadReminderWidget />}
-        {viewer.role === "admin" && <LeadRetentionWidget />}
+        {isTeamLead && <LostLeadReminderWidget />}
+        {isTeamLead && <LeadRetentionWidget />}
         <OverviewDashboard
           rows={rows}
           employees={employees}

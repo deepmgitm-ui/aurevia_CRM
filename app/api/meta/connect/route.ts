@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const viewer = await getViewer();
   if (!viewer.success || !viewer.data) return NextResponse.redirect(new URL("/login", request.url));
-  if (viewer.data.role !== "admin") return NextResponse.redirect(new URL("/dashboard/marketing?meta=admin-only", request.url));
+  if (viewer.data.role !== "admin" && viewer.data.role !== "manager") return NextResponse.redirect(new URL("/dashboard/marketing?meta=admin-only", request.url));
 
   const config = metaOAuthConfiguration();
   if (!config.appId || !config.appSecret || !config.redirectUri || !config.encryptionKey || !config.verifyToken) {

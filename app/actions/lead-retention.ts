@@ -28,7 +28,7 @@ export async function getLeadRetentionDashboardData(): Promise<{
   error: string | null;
 }> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") {
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) {
     return { reminders: [], archives: [], error: null };
   }
 

@@ -57,7 +57,7 @@ export function CampaignAssignmentRules() {
       const metaStatus = params.get("meta");
       if (metaStatus === "connected") setNotice("Meta connected. Your campaigns are ready to select.");
       if (metaStatus === "setup") setError("Meta connection needs setup. Add the Meta app details and token encryption key to the hosting environment, then try again.");
-      if (metaStatus === "admin-only") setError("Only an admin can connect Meta.");
+      if (metaStatus === "admin-only") setError("Connect Meta from a manager or admin account.");
       if (["cancelled", "state-error", "connect-error"].includes(metaStatus ?? "")) {
         setError(params.get("detail") || "Meta connection did not finish. Try connecting again.");
       }
@@ -142,7 +142,7 @@ export function CampaignAssignmentRules() {
           <p className="mt-1 text-sm text-slate-600">{metaConnected ? `${campaigns.length} active campaigns available to assign.` : "After connecting, choose campaigns here and assign their incoming leads to agents."}</p>
           {metaCampaignError && <p role="status" className="mt-2 break-words text-sm text-amber-800">{metaCampaignError}</p>}
         </div>
-        {role === "admin" && (
+        {(role === "admin" || role === "manager") && (
           <>
             <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Meta" : "Connect to Meta"}</a>
             {metaConnected && <button type="button" disabled={busy} onClick={() => void load()} className="inline-flex min-h-10 items-center rounded-lg border border-blue-800/25 bg-white px-4 py-2 text-sm font-medium text-blue-900 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">Refresh campaigns</button>}
@@ -150,7 +150,7 @@ export function CampaignAssignmentRules() {
         )}
       </div>
 
-      {role === "admin" && (
+      {(role === "admin" || role === "manager") && (
         <form onSubmit={save} className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1.5 text-sm font-medium text-slate-800">
@@ -240,7 +240,7 @@ export function CampaignAssignmentRules() {
             </label>
             <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
               <input type="radio" name="campaign-assignment-mode" checked={assignmentMode === "manual"} onChange={() => setAssignmentMode("manual")} className="mt-0.5 size-4 border-slate-300 text-blue-700 focus-visible:ring-2 focus-visible:ring-blue-700" />
-              <span><span className="block font-medium text-slate-900">Admin assigns manually</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Leads arrive as New and unassigned; admins choose the owner in Leads.</span></span>
+              <span><span className="block font-medium text-slate-900">Team assigns manually</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Leads arrive as New and unassigned; a team lead chooses the owner in Leads.</span></span>
             </label>
           </fieldset>
 
@@ -253,7 +253,6 @@ export function CampaignAssignmentRules() {
         </form>
       )}
 
-      {role === "manager" && <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can review campaign routes here. Only admins can change them.</p>}
       <div className="space-y-3" aria-live="polite">
         {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
         {notice && <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{notice}</p>}
@@ -271,9 +270,9 @@ export function CampaignAssignmentRules() {
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${route.isActive ? "bg-blue-50 text-blue-800" : "bg-slate-100 text-slate-600"}`}>{route.isActive ? "Active" : "Paused"}</span>
               </div>
               <p className="break-words text-sm text-slate-600">{route.targetNames.join(", ") || "No agents selected"}</p>
-              <p className="text-xs text-slate-500">{route.assignmentMode === "round_robin" ? "Round-robin · one owner per lead" : "Admin assigns manually"}{route.campaignId ? ` · Campaign ${route.campaignId}` : " · matched by campaign name"}{route.formId ? ` · Form ${route.formId}` : ""}</p>
+              <p className="text-xs text-slate-500">{route.assignmentMode === "round_robin" ? "Round-robin · one owner per lead" : "Team assigns manually"}{route.campaignId ? ` · Campaign ${route.campaignId}` : " · matched by campaign name"}{route.formId ? ` · Form ${route.formId}` : ""}</p>
             </div>
-            {role === "admin" && (
+            {(role === "admin" || role === "manager") && (
               <div className="flex shrink-0 flex-wrap gap-2">
                 <button type="button" disabled={busy} onClick={() => edit(route)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50"><Pencil className="size-3.5" aria-hidden="true" />Edit</button>
                 <button type="button" disabled={busy} aria-pressed={!route.isActive} onClick={() => void toggleRoute(route)} className="min-h-9 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">{route.isActive ? "Pause route" : "Resume route"}</button>

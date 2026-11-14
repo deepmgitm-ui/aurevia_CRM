@@ -41,7 +41,7 @@ export default async function ActivityPage({
   const role = viewer.success ? viewer.data?.role : null;
   if (!role || !["admin", "manager"].includes(role)) redirect("/dashboard");
   const isTeamLead = role === "admin" || role === "manager";
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" || role === "manager";
 
   const params = await searchParams;
   const requestedView = Array.isArray(params.view) ? params.view[0] : params.view;

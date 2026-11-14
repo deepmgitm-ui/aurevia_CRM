@@ -289,7 +289,7 @@ export function DashboardShell({ children, profile, attendanceToday, initialRang
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
               {attendanceToday && <AttendanceChip attendance={attendanceToday} />}
               <RealtimeNotifications />
-              {profile.role === "admin" && <Link
+              {(profile.role === "admin" || profile.role === "manager") && <Link
                 href="/dashboard/closed-lead-reviews"
                 aria-label={`Review closed leads${pendingDeletionReviews ? `, ${pendingDeletionReviews} ready for review` : ""}`}
                 title="Review closed leads"

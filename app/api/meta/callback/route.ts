@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   };
 
   if (!viewer.success || !viewer.data) return NextResponse.redirect(new URL("/login", request.url));
-  if (viewer.data.role !== "admin") return response("admin-only");
+  if (viewer.data.role !== "admin" && viewer.data.role !== "manager") return response("admin-only");
   if (!expectedState || !returnedState || expectedState !== returnedState) return response("state-error", "Meta sign-in expired. Start Connect Meta again.");
   if (responseError) return response("cancelled", responseError);
   if (!code || !config.appId || !config.appSecret || !config.redirectUri || !config.encryptionKey || !config.verifyToken) {

@@ -535,7 +535,7 @@ export default async function SectionPage({
         profileMessage,
         section === "agents" && query.editProfile === "1",
         initialStarProfileId,
-        viewer?.role === "admin",
+        viewer?.role === "admin" || viewer?.role === "manager",
       )}
     </div>
   );

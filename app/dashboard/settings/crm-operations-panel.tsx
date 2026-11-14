@@ -216,7 +216,7 @@ export function CrmOperationsPanel({
         <p className="text-xs text-slate-500">
           Review matching phone numbers and choose which lead stays. Merging
           preserves activities, appointments, assignment history and an
-          admin-only recovery snapshot.
+            team-lead recovery snapshot.
         </p>
         {items.length === 0 && !error ? (
           <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">

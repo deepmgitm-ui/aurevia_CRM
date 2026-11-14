@@ -18,7 +18,7 @@ export async function GET(
     .select("role")
     .eq("id", user.id)
     .maybeSingle();
-  if (profileError || profile?.role !== "admin") return Response.json({ error: "Admin access required." }, { status: 403 });
+  if (profileError || (profile?.role !== "admin" && profile?.role !== "manager")) return Response.json({ error: "Team lead access required." }, { status: 403 });
 
   const { data: archive, error } = await supabase
     .from("crm_lead_retention_archives")

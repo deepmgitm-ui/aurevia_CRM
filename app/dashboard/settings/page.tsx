@@ -30,10 +30,10 @@ export default async function SettingsPage() {
   const [usersResult, masterDataResult, capacity, scheduler, duplicates, schedulerStatus] = await Promise.all([
     role === "admin" ? getAllUsers() : null,
     isTeamLead ? getMasterData() : null,
-    role === "admin" ? getCapacity() : null,
-    role === "admin" ? getScheduler() : null,
-    role === "admin" ? getDuplicates() : null,
-    role === "admin" ? getSchedulerStatus() : null,
+    isTeamLead ? getCapacity() : null,
+    isTeamLead ? getScheduler() : null,
+    isTeamLead ? getDuplicates() : null,
+    isTeamLead ? getSchedulerStatus() : null,
   ]);
 
   return (
@@ -55,7 +55,7 @@ export default async function SettingsPage() {
         <MasterDataPanel initial={masterDataResult.data} />
       )}
       {isTeamLead && <AutomationPanel isAdmin={role === "admin"} />}
-      {role === "admin" && <CrmOperationsPanel schedulerStatus={schedulerStatus} duplicateError={duplicates && !duplicates.success?duplicates.error:undefined} capacity={capacity} scheduler={scheduler} groups={duplicates?.success?duplicates.data.groups:[]} total={duplicates?.success?duplicates.data.total:0}/> }
+      {isTeamLead && <CrmOperationsPanel schedulerStatus={schedulerStatus} duplicateError={duplicates && !duplicates.success?duplicates.error:undefined} capacity={capacity} scheduler={scheduler} groups={duplicates?.success?duplicates.data.groups:[]} total={duplicates?.success?duplicates.data.total:0}/> }
     </div>
   );
 }

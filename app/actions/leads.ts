@@ -826,9 +826,7 @@ export async function getLeadsPage(
   }
 }
 
-// Admin-only CSV export: bypasses pagination with a bounded, chunked fetch of
-// All leads matching current filters are admin-only. Managers may export an
-// explicit bounded ID list solely for the pre-delete backup workflow.
+// Team leads can export a bounded, chunked selection of leads.
 export async function getLeadsForExport(
   search = "",
   statusFilter = "",
@@ -840,7 +838,6 @@ export async function getLeadsForExport(
 ): Promise<ActionResult<Lead[]>> {
   const EXPORT_LIMIT = 5000;
   const chunkSize = 1000;
-  const selectedDeletionBackup = Array.isArray(ids) && ids.length > 0;
   if (ids !== undefined && (
     !Array.isArray(ids) ||
     ids.length > EXPORT_LIMIT ||
@@ -851,16 +848,11 @@ export async function getLeadsForExport(
   try {
     const supabase = await createClient();
 
-    // General exports stay admin-only. Managers may fetch only an explicit,
-    // bounded ID selection because the delete workflow must download its
-    // pre-delete backup before the manager-authorized delete can run.
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin" && !(viewerRole === "manager" && selectedDeletionBackup)) {
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
       return {
         success: false,
-        error: viewerRole === "manager"
-          ? "Managers can download Excel backups only for explicitly selected leads before deletion."
-          : "Only admins can export leads (403 Forbidden).",
+        error: "Only admins and managers can export leads (403 Forbidden).",
       };
     }
 
@@ -1809,7 +1801,7 @@ export async function resolveDuplicateLeadReviews(input: {
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") return { success: false, error: "Only admins can resolve duplicate reviews (403 Forbidden)." };
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can resolve duplicate reviews (403 Forbidden)." };
     const { data, error } = await supabase.rpc("crm_resolve_duplicate_review_items", {
       p_review_ids: reviewIds,
       p_action: input.action,
@@ -1833,7 +1825,7 @@ export async function getDuplicateReviewLeadsForExport(reviewIds: string[]): Pro
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") return { success: false, error: "Only admins can export duplicate reviews (403 Forbidden)." };
+    if (viewerRole !== "admin" && viewerRole !== "manager") return { success: false, error: "Only admins and managers can export duplicate reviews (403 Forbidden)." };
     const { data, error } = await supabase
       .from("crm_duplicate_review_queue")
       .select("lead:leads!crm_duplicate_review_queue_lead_id_fkey(*)")
@@ -1853,8 +1845,8 @@ export async function getDuplicateLeadReviewQueue(): Promise<ActionResult<Duplic
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Duplicate review is available to admins only (403 Forbidden)." };
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Duplicate review is available to admins and managers (403 Forbidden)." };
     }
     const items: DuplicateLeadReviewItem[] = [];
     for (let offset = 0; offset < 5000; offset += 500) {
@@ -2647,8 +2639,8 @@ export async function getLeadSourceBatches(): Promise<ActionResult<LeadSourceBat
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can view lead import batches (403 Forbidden)." };
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can view lead import batches (403 Forbidden)." };
     }
 
     const batches = new Map<string, LeadSourceBatch>();
@@ -2721,8 +2713,8 @@ export async function getLeadsForSourceBatches(
   try {
     const supabase = await createClient();
     const viewerRole = await getViewerRole(supabase);
-    if (viewerRole !== "admin") {
-      return { success: false, error: "Only admins can export source batches (403 Forbidden)." };
+    if (viewerRole !== "admin" && viewerRole !== "manager") {
+      return { success: false, error: "Only admins and managers can export source batches (403 Forbidden)." };
     }
     return await getRowsForSourceBatches(supabase, batches);
   } catch (error) {
@@ -2741,8 +2733,8 @@ export async function deleteLeadSourceBatches(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "You must be signed in." };
     const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
-    if (profile?.role !== "admin") {
-      return { success: false, error: "Only admins can delete import batches (403 Forbidden)." };
+    if (profile?.role !== "admin" && profile?.role !== "manager") {
+      return { success: false, error: "Only admins and managers can delete import batches (403 Forbidden)." };
     }
 
     const rowsResult = await getRowsForSourceBatches(supabase, batches);
@@ -3227,8 +3219,8 @@ export async function getLeadsForAssignmentBatch(batchId: string): Promise<Actio
   }
   try {
     const supabase = await createClient();
-    if (await getViewerRole(supabase) !== "admin") {
-      return { success: false, error: "Only admins can export assignment batches (403 Forbidden)." };
+    if (!isTeamLead(await getViewerRole(supabase))) {
+      return { success: false, error: "Only admins and managers can export assignment batches (403 Forbidden)." };
     }
     const { data, error } = await supabase.from("leads").select("*")
       .eq("assignment_batch_id", batchId)
@@ -3260,7 +3252,7 @@ export async function transferLeadAssignmentBatch(input: {
     if (!canManageAssignments(viewerRole)) return { success: false, error: "Only admins and managers can transfer assignment batches (403 Forbidden)." };
     const { data: profiles, error: profileError } = await supabase.from("profiles").select("name, role").eq("name", input.employeeName.trim());
     if (profileError) return { success: false, error: profileError.message };
-    const target = profiles?.find((profile) => profile.role === "employee" || viewerRole === "admin");
+    const target = profiles?.find((profile) => profile.role === "employee" || isTeamLead(viewerRole));
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
     const { data, error: transferError } = await supabase.rpc("crm_transfer_assignment_batch", {
       p_batch_id: input.batchId,
@@ -3298,7 +3290,7 @@ export async function addLeadsToAssignmentBatch(input: {
     if (targetNames.length === 0) return { success: false, error: "This batch has no active team members. Transfer the batch first." };
     const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name, role").in("name", targetNames);
     if (profilesError) return { success: false, error: profilesError.message };
-    const validTargets = [...new Set((profiles ?? []).filter((profile) => viewerRole === "admin" || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
+    const validTargets = [...new Set((profiles ?? []).filter((profile) => isTeamLead(viewerRole) || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
     if (validTargets.length === 0) return { success: false, error: "The batch team is no longer available. Transfer the batch to an active employee first." };
     const assignments = ids.map((id, index) => ({ id, name: validTargets[index % validTargets.length] }));
     const { data, error } = await supabase.rpc("crm_add_leads_to_assignment_batch", {
@@ -3328,7 +3320,7 @@ export async function deleteLeadAssignmentBatch(batchId: string): Promise<Action
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "You must be signed in." };
     const { data: profile } = await supabase.from("profiles").select("role, name").eq("id", user.id).single();
-    if (profile?.role !== "admin") return { success: false, error: "Only admins can delete assignment batches (403 Forbidden)." };
+    if (profile?.role !== "admin" && profile?.role !== "manager") return { success: false, error: "Only admins and managers can delete assignment batches (403 Forbidden)." };
     const { data: batch, error: batchError } = await supabase.from("crm_assignment_batches").select("label").eq("id", batchId).single();
     if (batchError || !batch) return { success: false, error: assignmentBatchSetupError(batchError?.message ?? "Assignment batch not found.") };
     const leadIds: string[] = [];
@@ -3525,7 +3517,7 @@ export async function assignLeadsToEmployees(input: {
           profile.name.trim() !== "" &&
           profile.name.trim() !== "-" &&
           profile.name.trim() !== "Unassigned" &&
-          (viewerRole === "admin" || profile.role === "employee"),
+          (isTeamLead(viewerRole) || profile.role === "employee"),
         )
         .map((profile) => profile.name.trim()),
     );
@@ -3533,7 +3525,7 @@ export async function assignLeadsToEmployees(input: {
     if (targets.length !== employeeNames.length) {
       return {
         success: false,
-        error: viewerRole === "admin"
+        error: isTeamLead(viewerRole)
           ? "One or more selected team members are no longer available. Refresh and try again."
           : "Only employee accounts are available as assignees for managers. Refresh and try again.",
       };
@@ -3670,7 +3662,7 @@ export async function assignUnassignedLeads(
     if (profilesError) return { success: false, error: profilesError.message };
     const validNames = new Set(
       (profiles ?? [])
-        .filter((profile) => viewerRole === "admin" || profile.role === "employee")
+        .filter((profile) => isTeamLead(viewerRole) || profile.role === "employee")
         .map((profile) => (typeof profile.name === "string" ? profile.name.trim() : ""))
         .filter(Boolean),
     );
@@ -3757,7 +3749,7 @@ export async function updateLeadAssignment(
 
     const { data: targets, error: targetError } = await supabase.from("profiles").select("name, role").eq("name", targetName);
     if (targetError) return { success: false, error: targetError.message };
-    const target = targets?.find((profile) => viewerRole === "admin" || profile.role === "employee");
+    const target = targets?.find((profile) => isTeamLead(viewerRole) || profile.role === "employee");
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
     const { data, error } = await supabase.rpc("crm_update_lead_details_admin", {
       p_lead_id: leadId,
@@ -3892,7 +3884,7 @@ export async function updateLeadDetails(
       }
     }
 
-    if (typeof updates.assigned_to === "string" && viewerProfile?.role === "admin") {
+    if (typeof updates.assigned_to === "string" && (viewerProfile?.role === "admin" || viewerProfile?.role === "manager")) {
       const targetName = updates.assigned_to.trim();
       if (targetName !== (previousLead.assigned_to ?? "").trim()) {
         if (targetName && targetName !== "-") {
@@ -3901,7 +3893,7 @@ export async function updateLeadDetails(
             .select("name, role")
             .eq("name", targetName);
           if (targetError) return { success: false, error: targetError.message };
-          const target = targets?.find((profile) => viewerProfile.role === "admin" || profile.role === "employee");
+          const target = targets?.find((profile) => viewerProfile.role === "admin" || viewerProfile.role === "manager" || profile.role === "employee");
           if (!target) return { success: false, error: "That team member is unavailable for assignment." };
           updates.assigned_to = target.name;
         }

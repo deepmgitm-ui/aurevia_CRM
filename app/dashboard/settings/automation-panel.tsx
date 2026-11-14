@@ -178,7 +178,7 @@ export function AutomationPanel({ isAdmin }: { isAdmin: boolean }) {
                   variant="outline"
                   disabled={!rule.enabled || !canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) || pendingRule === rule.key || runningRule === rule.key}
                   onClick={() => void handlePreview(rule)}
-                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins can run workload balancing because it assigns leads." : undefined}
+                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins and managers can run workload balancing because it assigns leads." : undefined}
                 >
                   {pendingRule === rule.key ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -192,7 +192,7 @@ export function AutomationPanel({ isAdmin }: { isAdmin: boolean }) {
                   size="sm"
                   disabled={!rule.enabled || !canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) || runningRule === rule.key}
                   onClick={() => void handleRun(rule)}
-                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins can run workload balancing because it assigns leads." : undefined}
+                  title={!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) ? "Only admins and managers can run workload balancing because it assigns leads." : undefined}
                 >
                   {runningRule === rule.key ? (
                     <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -202,7 +202,7 @@ export function AutomationPanel({ isAdmin }: { isAdmin: boolean }) {
                   Run now
                 </Button>
                 {!canRunAutomationRule(isAdmin ? "admin" : "manager", rule.key) && (
-                  <span className="text-xs font-medium text-slate-500">Admin only</span>
+                  <span className="text-xs font-medium text-slate-500">Admin or manager</span>
                 )}
               </div>
             </div>

@@ -14,7 +14,7 @@ export interface CalendarEditorLead {
 
 async function calendarAdmin() {
   const result = await getViewer();
-  return result.success && result.data?.role === "admin" ? result.data : null;
+  return result.success && ["admin", "manager"].includes(result.data?.role ?? "") ? result.data : null;
 }
 
 export async function getCalendarEditorSetup(): Promise<{ canEdit: boolean; agents: string[] }> {
@@ -25,7 +25,7 @@ export async function getCalendarEditorSetup(): Promise<{ canEdit: boolean; agen
 }
 
 export async function searchCalendarLeads(search: string): Promise<CalendarResult<CalendarEditorLead[]>> {
-  if (!await calendarAdmin()) return { success: false, error: "Only admins can edit calendar appointments." };
+  if (!await calendarAdmin()) return { success: false, error: "Only admins and managers can edit calendar appointments." };
   if (typeof search !== "string" || search.trim().length < 2) return { success: false, error: "Enter at least two characters to search." };
   const result = await getLeadsPage(1, 20, search.trim().slice(0, 120));
   if (!result.success) return { success: false, error: result.error };
@@ -33,7 +33,7 @@ export async function searchCalendarLeads(search: string): Promise<CalendarResul
 }
 
 export async function getCalendarEditorLead(id: string): Promise<CalendarResult<CalendarEditorLead>> {
-  if (!await calendarAdmin()) return { success: false, error: "Only admins can edit calendar appointments." };
+  if (!await calendarAdmin()) return { success: false, error: "Only admins and managers can edit calendar appointments." };
   const supabase = await createClient();
   const { data, error } = await supabase.from("leads")
     .select("id,name,phone,city,remarks,status,assigned_to,updated_at,opd_booked_date,opd_done_date,ipd_done_date").eq("id", id).single();
@@ -42,7 +42,7 @@ export async function getCalendarEditorLead(id: string): Promise<CalendarResult<
 
 export async function saveCalendarEntry(input: CalendarEntryInput): Promise<CalendarResult<{id:string;appointmentId:string;warning?:string}>> {
  try {
-  if(!await calendarAdmin()) return {success:false,error:"Only admins can edit calendar appointments."};
+  if(!await calendarAdmin()) return {success:false,error:"Only admins and managers can edit calendar appointments."};
   const validation=validateCalendarEntry(input);if(validation)return {success:false,error:validation};
   const supabase=await createClient();const normalizedInput={...input,updateStatus:input.mode==="existing"?shouldSyncLeadStatus(input.appointmentStatus):input.updateStatus};const {data,error}=await supabase.rpc("crm_save_calendar_entry",{p:normalizedInput});
   if(error)return {success:false,error:error.message};

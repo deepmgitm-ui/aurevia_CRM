@@ -29,7 +29,7 @@ export default async function AttendancePage({
   const viewer = viewerResult.success ? viewerResult.data : null;
   if (!viewer) notFound();
   const canManage = viewer?.role === "admin" || viewer?.role === "manager";
-  const canAdmin = viewer?.role === "admin";
+  const canAdmin = canManage;
 
   const [attendanceResult, directoryResult] = await Promise.all([
     canManage ? getTeamAttendance(month) : getMyAttendance(month),

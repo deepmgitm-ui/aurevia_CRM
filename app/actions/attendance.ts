@@ -841,7 +841,7 @@ export async function reviewEmployeeLeaveRequest(input: {
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
-    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can review leave requests." };
+    if (!isManager(viewer.role)) return { success: false, error: "Only admins and managers can review leave requests." };
     if (!input.id.trim()) return { success: false, error: "Choose a leave request." };
     if (typeof input.approved !== "boolean") return { success: false, error: "Choose whether to approve or reject the request." };
     const reviewNote = input.reviewNote?.trim() ?? "";
@@ -879,7 +879,7 @@ export async function setEmployeeWeeklyOff(input: {
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
-    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can set weekly offs." };
+    if (!isManager(viewer.role)) return { success: false, error: "Only admins and managers can set weekly offs." };
     if (!input.employeeId) return { success: false, error: "Choose an employee." };
     if (!isValidIsoDate(input.anchorDate)) return { success: false, error: "Choose a valid week or month." };
     if (input.scope !== "week" && input.scope !== "month") return { success: false, error: "Choose a weekly or monthly schedule." };
@@ -925,7 +925,7 @@ export async function removeEmployeeWeeklyOff(id: string): Promise<AttendanceRes
   try {
     const viewer = await getViewerContext();
     if (!viewer) return { success: false, error: "Please sign in first." };
-    if (!isAdmin(viewer.role)) return { success: false, error: "Only an admin can remove weekly offs." };
+    if (!isManager(viewer.role)) return { success: false, error: "Only admins and managers can remove weekly offs." };
     if (!id.trim()) return { success: false, error: "Choose a weekly off to remove." };
     const { error } = await viewer.supabase.from("employee_weekly_offs").delete().eq("id", id);
     if (error) return { success: false, error: getErrorMessage(error, "Could not remove the weekly off.") };

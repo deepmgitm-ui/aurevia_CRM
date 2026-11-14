@@ -135,8 +135,8 @@ export async function saveCampaignAssignmentRule(input: {
 
   try {
     const viewer = await getTeamViewer();
-    if (viewer.error || !viewer.user || viewer.role !== "admin") {
-      return { success: false, error: "Only admins can change campaign routing." };
+    if (viewer.error || !viewer.user || !["admin", "manager"].includes(viewer.role ?? "")) {
+      return { success: false, error: "Only admins and managers can change campaign routing." };
     }
 
     const { data: targets, error: targetError } = await viewer.supabase
@@ -207,8 +207,8 @@ export async function setCampaignAssignmentRuleActive(id: string, isActive: bool
   }
   try {
     const viewer = await getTeamViewer();
-    if (viewer.error || !viewer.user || viewer.role !== "admin") {
-      return { success: false, error: "Only admins can change campaign routing." };
+    if (viewer.error || !viewer.user || !["admin", "manager"].includes(viewer.role ?? "")) {
+      return { success: false, error: "Only admins and managers can change campaign routing." };
     }
     const { error } = await viewer.supabase
       .from("crm_campaign_assignment_rules")

@@ -54,7 +54,7 @@ export interface AgentDailyRow {
 export async function getCapacity() {
   const supabase = await createClient();
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return null;
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return null;
   const { data, error } = await supabase.rpc("crm_capacity_breakdown");
   if (error || !data) return null;
   return {
@@ -140,7 +140,7 @@ export async function getScheduler() {
 export async function setScheduler(enabled: boolean) {
   const supabase = await createClient();
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") return false;
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) return false;
   const { error } = await supabase
     .from("crm_runtime_settings")
     .update({ automatic_enabled: enabled })

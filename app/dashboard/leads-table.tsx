@@ -490,7 +490,7 @@ export function LeadsTable({
     return () => window.clearTimeout(timer);
   }, [initialLeads, router, workflowNow]);
   // Role gates (plain booleans — zero runtime cost, standard conditional rendering).
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" || role === "manager";
   const isManager = role === "manager";
   const canBulkUpload = isAdmin || isManager;
   const canDelete = isAdmin || isManager;
@@ -1939,8 +1939,8 @@ export function LeadsTable({
     if (selectedLeads.length === 0) return;
     setIsBulkActionPending(true);
     // SAFETY NET #1 (always): write every row this delete will remove to a local
-    // CSV BEFORE touching the database. Only the admin-only export can do a
-    // 5k-row read, so a manager gets the "ask an admin" path for a full wipe
+    // CSV BEFORE touching the database. The bounded team-lead export makes a
+    // 5k-row recovery copy before any bulk deletion can proceed.
     // instead of silently unrecoverable data loss.
     // SAFETY NET #2 (server): bulkDeleteLeads stores a snapshot in
     // lead_deletion_backups when that migration has been applied.

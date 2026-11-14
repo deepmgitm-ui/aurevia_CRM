@@ -20,12 +20,13 @@ procedure changes. Keep the implementation and this guide in the same change.
 
 ### Leads and roles
 
-- **Admin:** can review the whole team, assign or transfer leads, manage CRM
-  settings, review deletions and use administrative lead operations.
-- **Manager:** can review team leads, update permitted lead details and delete
-  explicitly selected leads after a backup. Lead assignment, transfer,
-  unassignment, assignment batches and the Closed Leads Review queue are
-  admin-only in the current application and database policies.
+- **Admin:** has all CRM and account-management capabilities, including adding
+  or removing staff, changing staff roles and resetting another user's password.
+- **Manager:** has the same CRM capabilities as an admin, including team lead
+  assignment and transfer, CRM settings, reviews, campaign routing, calendar,
+  attendance and reporting. Only admins can create/delete accounts, change
+  staff roles, or reset another user's password. Database role guards enforce
+  this even if a manager bypasses the UI or calls a server action directly.
 - **Employee:** works with their own assigned leads and attendance. Data access
   must be enforced by server actions and Supabase RLS, not just hidden UI.
 - Users can change their own password after entering the current password;
@@ -44,7 +45,7 @@ procedure changes. Keep the implementation and this guide in the same change.
   same normalized phone number.
 - Assignment history records assignment, transfer and unassignment events,
   including the prior owner and acting user when available.
-- Bulk admin assignment (selected IDs, Assign by Filters, unassigned-lead
+- Bulk admin/manager assignment (selected IDs, Assign by Filters, unassigned-lead
   distribution, and adding to an existing batch) changes lead owners and the
   batch record/count in one database transaction. If a selected lead no longer
   matches its guard, the batch roster changed, or any update fails, no partial
@@ -57,7 +58,7 @@ procedure changes. Keep the implementation and this guide in the same change.
 - Assignment-batch transfer is one database transaction: lead ownership,
   optional Fresh reset, assignment history and the batch roster either all save
   or all roll back. Keep Current Status preserves each lead's disposition.
-- Single-lead and detail-form admin reassignment create the assignment batch
+- Single-lead and detail-form admin/manager reassignment create the assignment batch
   and save the lead edit in the same database transaction. A stale edit or a
   rejected row update leaves both the lead and assignment history unchanged.
 
@@ -86,7 +87,7 @@ procedure changes. Keep the implementation and this guide in the same change.
   the old and new lead disposition to the lead timeline in the same database
   transaction, attributed to the signed-in user. Repeating an already-saved
   disposition does not create a duplicate transition entry.
-- Admin Send as Fresh transfers record the prior disposition and `New` together
+- Admin/manager Send as Fresh transfers record the prior disposition and `New` together
   with the transfer timeline receipt. Fresh assignment from Unassigned records
   the status transition separately. A transfer form's stale status field is
   ignored when the admin explicitly chooses Send as Fresh, preventing a
@@ -137,7 +138,7 @@ procedure changes. Keep the implementation and this guide in the same change.
   timeline receipt cannot diverge, and the edit must preserve disposition.
 - Employees can open the appointments calendar for their assigned leads only.
   The Follow-up Calendar shows dates for the signed-in user's assigned leads.
-- Capacity reporting is admin-only and shows measured database relation sizes
+- Capacity reporting is available to admins and managers and shows measured database relation sizes
   and aggregate project object sizes. The six-person, 100-lead-per-day estimate
   is illustrative, assumes 1–3× current average growth per lead, and does not
   guarantee Supabase quota, bandwidth, uptime or future storage usage.
@@ -223,9 +224,11 @@ webhook URL and a successful test lead. See docs/META-LEADS.md.
   role. The duplicate-review capture RPC intentionally accepts CRM roles.
   Keep these grants aligned with their server-side workflows; do not revoke
   them solely to silence the advisor.
-- Managers can edit team lead details and dispositions, but only admins can
-  assign or transfer leads. The database rejects manager changes to
-  `leads.assigned_to` even when a request bypasses the application actions.
+- Managers share admin CRM workflows. The `profiles` identity guard continues
+  to reject manager-created profile rows and role changes, while account
+  creation/deletion and password reset stay in admin-only server actions.
+- Manager lead assignment is limited to existing accounts; it changes lead
+  ownership, never profile roles or account access.
 - The performance advisor currently reports four foreign keys without
   covering indexes, 22 indexes with no recorded use, and multiple-permissive
   policy notices. No index or policy was changed in this audit: unused-index
@@ -260,6 +263,7 @@ check application, database and hosting logs before changing permissions.
 
 | Date | Change | Verification |
 |---|---|---|
+| 2026-11-14 | Managers now have the same CRM permissions as admins for leads and assignments, calendar, reviews, reports, attendance, automation, campaign routing and CRM settings. Account creation/deletion, staff role changes and password resets remain admin-only, enforced in server actions and the profile trigger. | Live migration `20261114150602_manager_crm_permissions.sql` is applied; role guards and manager-enabled RLS policies were confirmed in the live database. App deployment and authenticated role-action checks are recorded after rollout. |
 | 2026-11-14 | Added an admin header shortcut to Closed Leads Review with a pending dot. Undated current OPD Booked leads now appear in a separate date-needed section with their status-change date and actor; monthly totals/drill-downs include them and ignore Dropped/Lost leads. | Supabase migration `20261114134759_undated_opd_booking_visibility.sql` applied. App commit `1ff86cc` reached Render live; the calendar route redirected to login with HTTP 200 and the new instance logged Ready. Authenticated visual interaction was not checked. |
 | 2026-11-14 | Undated current IPD Booked leads (plus legacy Surgery Scheduled) now follow the same date-needed calendar and monthly-count behavior as OPD; Dropped/Lost leads stay excluded. | Supabase migration `20261114140251_undated_ipd_booking_visibility.sql` applied. Commit `ea4e548` reached Render live and Vercel READY production. The calendar route returned HTTP 200 after redirecting to login on both; no post-deploy error/fatal logs were found. Authenticated visual interaction was not checked. |
 | 2026-11-07 | Added own-password change and admin password reset controls in Settings, added Aurevia branding to sign-in, and made password dialogs recover from network failures. Lead creation, source dispositions, bucket rules and stored records are unchanged. | Full ESLint and production build pass; lead-import and daily-work verifiers pass. No database migration or production data change. |

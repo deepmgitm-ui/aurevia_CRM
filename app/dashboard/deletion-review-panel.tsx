@@ -4,7 +4,7 @@ import { getDeletionReviewAssignees, getDeletionReviews } from "@/app/actions/de
 import { DeletionReviewList } from "./deletion-review-list";
 
 export async function DeletionReviewPanel({ role }: { role: string }) {
-  if (role !== "admin") return null;
+  if (role !== "admin" && role !== "manager") return null;
   const [result, team] = await Promise.all([getDeletionReviews(), getDeletionReviewAssignees()]);
   if (!result.reviews.length && !result.error) return null;
 

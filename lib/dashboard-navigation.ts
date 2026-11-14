@@ -55,7 +55,7 @@ const destinations: readonly DashboardDestination[] = [
   { group: "Analytics", label: "Daily Team Report", employeeLabel: "My Daily Summary", employeeSearchLabel: "My Daily Summary", employeeGroup: "My Work", href: "/dashboard/daily-report", icon: BarChart3, exact: false, roles: allRoles, surfaces: ["sidebar", "search"] },
   { group: "Analytics", label: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Marketing", href: "/dashboard/marketing", icon: Megaphone, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
-  { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false, roles: ["admin"], surfaces: ["sidebar", "search"] },
+  { group: "Tools", label: "Closed Leads Review", href: "/dashboard/closed-lead-reviews", icon: CircleCheck, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Team Activity", href: "/dashboard/activity", icon: Activity, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Assignment History", href: "/dashboard/assignment-history", icon: History, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },
   { group: "Tools", label: "Settings", href: "/dashboard/settings", icon: Settings, exact: false, roles: teamRoles, surfaces: ["sidebar", "search"] },

@@ -29,8 +29,8 @@ export async function getStarOfMonthProfileId(): Promise<string | null> {
 
 export async function setStarOfMonthProfileId(profileId: string | null): Promise<{ success: boolean; error?: string }> {
   const viewer = await getViewer();
-  if (!viewer.success || viewer.data?.role !== "admin") {
-    return { success: false, error: "Only an admin can change the Star of the Month." };
+  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) {
+    return { success: false, error: "Only admins and managers can change the Star of the Month." };
   }
 
   const normalizedId = profileId?.trim() || null;

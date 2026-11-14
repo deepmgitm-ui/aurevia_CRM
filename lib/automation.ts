@@ -9,9 +9,9 @@
 
 export type AutomationRuleKey = "welcome" | "nudge" | "overdue" | "balance" | "celebrate";
 
-/** Balancing assigns leads, which is an admin-only operation in the CRM. */
+/** Balancing assigns leads, so it is available to admins and managers. */
 export function canRunAutomationRule(role: string | null, ruleKey: AutomationRuleKey): boolean {
-  return role === "admin" || (role === "manager" && ruleKey !== "balance");
+  return role === "admin" || role === "manager";
 }
 
 export interface AutomationChange {

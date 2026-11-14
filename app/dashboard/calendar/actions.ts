@@ -164,7 +164,7 @@ export async function getMonthDays(
         if (!data || data.length < 500) break;
       }
     }
-    const actorIds = viewerData.role === "admin"
+    const actorIds = viewerData.role === "admin" || viewerData.role === "manager"
       ? [...new Set([
           ...currentAppointments.flatMap((appointment) => [appointment.created_by, appointment.performed_by]),
           ...[...statusChanges.values()].map((change) => change.user_id),
@@ -191,8 +191,8 @@ export async function getMonthDays(
         dateSource: "appointment" as const,
         past: a.starts_on < today,
         agent: a.lead.assigned_to || "-",
-        bookedBy: viewerData.role === "admin" ? actorNames.get(a.created_by ?? "") || null : null,
-        completedBy: viewerData.role === "admin" ? actorNames.get(a.performed_by ?? "") || null : null,
+        bookedBy: viewerData.role === "admin" || viewerData.role === "manager" ? actorNames.get(a.created_by ?? "") || null : null,
+        completedBy: viewerData.role === "admin" || viewerData.role === "manager" ? actorNames.get(a.performed_by ?? "") || null : null,
         appointmentStatus: a.status,
         time: a.starts_at?.slice(0, 5) || "",
         notes: a.notes,
@@ -214,7 +214,7 @@ export async function getMonthDays(
         dateSource: change ? "status-change" : "record-created",
         past: false,
         agent: lead.assigned_to || "-",
-        bookedBy: viewerData.role === "admin" ? actorNames.get(change?.user_id ?? "") || null : null,
+        bookedBy: viewerData.role === "admin" || viewerData.role === "manager" ? actorNames.get(change?.user_id ?? "") || null : null,
         completedBy: null,
         appointmentStatus: "booked",
         time: "",
