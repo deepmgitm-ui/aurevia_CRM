@@ -50,6 +50,7 @@ const APPOINTMENT_BY_STATUS: Record<string, AppointmentField> = {
     hint: "The day the OPD actually happened.",
   },
   "ipd booked": {kind:"ipdDone",column:"ipd_done_date",label:"IPD admission date",hint:"The planned day of admission; completion is recorded separately."},
+  "surgery scheduled": {kind:"ipdDone",column:"ipd_done_date",label:"IPD admission date",hint:"The planned day of admission; completion is recorded separately."},
   "ipd done": {
     kind: "ipdDone",
     column: "ipd_done_date",

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/app/actions/leads";
 import { calendarAgendaWindow } from "@/lib/calendar-entry";
 import { buildMonthCells } from "./month-grid";
-import { normaliseAppointmentDate, selectCurrentStatusAppointments, type AppointmentKind } from "@/lib/appointments";
+import { appointmentForStatus, normaliseAppointmentDate, selectCurrentStatusAppointments, type AppointmentKind } from "@/lib/appointments";
 export type { AppointmentKind } from "@/lib/appointments";
 export type CalendarResult<T> =
   | { success: true; data: T; error?: undefined }
@@ -60,13 +60,14 @@ interface AppointmentRow {
     assigned_to: string | null;
   };
 }
-interface UndatedOpdLead {
+interface UndatedBookingLead {
   id: string;
   name: string;
   phone: string | null;
   status: string;
   assigned_to: string | null;
   opd_booked_date: string | null;
+  ipd_done_date: string | null;
   created_at: string;
 }
 interface StatusChangeRow {
@@ -124,25 +125,27 @@ export async function getMonthDays(
     }
     const currentAppointments = selectCurrentStatusAppointments(rows);
     const currentAppointmentLeadIds = new Set(currentAppointments.map((appointment) => appointment.lead.id));
-    const undatedLeads: UndatedOpdLead[] = [];
+    const undatedLeads: UndatedBookingLead[] = [];
     for (let offset = 0; ; offset += 500) {
       let q = supabase.from("leads")
-        .select("id,name,phone,status,assigned_to,opd_booked_date,created_at")
-        .in("status", ["OPD Booked", "Consultation Booked"])
-        .or("opd_booked_date.is.null,opd_booked_date.eq.,opd_booked_date.eq.-,opd_booked_date.eq.--")
+        .select("id,name,phone,status,assigned_to,opd_booked_date,ipd_done_date,created_at")
+        .in("status", ["OPD Booked", "Consultation Booked", "IPD Booked", "Surgery Scheduled"])
+        .or("opd_booked_date.is.null,opd_booked_date.eq.,opd_booked_date.eq.-,opd_booked_date.eq.--,ipd_done_date.is.null,ipd_done_date.eq.,ipd_done_date.eq.-,ipd_done_date.eq.--")
         .order("created_at", { ascending: false })
         .range(offset, offset + 499);
       if (viewerData.role === "employee") {
         q = q.ilike("assigned_to", viewerData.name.replace(/[\\%_]/g, "\\$&"));
       }
       const { data, error } = await q;
-      if (error) return { success: false, error: "Date-needed OPD bookings could not be loaded. Please retry." };
-      undatedLeads.push(...((data ?? []) as UndatedOpdLead[]));
+      if (error) return { success: false, error: "Date-needed OPD/IPD bookings could not be loaded. Please retry." };
+      undatedLeads.push(...((data ?? []) as UndatedBookingLead[]));
       if (!data || data.length < 500) break;
     }
-    const needsDate = undatedLeads.filter((lead) =>
-      !normaliseAppointmentDate(lead.opd_booked_date) && !currentAppointmentLeadIds.has(lead.id),
-    );
+    const needsDate = undatedLeads.filter((lead) => {
+      const field = appointmentForStatus(lead.status);
+      const date = field?.kind === "ipdDone" ? lead.ipd_done_date : lead.opd_booked_date;
+      return Boolean(field) && !normaliseAppointmentDate(date) && !currentAppointmentLeadIds.has(lead.id);
+    });
     const statusChanges = new Map<string, StatusChangeRow>();
     for (let offset = 0; offset < needsDate.length; offset += 100) {
       const leadIds = needsDate.slice(offset, offset + 100).map((lead) => lead.id);
@@ -151,10 +154,10 @@ export async function getMonthDays(
           .select("lead_id,user_id,created_at,description")
           .in("lead_id", leadIds)
           .eq("action_type", "Status changed")
-          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked")
+          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked,description.like.% → IPD Booked,description.like.% → Surgery Scheduled")
           .order("created_at", { ascending: false })
           .range(rowOffset, rowOffset + 499);
-        if (error) return { success: false, error: "OPD booking history could not be loaded. Please retry." };
+        if (error) return { success: false, error: "OPD/IPD booking history could not be loaded. Please retry." };
         for (const row of (data ?? []) as StatusChangeRow[]) {
           if (!statusChanges.has(row.lead_id)) statusChanges.set(row.lead_id, row);
         }
@@ -198,14 +201,15 @@ export async function getMonthDays(
     const undated: CalendarAppointment[] = needsDate.map((lead) => {
       const change = statusChanges.get(lead.id);
       const timestamp = change?.created_at ?? lead.created_at;
+      const isIpd = appointmentForStatus(lead.status)?.kind === "ipdDone";
       return {
         appointmentId: null,
         leadId: lead.id,
         leadName: lead.name,
         phone: lead.phone || "-",
         leadStatus: lead.status,
-        kind: "opdBooked",
-        kindLabel: "OPD Booked · date needed",
+        kind: isIpd ? "ipdDone" : "opdBooked",
+        kindLabel: `${isIpd ? "IPD" : "OPD"} Booked · date needed`,
         date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(timestamp)),
         dateSource: change ? "status-change" : "record-created",
         past: false,

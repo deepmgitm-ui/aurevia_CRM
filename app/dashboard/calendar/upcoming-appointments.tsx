@@ -36,7 +36,7 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
   const filteredUndated = view === "upcoming" ? undatedItems.filter((item) =>
     (appointmentStatus === "all" || appointmentStatus === "booked") &&
     (period === "all" || (period === "today" ? item.date === todayIso : item.date >= undatedWeekStart.toISOString().slice(0, 10) && item.date <= todayIso)) &&
-    (kind === "all" || kind === "opd") &&
+    (kind === "all" || (kind === "ipd" ? item.kind === "ipdDone" : item.kind !== "ipdDone")) &&
     (!query || `${item.leadName} ${item.phone} ${item.agent} ${item.bookedBy ?? ""}`.toLowerCase().includes(query)),
   ) : [];
   const todayItems = items.filter((item) => item.dateSource === "appointment" && item.date === todayIso && !["cancelled","no_show"].includes(item.appointmentStatus));
@@ -66,9 +66,9 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
         </div>
       </div>
       <div className="p-4 sm:p-5">
-        <p role="status" className="mb-3 text-xs text-slate-500">{filtered.length + filteredUndated.length} entries · Dates in clinic time (IST). Entries without an appointment date show when OPD Booked was recorded.</p>
-        {filteredUndated.length > 0 && <section aria-label="OPD bookings without an appointment date" className="mb-5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-          <div className="mb-3"><h3 className="text-sm font-semibold text-amber-950">OPD booked · appointment date needed ({filteredUndated.length})</h3><p className="mt-1 text-xs text-amber-900/80">Each date marks when OPD Booked was changed or first recorded, not the appointment date.</p></div>
+        <p role="status" className="mb-3 text-xs text-slate-500">{filtered.length + filteredUndated.length} entries · Dates in clinic time (IST). Entries without an appointment date show when their OPD/IPD booking status was recorded.</p>
+        {filteredUndated.length > 0 && <section aria-label="OPD and IPD bookings without an appointment date" className="mb-5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <div className="mb-3"><h3 className="text-sm font-semibold text-amber-950">OPD/IPD booked · appointment date needed ({filteredUndated.length})</h3><p className="mt-1 text-xs text-amber-900/80">Each date marks when the booking status changed or was first recorded, not the appointment date.</p></div>
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filteredUndated.slice(0, limit).map((item) => <AppointmentCard key={item.leadId} item={item} todayIso={todayIso} canEdit={canEdit} showAttribution={showAttribution} agents={agents} />)}</ul>
         </section>}
         {filtered.length === 0 && filteredUndated.length === 0 ? <div className="rounded-xl bg-slate-50 p-8 text-center"><CalendarCheck aria-hidden="true" className="mx-auto mb-3 size-8 text-slate-400" /><p className="font-medium text-slate-700">No appointments {period === "today" ? (view === "past" ? "yesterday" : "today") : "in this view"}</p><p className="mt-1 text-sm text-slate-500">Try another filter or choose a date in the calendar below.</p></div> : filtered.length > 0 && <>
@@ -78,7 +78,7 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
           </ul>
         </>}
         {filtered.length > limit && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more appointments ({filtered.length - limit} remaining)</Button>}
-        {filteredUndated.length > limit && view === "upcoming" && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more date-needed OPD bookings ({filteredUndated.length - limit} remaining)</Button>}
+        {filteredUndated.length > limit && view === "upcoming" && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more date-needed bookings ({filteredUndated.length - limit} remaining)</Button>}
       </div>
     </section>
   );
