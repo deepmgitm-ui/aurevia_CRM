@@ -2,18 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getViewer } from "@/app/actions/leads";
 import { createOAuthState, metaOAuthConfiguration } from "@/lib/meta-integration";
+import { publicUrl } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const viewer = await getViewer();
-  if (!viewer.success || !viewer.data) return NextResponse.redirect(new URL("/login", request.url));
-  if (viewer.data.role !== "admin" && viewer.data.role !== "manager") return NextResponse.redirect(new URL("/dashboard/marketing?meta=admin-only", request.url));
-
   const config = metaOAuthConfiguration();
+  const viewer = await getViewer();
+  if (!viewer.success || !viewer.data) return NextResponse.redirect(publicUrl(request, "/login"));
+  if (viewer.data.role !== "admin" && viewer.data.role !== "manager") return NextResponse.redirect(publicUrl(request, "/dashboard/marketing?meta=admin-only"));
+
   if (!config.appId || !config.appSecret || !config.redirectUri || !config.encryptionKey || !config.verifyToken) {
-    return NextResponse.redirect(new URL("/dashboard/marketing?meta=setup", request.url));
+    return NextResponse.redirect(publicUrl(request, "/dashboard/marketing?meta=setup"));
   }
 
   const state = createOAuthState();

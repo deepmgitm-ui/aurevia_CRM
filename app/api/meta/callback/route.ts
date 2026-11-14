@@ -10,12 +10,13 @@ import {
   saveMetaCredentials,
   subscribeMetaPage,
 } from "@/lib/meta-integration";
+import { publicUrl } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function backToMarketing(request: NextRequest, status: string, detail?: string) {
-  const url = new URL("/dashboard/marketing", request.url);
+  const url = publicUrl(request, "/dashboard/marketing");
   url.searchParams.set("meta", status);
   if (detail) url.searchParams.set("detail", detail.slice(0, 220));
   return NextResponse.redirect(url);
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     return result;
   };
 
-  if (!viewer.success || !viewer.data) return NextResponse.redirect(new URL("/login", request.url));
+  if (!viewer.success || !viewer.data) return NextResponse.redirect(publicUrl(request, "/login"));
   if (viewer.data.role !== "admin" && viewer.data.role !== "manager") return response("admin-only");
   if (!expectedState || !returnedState || expectedState !== returnedState) return response("state-error", "Meta sign-in expired. Start Connect Meta again.");
   if (responseError) return response("cancelled", responseError);

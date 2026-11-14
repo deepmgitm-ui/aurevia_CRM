@@ -6,6 +6,7 @@ import {
 import { NextResponse, type NextRequest } from "next/server";
 
 import { clinicDate, needsFreshSignIn, SESSION_DAY_COOKIE } from "@/lib/attendance";
+import { publicUrl } from "@/lib/public-origin";
 import { getSupabaseEnv, MISSING_SUPABASE_ENV_MESSAGE } from "./env";
 
 const PROTECTED_PATH_PREFIX = "/dashboard";
@@ -39,7 +40,7 @@ function isApiRoute(pathname: string): boolean {
 
 /** Builds a clean `/login` URL, keeping the protected path for post-login. */
 function buildLoginUrl(request: NextRequest): URL {
-  const url = new URL("/login", request.nextUrl.origin);
+  const url = publicUrl(request, "/login");
   const from = `${request.nextUrl.pathname}${request.nextUrl.search}`;
 
   if (isProtectedPath(request.nextUrl.pathname)) {
