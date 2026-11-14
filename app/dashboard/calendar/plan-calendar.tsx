@@ -39,10 +39,11 @@ function ReminderIcon({ kind }: { kind: AppointmentKind }) {
  * history, not a missed call â€” colouring it red would train the team to
  * ignore the colour that a genuine problem actually uses.
  */
-function ReminderDot({ kind, past }: { kind: AppointmentKind; past: boolean }) {
+function ReminderDot({ kind, past, dateNeeded }: { kind: AppointmentKind; past: boolean; dateNeeded: boolean }) {
   const className = "size-2.5";
-  const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${
-    kind === "ipdDone"
+  const color = dateNeeded
+    ? past ? "bg-amber-300" : "bg-amber-600"
+    : kind === "ipdDone"
       ? past
         ? "bg-violet-300"
         : "bg-violet-600"
@@ -53,7 +54,7 @@ function ReminderDot({ kind, past }: { kind: AppointmentKind; past: boolean }) {
         : past
           ? "bg-blue-300"
           : "bg-blue-600"
-  }`;
+  const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${color}`;
   return (
     <span className={dotClass}>
       {kind === "ipdDone" ? (
@@ -218,6 +219,11 @@ export function PlanCalendar({
             {visibleDays.map((day) => {
               const isSelected = day.iso === selectedIso;
               const isToday = day.iso === todayIso;
+              const dayReminders = ensureArray(day.reminders);
+              const reminderSummary = dayReminders.slice(0, 3).map((reminder) =>
+                `${reminder.leadName}${reminder.bookedBy ? `, updated by ${reminder.bookedBy}` : ""}`,
+              ).join("; ");
+              const undatedReminder = dayReminders.find((reminder) => reminder.dateSource !== "appointment");
               return (
                 <button
                   key={day.iso}
@@ -225,7 +231,7 @@ export function PlanCalendar({
                   onClick={() => setSelectedIso(day.iso)}
                   title={day.iso}
                   aria-pressed={isSelected}
-                  aria-label={`${day.iso}: ${ensureArray(day.reminders).length} appointments`}
+                  aria-label={`${day.iso}: ${dayReminders.length} calendar entries${reminderSummary ? `. ${reminderSummary}` : ""}`}
                   className={`flex min-h-[74px] flex-col items-stretch gap-1 rounded-xl border p-1.5 text-left transition-colors sm:min-h-[86px] ${
                     isSelected
                       ? "border-blue-500 bg-blue-50/70"
@@ -242,23 +248,25 @@ export function PlanCalendar({
                     {day.day}
                   </span>
                   <span className="flex flex-wrap items-center gap-1" aria-hidden="true">
-                    {ensureArray(day.reminders).slice(0, 3).map((reminder) => (
+                    {dayReminders.slice(0, 3).map((reminder) => (
                       <ReminderDot
-                        key={reminder.appointmentId}
+                        key={`${reminder.leadId}-${reminder.kind}`}
                         kind={reminder.kind}
                         past={reminder.past}
+                        dateNeeded={reminder.dateSource !== "appointment"}
                       />
                     ))}
-                    {ensureArray(day.reminders).length > 3 && (
-                      <span className="text-[10px] font-semibold text-slate-500">+{ensureArray(day.reminders).length - 3}</span>
+                    {dayReminders.length > 3 && (
+                      <span className="text-[10px] font-semibold text-slate-500">+{dayReminders.length - 3}</span>
                     )}
                   </span>
+                  {undatedReminder && <span className="hidden max-w-full truncate text-[9px] leading-3 text-amber-900 md:block" title={`${undatedReminder.leadName} · ${undatedReminder.bookedBy ? `Updated by ${undatedReminder.bookedBy}` : undatedReminder.agent}`}>{undatedReminder.leadName} · {undatedReminder.bookedBy ? `Updated by ${undatedReminder.bookedBy}` : undatedReminder.agent}</span>}
                 </button>
               );
             })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            <span className="font-semibold text-sky-700">Sky</span> = OPD booked, <span className="font-semibold text-blue-700">blue</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
+            <span className="font-semibold text-amber-700">Amber</span> = booking status update with no appointment date; <span className="font-semibold text-sky-700">sky</span> = OPD booked with a date, <span className="font-semibold text-blue-700">blue</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
           </p>
           </CardContent>
         </Card>
@@ -307,6 +315,7 @@ export function PlanCalendar({
                   reminder={reminder}
                   canEdit={canEdit}
                   agents={agents}
+                  todayIso={todayIso}
                 />
               ))}
             </section>
@@ -324,11 +333,19 @@ function ReminderCard({
   reminder,
   canEdit,
   agents,
+  todayIso,
 }: {
   reminder: CalendarAppointment;
   canEdit: boolean;
   agents: string[];
+  todayIso: string;
 }) {
+  const dateNeeded = reminder.dateSource !== "appointment";
+  const updatedAtLabel = new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(reminder.updatedAt));
   return (
     <article className="rounded-xl border border-slate-200 p-3">
       <div className="flex items-start justify-between gap-2">
@@ -342,9 +359,14 @@ function ReminderCard({
         <span>{reminder.kindLabel}{reminder.time ? ` · ${reminder.time} IST` : ""}</span>
         {reminder.leadStatus !== "-" && <span>· {reminder.leadStatus}</span>}
       </p>
+      {dateNeeded && <p className="mt-1 text-xs text-slate-600">
+        {reminder.dateSource === "status-change" ? "Status updated" : "Status recorded"}: {updatedAtLabel}
+        {reminder.bookedBy ? ` · Updated by ${reminder.bookedBy}` : ""}
+      </p>}
+      <p className="mt-1 truncate text-xs text-slate-500">Agent: {reminder.agent === "-" ? "Unassigned" : reminder.agent}</p>
       {reminder.phone !== "-" && <div className="mt-2 flex flex-wrap items-center gap-2"><PhonePreview value={reminder.phone} className="text-xs text-slate-600" /><a href={`tel:${reminder.phone.replace(/[^+\d]/g, "")}`} className="inline-flex rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Call patient</a></div>}
       {reminder.appointmentId && <AppointmentStatusActions id={reminder.appointmentId} status={reminder.appointmentStatus}/>}
-      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} appointmentId={reminder.appointmentId ?? undefined} updatedAt={reminder.updatedAt} status={reminder.appointmentStatus} time={reminder.time} notes={reminder.notes} label="Edit appointment" /></div>}
+      {canEdit && <div className="mt-2"><AppointmentEditor agents={agents} defaultDate={dateNeeded ? todayIso : reminder.date} defaultKind={reminder.kind} leadId={reminder.leadId} appointmentId={reminder.appointmentId ?? undefined} updatedAt={reminder.updatedAt} status={reminder.appointmentStatus} time={reminder.time} notes={reminder.notes} label={dateNeeded ? "Set appointment date" : "Edit appointment"} /></div>}
     </article>
   );
 }

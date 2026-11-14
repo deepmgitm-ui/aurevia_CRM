@@ -201,6 +201,7 @@ export async function getMonthDays(
     const undated: CalendarAppointment[] = needsDate.map((lead) => {
       const change = statusChanges.get(lead.id);
       const timestamp = change?.created_at ?? lead.created_at;
+      const bookingDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(timestamp));
       const isIpd = appointmentForStatus(lead.status)?.kind === "ipdDone";
       return {
         appointmentId: null,
@@ -210,9 +211,9 @@ export async function getMonthDays(
         leadStatus: lead.status,
         kind: isIpd ? "ipdDone" : "opdBooked",
         kindLabel: `${isIpd ? "IPD" : "OPD"} Booked · date needed`,
-        date: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(timestamp)),
+        date: bookingDate,
         dateSource: change ? "status-change" : "record-created",
-        past: false,
+        past: bookingDate < today,
         agent: lead.assigned_to || "-",
         bookedBy: viewerData.role === "admin" || viewerData.role === "manager" ? actorNames.get(change?.user_id ?? "") || null : null,
         completedBy: null,
@@ -223,7 +224,7 @@ export async function getMonthDays(
       };
     });
     const byDay = new Map<string, CalendarAppointment[]>();
-    for (const entry of entries) {
+    for (const entry of [...entries, ...undated]) {
       if (entry.date < from || entry.date > to) continue;
       byDay.set(entry.date, [...(byDay.get(entry.date) ?? []), entry]);
     }
