@@ -67,34 +67,56 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
       </div>
       <div className="p-4 sm:p-5">
         <p role="status" className="mb-3 text-xs text-slate-500">{filtered.length + filteredUndated.length} entries · Dates in clinic time (IST). Entries without an appointment date show when their OPD/IPD booking status was recorded.</p>
-        {filteredUndated.length > 0 && <section aria-label="OPD and IPD bookings without an appointment date" className="mb-5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-          <div className="mb-3"><h3 className="text-sm font-semibold text-amber-950">OPD/IPD booked · appointment date needed ({filteredUndated.length})</h3><p className="mt-1 text-xs text-amber-900/80">Each date marks when the booking status changed or was first recorded, not the appointment date.</p></div>
-          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filteredUndated.slice(0, limit).map((item) => <AppointmentCard key={item.leadId} item={item} todayIso={todayIso} canEdit={canEdit} showAttribution={showAttribution} agents={agents} />)}</ul>
-        </section>}
         {filtered.length === 0 && filteredUndated.length === 0 ? <div className="rounded-xl bg-slate-50 p-8 text-center"><CalendarCheck aria-hidden="true" className="mx-auto mb-3 size-8 text-slate-400" /><p className="font-medium text-slate-700">No appointments {period === "today" ? (view === "past" ? "yesterday" : "today") : "in this view"}</p><p className="mt-1 text-sm text-slate-500">Try another filter or choose a date in the calendar below.</p></div> : filtered.length > 0 && <>
-          {filteredUndated.length > 0 && <h3 className="mb-3 text-sm font-semibold text-slate-700">Scheduled appointments</h3>}
+          {filteredUndated.length > 0 && <h3 className="mb-3 text-sm font-semibold text-slate-700">Appointments with dates</h3>}
           <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filtered.slice(0, limit).map((item) => <AppointmentCard key={item.appointmentId} item={item} todayIso={todayIso} canEdit={canEdit} showAttribution={showAttribution} agents={agents} />)}
           </ul>
         </>}
         {filtered.length > limit && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more appointments ({filtered.length - limit} remaining)</Button>}
-        {filteredUndated.length > limit && view === "upcoming" && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more date-needed bookings ({filteredUndated.length - limit} remaining)</Button>}
+        {filteredUndated.length > 0 && <section aria-label="OPD and IPD bookings without an appointment date" className="mt-5 border-t border-slate-200 pt-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="text-sm font-semibold text-slate-800">OPD/IPD booked · appointment date needed <span className="font-medium text-slate-500">({filteredUndated.length})</span></h3>
+            <p className="text-xs text-slate-500">Booking status update date and agent are shown.</p>
+          </div>
+          <ul className="divide-y divide-amber-100 rounded-lg border border-amber-200 bg-amber-50/40">{filteredUndated.slice(0, limit).map((item) => <AppointmentCard key={item.leadId} item={item} todayIso={todayIso} canEdit={canEdit} showAttribution={showAttribution} agents={agents} compact />)}</ul>
+          {filteredUndated.length > limit && <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setLimit((current) => current + 12)}>Show more date-needed bookings ({filteredUndated.length - limit} remaining)</Button>}
+        </section>}
       </div>
     </section>
   );
 }
 
-function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents }: {
+function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents, compact = false }: {
   item: CalendarAppointment;
   todayIso: string;
   canEdit: boolean;
   showAttribution: boolean;
   agents: string[];
+  compact?: boolean;
 }) {
   const undated = item.dateSource !== "appointment";
   const dateLabel = new Date(item.date + "T00:00:00Z").toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
   });
+  const statusUpdatedLabel = new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata",
+  }).format(new Date(item.updatedAt));
+  if (compact) return <li className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Link prefetch={false} href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="truncate text-sm font-semibold text-slate-900 hover:text-blue-700">{item.leadName}</Link>
+        <span className="text-xs font-medium text-amber-800">{item.kindLabel}</span>
+      </div>
+      <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600">
+        <span>{item.dateSource === "status-change" ? "Status updated" : "Status recorded"}: <time dateTime={item.updatedAt}>{statusUpdatedLabel}</time></span>
+        {showAttribution && item.bookedBy && <span>Updated by {item.bookedBy}</span>}
+        <span>Agent: {item.agent === "-" ? "Unassigned" : item.agent}</span>
+        {item.phone !== "-" && <PhonePreview value={item.phone} className="text-xs text-slate-600" />}
+      </p>
+    </div>
+    {canEdit && <div className="shrink-0"><AppointmentEditor agents={agents} defaultDate={todayIso} leadId={item.leadId} defaultKind={item.kind} label="Set date" /></div>}
+  </li>;
   return <li className="rounded-xl border border-slate-200 p-4">
     <div className="flex items-start justify-between gap-3">
       <Link prefetch={false} href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="min-w-0 truncate font-semibold text-slate-900 hover:text-blue-700">{item.leadName}</Link>
