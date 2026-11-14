@@ -144,7 +144,7 @@ export function CampaignAssignmentRules() {
         </div>
         {(role === "admin" || role === "manager") && (
           <>
-            <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Meta" : "Connect to Meta"}</a>
+            <a href="/api/meta/connect" className="inline-flex min-h-10 items-center rounded-lg bg-blue-800 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2">{metaConnected ? "Reconnect Facebook Ads" : "Connect Facebook Ads"}</a>
             {metaConnected && <button type="button" disabled={busy} onClick={() => void load()} className="inline-flex min-h-10 items-center rounded-lg border border-blue-800/25 bg-white px-4 py-2 text-sm font-medium text-blue-900 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 disabled:opacity-50">Refresh campaigns</button>}
           </>
         )}

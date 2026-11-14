@@ -11,10 +11,14 @@ accepting patient data.
 Add these values as server-only environment variables in the Render
 `aurevia-crm` service's Environment settings, then redeploy:
 
-- `META_VERIFY_TOKEN`: a long random value you create and also enter in Meta.
+- `META_APP_ID`: the app ID from Meta App Dashboard → App settings → Basic.
 - `META_APP_SECRET`: from Meta App Dashboard → App settings → Basic.
-- `META_ACCESS_TOKEN`: a Page access token for the Page that owns the lead
-  form, with the required lead retrieval permission.
+- `META_REDIRECT_URI`: `https://aurevia-crm.onrender.com/api/meta/callback`. Add this exact
+  URL to Facebook Login → Valid OAuth Redirect URIs in the Meta app.
+- `META_TOKEN_ENCRYPTION_KEY`: a random 32-byte key, encoded as 64 hex characters.
+- `META_VERIFY_TOKEN`: a long random value you create and also enter in Meta.
+- `META_ACCESS_TOKEN`: optional fallback Page access token for webhook delivery; OAuth
+  stores connected Page tokens in the CRM.
 - `SUPABASE_SERVICE_ROLE_KEY`: the existing server-side key used to save leads.
 - `NEXT_PUBLIC_SUPABASE_URL`: the existing project URL.
 - `META_GRAPH_API_VERSION`: currently `v26.0` unless the app has been tested
@@ -25,15 +29,20 @@ and app secret out of browser-exposed variables.
 
 ## Meta Developer Dashboard
 
-1. In Meta for Developers, create/select the business app and add Webhooks and
-   the Lead Ads permissions/products required for the clinic's Page.
-2. Under Webhooks, select the Page object and subscribe to `leadgen`.
-3. Set the callback URL to `https://<public-production-domain>/api/meta-webhook`
-   and the verify token to the exact `META_VERIFY_TOKEN` value. Choose Verify
-   and Save. The callback must be reachable by Meta without a login page.
-4. In the Page's Lead Ads settings, connect the app and grant it access to the
-   Page and lead forms. Generate the Page access token with lead retrieval and
-   Page subscription permissions; set it as `META_ACCESS_TOKEN` in Render.
+1. In Meta for Developers, create/select the business app, enable Facebook Login,
+   and add the required Marketing API and Lead Ads permissions (`ads_read`,
+   `ads_management`, `leads_retrieval`, `pages_show_list`,
+   `pages_read_engagement`, `pages_manage_metadata`). Meta may require App Review
+   or Advanced Access for people outside the app's roles.
+2. Add `https://aurevia-crm.onrender.com/api/meta/callback` under Facebook Login →
+   Valid OAuth Redirect URIs. This OAuth URL is different from the webhook URL.
+3. Under Webhooks, select the Page object and subscribe to `leadgen`; set the
+   callback URL to `https://aurevia-crm.onrender.com/api/meta-webhook` and the
+   verify token to the exact Render `META_VERIFY_TOKEN`. Choose Verify and Save.
+4. In the Page's Lead Ads settings, connect the app and grant the Facebook user
+   access to the Page and lead forms.
+5. In CRM Marketing, select Connect Facebook Ads and finish Facebook Login. The
+   CRM then loads active campaigns and registers the Page leadgen webhook.
 5. In Meta's Lead Ads Testing tool, submit a test lead. Confirm it appears in
    the CRM with source `Meta Ads`, the expected patient fields and campaign
    label. Submit/retry the same test lead and confirm only one record exists.

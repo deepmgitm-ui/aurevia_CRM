@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("redirect_uri", config.redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("scope", "ads_read,leads_retrieval,pages_show_list,pages_read_engagement,pages_manage_ads,pages_manage_metadata");
+  authUrl.searchParams.set("scope", "ads_read,ads_management,leads_retrieval,pages_show_list,pages_read_engagement,pages_manage_metadata");
 
   const response = NextResponse.redirect(authUrl);
   response.cookies.set("aurevia_meta_oauth_state", state, {
