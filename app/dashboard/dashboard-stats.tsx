@@ -113,7 +113,7 @@ export function DashboardStats({
     >
       <p className={compact ? "line-clamp-2 min-h-7 text-[10px] font-semibold leading-tight" : "text-[11px] font-semibold leading-snug"}>{card.label}</p>
       <p className={`${compact ? "mt-0.5 text-lg" : "mt-1 text-xl"} font-semibold tabular-nums leading-none`}>{card.value === null ? "-" : card.value.toLocaleString()}</p>
-      {card.detail && <p className="mt-1 text-[10px] leading-snug opacity-80">{card.detail}</p>}
+      {card.detail && !compact && <p className="mt-1 text-[10px] leading-snug opacity-80">{card.detail}</p>}
       {!compact && <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium">
         View leads <ArrowRight className="size-3" aria-hidden="true" />
       </span>}
@@ -126,8 +126,7 @@ export function DashboardStats({
         <h2 className="text-sm font-semibold text-slate-800">Workflow overview</h2>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{workflowCards.map((card, index) => renderCard(card, index))}</div>
       </section>
-      <section aria-label="Lead counts by current status" className="space-y-2">
-        <div><h2 className="text-sm font-semibold text-slate-800">Permanent disposition counts</h2><p className="mt-1 text-xs text-slate-500">Counts show each lead&apos;s current disposition across all dates. They do not reset monthly. Follow-Up Work above is an untouched-work queue.</p></div>
+      <section aria-label="Lead counts by current status">
         <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8">{statusCards.map((card, index) => renderCard(card, index, true))}</div>
       </section>
       <section aria-label="Monthly appointment counts" className="space-y-2">
