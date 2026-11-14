@@ -5,7 +5,7 @@ import { DeletionReviewPanel } from "../deletion-review-panel";
 
 export default async function ClosedLeadReviewsPage() {
   const viewer = await getViewer();
-  if (!viewer.success || !["admin", "manager"].includes(viewer.data?.role ?? "")) redirect("/dashboard");
+  if (!viewer.success || !viewer.data || !["admin", "manager"].includes(viewer.data.role)) redirect("/dashboard");
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5">

@@ -3219,7 +3219,7 @@ export async function getLeadsForAssignmentBatch(batchId: string): Promise<Actio
   }
   try {
     const supabase = await createClient();
-    if (!isTeamLead(await getViewerRole(supabase))) {
+    if (!canManageAssignments(await getViewerRole(supabase))) {
       return { success: false, error: "Only admins and managers can export assignment batches (403 Forbidden)." };
     }
     const { data, error } = await supabase.from("leads").select("*")
@@ -3252,7 +3252,7 @@ export async function transferLeadAssignmentBatch(input: {
     if (!canManageAssignments(viewerRole)) return { success: false, error: "Only admins and managers can transfer assignment batches (403 Forbidden)." };
     const { data: profiles, error: profileError } = await supabase.from("profiles").select("name, role").eq("name", input.employeeName.trim());
     if (profileError) return { success: false, error: profileError.message };
-    const target = profiles?.find((profile) => profile.role === "employee" || isTeamLead(viewerRole));
+    const target = profiles?.find((profile) => profile.role === "employee" || canManageAssignments(viewerRole));
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
     const { data, error: transferError } = await supabase.rpc("crm_transfer_assignment_batch", {
       p_batch_id: input.batchId,
@@ -3290,7 +3290,7 @@ export async function addLeadsToAssignmentBatch(input: {
     if (targetNames.length === 0) return { success: false, error: "This batch has no active team members. Transfer the batch first." };
     const { data: profiles, error: profilesError } = await supabase.from("profiles").select("name, role").in("name", targetNames);
     if (profilesError) return { success: false, error: profilesError.message };
-    const validTargets = [...new Set((profiles ?? []).filter((profile) => isTeamLead(viewerRole) || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
+    const validTargets = [...new Set((profiles ?? []).filter((profile) => canManageAssignments(viewerRole) || profile.role === "employee").map((profile) => profile.name.trim()).filter(Boolean))];
     if (validTargets.length === 0) return { success: false, error: "The batch team is no longer available. Transfer the batch to an active employee first." };
     const assignments = ids.map((id, index) => ({ id, name: validTargets[index % validTargets.length] }));
     const { data, error } = await supabase.rpc("crm_add_leads_to_assignment_batch", {
@@ -3517,7 +3517,7 @@ export async function assignLeadsToEmployees(input: {
           profile.name.trim() !== "" &&
           profile.name.trim() !== "-" &&
           profile.name.trim() !== "Unassigned" &&
-          (isTeamLead(viewerRole) || profile.role === "employee"),
+          (canManageAssignments(viewerRole) || profile.role === "employee"),
         )
         .map((profile) => profile.name.trim()),
     );
@@ -3525,7 +3525,7 @@ export async function assignLeadsToEmployees(input: {
     if (targets.length !== employeeNames.length) {
       return {
         success: false,
-        error: isTeamLead(viewerRole)
+        error: canManageAssignments(viewerRole)
           ? "One or more selected team members are no longer available. Refresh and try again."
           : "Only employee accounts are available as assignees for managers. Refresh and try again.",
       };
@@ -3662,7 +3662,7 @@ export async function assignUnassignedLeads(
     if (profilesError) return { success: false, error: profilesError.message };
     const validNames = new Set(
       (profiles ?? [])
-        .filter((profile) => isTeamLead(viewerRole) || profile.role === "employee")
+        .filter((profile) => canManageAssignments(viewerRole) || profile.role === "employee")
         .map((profile) => (typeof profile.name === "string" ? profile.name.trim() : ""))
         .filter(Boolean),
     );
@@ -3749,7 +3749,7 @@ export async function updateLeadAssignment(
 
     const { data: targets, error: targetError } = await supabase.from("profiles").select("name, role").eq("name", targetName);
     if (targetError) return { success: false, error: targetError.message };
-    const target = targets?.find((profile) => isTeamLead(viewerRole) || profile.role === "employee");
+    const target = targets?.find((profile) => canManageAssignments(viewerRole) || profile.role === "employee");
     if (!target) return { success: false, error: "That team member is unavailable for assignment." };
     const { data, error } = await supabase.rpc("crm_update_lead_details_admin", {
       p_lead_id: leadId,
