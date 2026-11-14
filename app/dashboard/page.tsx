@@ -26,7 +26,6 @@ import { clinicDate } from "@/lib/attendance";
 import { isDailyWorkKind, isWorkDate, type DailyWorkKind } from "@/lib/daily-work";
 import { EMPTY_LEAD_FILTERS } from "./lead-filters";
 import { DashboardStats } from "./dashboard-stats";
-import { LostLeadReminderWidget } from "./lost-lead-reminder-widget";
 import { LeadRetentionWidget } from "./lead-retention-widget";
 
 const emptyTeam = { employees: [], unassigned: 0, total: 0, appointmentPeriod: { from: "", to: "" } };
@@ -132,7 +131,6 @@ export default async function DashboardPage({
 
     return (
       <div className="mx-auto w-full max-w-[1600px] space-y-6">
-        {isTeamLead && <LostLeadReminderWidget />}
         {isTeamLead && <LeadRetentionWidget />}
         <OverviewDashboard
           rows={rows}
