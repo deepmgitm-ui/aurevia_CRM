@@ -80,7 +80,7 @@ interface StatusChangeRow {
 
 function statusChangeMatchesAppointment(description: string, column: string | undefined): boolean {
   if (!column) return false;
-  const destination = description.slice(description.lastIndexOf("→") + 1).replace(/[.;\s]+$/g, "").trim();
+  const destination = description.slice(description.lastIndexOf("→") + 1).split(/[;.]/, 1)[0].trim();
   return appointmentForStatus(destination)?.column === column;
 }
 
