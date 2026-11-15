@@ -67,6 +67,7 @@ interface UndatedBookingLead {
   status: string;
   assigned_to: string | null;
   opd_booked_date: string | null;
+  opd_done_date: string | null;
   ipd_done_date: string | null;
   created_at: string;
 }
@@ -128,9 +129,9 @@ export async function getMonthDays(
     const undatedLeads: UndatedBookingLead[] = [];
     for (let offset = 0; ; offset += 500) {
       let q = supabase.from("leads")
-        .select("id,name,phone,status,assigned_to,opd_booked_date,ipd_done_date,created_at")
-        .in("status", ["OPD Booked", "Consultation Booked", "IPD Booked", "Surgery Scheduled"])
-        .or("opd_booked_date.is.null,opd_booked_date.eq.,opd_booked_date.eq.-,opd_booked_date.eq.--,ipd_done_date.is.null,ipd_done_date.eq.,ipd_done_date.eq.-,ipd_done_date.eq.--")
+        .select("id,name,phone,status,assigned_to,opd_booked_date,opd_done_date,ipd_done_date,created_at")
+        .in("status", ["OPD Booked", "Consultation Booked", "OPD Done", "Consultation Attended", "IPD Booked", "Surgery Scheduled", "IPD Done", "Surgery Completed"])
+        .or("opd_booked_date.is.null,opd_booked_date.eq.,opd_booked_date.eq.-,opd_booked_date.eq.--,opd_done_date.is.null,opd_done_date.eq.,opd_done_date.eq.-,opd_done_date.eq.--,ipd_done_date.is.null,ipd_done_date.eq.,ipd_done_date.eq.-,ipd_done_date.eq.--")
         .order("created_at", { ascending: false })
         .range(offset, offset + 499);
       if (viewerData.role === "employee") {
@@ -143,8 +144,8 @@ export async function getMonthDays(
     }
     const needsDate = undatedLeads.filter((lead) => {
       const field = appointmentForStatus(lead.status);
-      const date = field?.kind === "ipdDone" ? lead.ipd_done_date : lead.opd_booked_date;
-      return Boolean(field) && !normaliseAppointmentDate(date) && !currentAppointmentLeadIds.has(lead.id);
+      if (!field || currentAppointmentLeadIds.has(lead.id)) return false;
+      return !normaliseAppointmentDate(lead[field.column]);
     });
     const statusChanges = new Map<string, StatusChangeRow>();
     for (let offset = 0; offset < needsDate.length; offset += 100) {
@@ -154,7 +155,7 @@ export async function getMonthDays(
           .select("lead_id,user_id,created_at,description")
           .in("lead_id", leadIds)
           .eq("action_type", "Status changed")
-          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked,description.like.% → IPD Booked,description.like.% → Surgery Scheduled")
+          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked,description.like.% → OPD Done,description.like.% → Consultation Attended,description.like.% → IPD Booked,description.like.% → Surgery Scheduled,description.like.% → IPD Done,description.like.% → Surgery Completed")
           .order("created_at", { ascending: false })
           .range(rowOffset, rowOffset + 499);
         if (error) return { success: false, error: "OPD/IPD booking history could not be loaded. Please retry." };
@@ -202,22 +203,28 @@ export async function getMonthDays(
       const change = statusChanges.get(lead.id);
       const timestamp = change?.created_at ?? lead.created_at;
       const bookingDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(timestamp));
-      const isIpd = appointmentForStatus(lead.status)?.kind === "ipdDone";
+      const field = appointmentForStatus(lead.status)!;
+      const statusLabel = ({
+        "opd booked": "OPD Booked", "consultation booked": "OPD Booked",
+        "opd done": "OPD Done", "consultation attended": "OPD Done",
+        "ipd booked": "IPD Booked", "surgery scheduled": "IPD Booked",
+        "ipd done": "IPD Done", "surgery completed": "IPD Done",
+      } as Record<string, string>)[lead.status.trim().toLowerCase()] ?? lead.status;
       return {
         appointmentId: null,
         leadId: lead.id,
         leadName: lead.name,
         phone: lead.phone || "-",
         leadStatus: lead.status,
-        kind: isIpd ? "ipdDone" : "opdBooked",
-        kindLabel: `${isIpd ? "IPD" : "OPD"} Booked · date needed`,
+        kind: field.kind,
+        kindLabel: `${statusLabel} · date needed`,
         date: bookingDate,
         dateSource: change ? "status-change" : "record-created",
         past: bookingDate < today,
         agent: lead.assigned_to || "-",
         bookedBy: viewerData.role === "admin" || viewerData.role === "manager" ? actorNames.get(change?.user_id ?? "") || null : null,
         completedBy: null,
-        appointmentStatus: "booked",
+        appointmentStatus: field.kind === "opdDone" || lead.status.trim().toLowerCase() === "ipd done" || lead.status.trim().toLowerCase() === "surgery completed" ? "completed" : "booked",
         time: "",
         notes: "",
         updatedAt: timestamp,

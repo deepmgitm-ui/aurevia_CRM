@@ -34,7 +34,7 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
     (!query || `${item.leadName} ${item.phone} ${item.agent}`.toLowerCase().includes(query)),
   );
   const filteredUndated = view === "upcoming" ? undatedItems.filter((item) =>
-    (appointmentStatus === "all" || appointmentStatus === "booked") &&
+    (appointmentStatus === "all" || item.appointmentStatus === appointmentStatus) &&
     (period === "all" || (period === "today" ? item.date === todayIso : item.date >= undatedWeekStart.toISOString().slice(0, 10) && item.date <= todayIso)) &&
     (kind === "all" || (kind === "ipd" ? item.kind === "ipdDone" : item.kind !== "ipdDone")) &&
     (!query || `${item.leadName} ${item.phone} ${item.agent} ${item.bookedBy ?? ""}`.toLowerCase().includes(query)),
@@ -74,10 +74,10 @@ export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso,
           </ul>
         </>}
         {filtered.length > limit && <Button variant="outline" className="mt-4 w-full" onClick={() => setLimit((current) => current + 12)}>Show more appointments ({filtered.length - limit} remaining)</Button>}
-        {filteredUndated.length > 0 && <section aria-label="OPD and IPD bookings without an appointment date" className="mt-5 border-t border-slate-200 pt-4">
+        {filteredUndated.length > 0 && <section aria-label="OPD and IPD status updates without an appointment date" className="mt-5 border-t border-slate-200 pt-4">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h3 className="text-sm font-semibold text-slate-800">OPD/IPD booked · appointment date needed <span className="font-medium text-slate-500">({filteredUndated.length})</span></h3>
-            <p className="text-xs text-slate-500">Booking status update date and agent are shown.</p>
+            <h3 className="text-sm font-semibold text-slate-800">OPD/IPD · appointment date needed <span className="font-medium text-slate-500">({filteredUndated.length})</span></h3>
+            <p className="text-xs text-slate-500">Status update date and agent are shown.</p>
           </div>
           <ul className="divide-y divide-amber-100 rounded-lg border border-amber-200 bg-amber-50/40">{filteredUndated.slice(0, limit).map((item) => <AppointmentCard key={item.leadId} item={item} todayIso={todayIso} canEdit={canEdit} showAttribution={showAttribution} agents={agents} compact />)}</ul>
           {filteredUndated.length > limit && <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setLimit((current) => current + 12)}>Show more date-needed bookings ({filteredUndated.length - limit} remaining)</Button>}
@@ -115,7 +115,7 @@ function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents, com
         {item.phone !== "-" && <PhonePreview value={item.phone} className="text-xs text-slate-600" />}
       </p>
     </div>
-    {canEdit && <div className="shrink-0"><AppointmentEditor agents={agents} defaultDate={todayIso} leadId={item.leadId} defaultKind={item.kind} label="Set date" /></div>}
+    {canEdit && <div className="shrink-0"><AppointmentEditor agents={agents} defaultDate={todayIso} leadId={item.leadId} defaultKind={item.kind} status={item.appointmentStatus} label="Set date" /></div>}
   </li>;
   return <li className="rounded-xl border border-slate-200 p-4">
     <div className="flex items-start justify-between gap-3">

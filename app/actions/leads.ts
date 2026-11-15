@@ -556,8 +556,10 @@ function applyLeadFilters<Q extends LeadFilterQuery<Q>>(query: Q, resolved: Reso
     filtered = applyUntouchedNewLeadFilter(filtered);
   } else if (resolved.bucket === "fresh") {
     filtered = applyDailyFreshLeadFilter(filtered);
+  } else if (resolved.bucket === "lost") {
+    filtered = filtered.eq("workflow_bucket", "closed").in("status", ["Dropped", "Lost", "Not Interested"]);
   } else if (resolved.bucket) {
-    filtered = filtered.eq("workflow_bucket", resolved.bucket === "lost" ? "closed" : resolved.bucket);
+    filtered = filtered.eq("workflow_bucket", resolved.bucket);
     if (resolved.bucket === "followup") {
       // Follow-up Work is the continuation queue: touched New leads and
       // explicit Follow-Up statuses belong here, while DNP/RNR/CallBack and
