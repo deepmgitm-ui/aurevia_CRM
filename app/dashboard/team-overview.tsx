@@ -25,7 +25,7 @@ function StatChip({ label, value, className, href, name, countLabel = "leads", r
 const PERMANENT_STATUSES = [
   "DNP", "DNP2", "DNP3", "RNR", "Not Interested", "Didn't Enquired",
   "Budget Issue", "Location Issue", "Language Issue", "Non Surgical",
-  "Dropped", "Invalid Number", "CallBack", "Wrong Number", "Follow-Up",
+  "Lost", "Invalid Number", "CallBack", "Wrong Number", "Follow-Up",
 ] as const;
 
 function appointmentPeriodLabel(period: { from: string; to: string }): string {
@@ -97,7 +97,7 @@ export function TeamOverview({
                       name={employee.name}
                       href={leadsHref({ assigned: employee.name, status })}
                       label={status}
-                      value={employee.statuses[status] ?? 0}
+                      value={status === "Lost" ? employee.statuses.Dropped ?? employee.statuses.Lost ?? 0 : employee.statuses[status] ?? 0}
                       className="bg-blue-50 text-blue-800"
                     />
                   ))}

@@ -525,7 +525,7 @@ export function AgentSection({
                   <p className="text-sm font-semibold text-slate-800">{formatNumber(selected.stats.leads)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">Lost/Dropped</p>
+                  <p className="text-xs text-slate-500">Lost</p>
                   <p className="text-sm font-semibold text-slate-800">{formatNumber(selected.stats.lost)}</p>
                 </div>
                 <div>

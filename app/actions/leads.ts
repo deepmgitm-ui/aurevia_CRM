@@ -1079,7 +1079,7 @@ const BOARD_CARD_COLUMNS =
 
 const BOARD_COLUMNS: { key: StageKey; label: string }[] = [
   ...PIPELINE_STAGES,
-  { key: "lost", label: "Lost / Dropped" },
+  { key: "lost", label: "Lost" },
 ];
 
 /**

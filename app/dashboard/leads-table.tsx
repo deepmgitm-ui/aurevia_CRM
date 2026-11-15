@@ -70,7 +70,7 @@ import {
   normaliseAppointmentDate,
 } from "@/lib/appointments";
 import { seedMasterData, type MasterDataSnapshot } from "@/lib/master-data";
-import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
+import { LEAD_STATUS_OPTIONS, canonicalLeadStatus, leadStatusLabel } from "@/lib/lead-status";
 import { getMasterData } from "@/app/actions/master-data";
 import { downloadLeadJsonBackup } from "@/lib/lead-json-backup";
 import { Button } from "@/components/ui/button";
@@ -1385,7 +1385,7 @@ export function LeadsTable({
         if (response.warning) toast.add({ title: "Status saved with a timeline warning", description: response.warning, type: "error" });
         toast.add({
           title: `Status changed for ${response.data.name || lead.name || "patient"}`,
-          description: `${response.data.phone || lead.phone || "No phone"} · ${lead.status || "—"} → ${response.data.status || status}`,
+          description: `${response.data.phone || lead.phone || "No phone"} · ${leadStatusLabel(lead.status) || "—"} → ${leadStatusLabel(response.data.status || status)}`,
           type: "success",
         });
         await fetchPage(page);
@@ -2800,7 +2800,7 @@ export function LeadsTable({
                 <TableRow key={lead.id} className={lead.id === initialFocusedLead?.id ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : assignmentBatchRowClass(lead.assignment_batch_id) || (isNew ? "bg-blue-50/50" : undefined)}>
                   <TableCell className="py-3 font-mono text-xs tabular-nums text-slate-500">{lead.lead_sequence_id == null ? "—" : `#${lead.lead_sequence_id.toLocaleString("en-IN")}`}</TableCell>
                   {canDelete && <TableCell className="w-10 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selectedLeads.includes(lead.id)} onChange={(event) => toggleLeadSelection(lead.id, event.target.checked)} /></TableCell>}
-                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatus}</Badge>{originalSourceStatus && <p className="mt-1 max-w-full break-words whitespace-normal text-[11px] text-slate-500">Source status: {originalSourceStatus}</p>}{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
+                  <TableCell className="w-[250px] max-w-[250px] py-3"><div className="flex items-center gap-1.5"><button type="button" className="min-w-0 flex-1 truncate text-left font-semibold text-slate-900 hover:underline" onClick={() => handleViewLead(lead)}>{lead.name}</button><button type="button" aria-label={`Edit ${lead.name}`} title="Edit lead" className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" onClick={() => handleEditLead(lead)}><Pencil className="size-3.5" aria-hidden="true" /></button></div><Badge className={`mt-1 w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}>{workflowLabel === "New" || workflowLabel === "Fresh" || workflowLabel === "Follow-up" ? workflowLabel : leadStatusLabel(leadStatus)}</Badge>{originalSourceStatus && <p className="mt-1 max-w-full break-words whitespace-normal text-[11px] text-slate-500">Source status: {leadStatusLabel(originalSourceStatus)}</p>}{lead.had_previous_assignment && <Badge className="ml-1 mt-1 w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">Previous history</Badge>}<p className="max-w-full break-words whitespace-normal text-xs text-muted-foreground">{lead.email}</p>{canSeeSource && <Badge className={`mt-1 ${sourceBadgeClass(lead.source)}`}>{lead.source}</Badge>}</TableCell>
                   <TableCell className="min-w-[130px]">
                     <span className="font-medium tabular-nums">
                       <PhonePreview value={lead.phone} className="text-sm text-slate-700" />
@@ -2854,11 +2854,11 @@ export function LeadsTable({
                     <div className="space-y-1.5">
                       <Select value={canonicalLeadStatus(lead.status)} onValueChange={(value) => handleStatusChange(lead, value)} disabled={savingLeadIds.has(lead.id)}>
                         <SelectTrigger size="sm" aria-label={`Status for ${lead.name}`} className="w-full max-w-[170px]"><SelectValue /></SelectTrigger>
-                        <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+                        <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{leadStatusLabel(status)}</SelectItem>)}</SelectContent>
                       </Select>
                       {lead.intake_status && (
                         <p className="max-w-[170px] text-[10px] leading-tight text-slate-500">
-                          At intake: {lead.intake_status}
+                          At intake: {leadStatusLabel(lead.intake_status)}
                         </p>
                       )}
                       {savingLeadIds.has(lead.id) && (
@@ -2961,7 +2961,7 @@ export function LeadsTable({
               <div className="space-y-2"><Label htmlFor="lead-disease">Disease</Label><Input id="lead-disease" name="disease" /></div>
               <div className="space-y-2"><Label htmlFor="lead-insurance-status">Insurance Status</Label><Input id="lead-insurance-status" name="insurance_status" /></div>
             </div>
-            <div className="space-y-2"><Label htmlFor="lead-status">Current status</Label><Select name="status" defaultValue="New"><SelectTrigger id="lead-status"><SelectValue /></SelectTrigger><SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">The selected status is saved as entered. The lead stays Fresh until someone opens it or records work.</p></div>
+            <div className="space-y-2"><Label htmlFor="lead-status">Current status</Label><Select name="status" defaultValue="New"><SelectTrigger id="lead-status"><SelectValue /></SelectTrigger><SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{leadStatusLabel(status)}</SelectItem>)}</SelectContent></Select><p className="text-xs text-slate-500">The selected status is saved as entered. The lead stays Fresh until someone opens it or records work.</p></div>
             <div className="space-y-2"><Label htmlFor="lead-remarks">Remarks</Label><Textarea id="lead-remarks" name="remarks" rows={3} /></div>
             <div className="space-y-2"><Label htmlFor="lead-follow-up-date">Next Follow-Up Date</Label><Input id="lead-follow-up-date" name="follow_up_date" type="date" className="w-full cursor-pointer" onClick={(event) => event.currentTarget.showPicker?.()} /></div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsAddLeadOpen(false)}>Cancel</Button><Button type="submit" disabled={isCreatingLead}>{isCreatingLead ? "Adding…" : "Add Lead"}</Button></DialogFooter>
@@ -3118,7 +3118,7 @@ export function LeadsTable({
                     <SelectTrigger id="assign-status" className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger>
                     <SelectContent className="max-h-72 overflow-y-auto">
                       <SelectItem value="all">All statuses</SelectItem>
-                      {statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}
+                      {statuses.map((status) => <SelectItem key={status} value={status}>{leadStatusLabel(status)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -3833,10 +3833,10 @@ export function LeadsTable({
             <div className="space-y-1"><Label htmlFor="full-edit-status">Status</Label>
               <Select value={canonicalLeadStatus(editForm.status)} onValueChange={(value) => setEditForm((current) => ({ ...current, status: String(value ?? "") }))}>
                 <SelectTrigger id="full-edit-status"><SelectValue /></SelectTrigger>
-                <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">{statuses.map((status) => <SelectItem key={status} value={status}>{leadStatusLabel(status)}</SelectItem>)}</SelectContent>
               </Select>
               {editingLead?.intake_status && (
-                <p className="text-[11px] text-slate-500">At intake: {editingLead.intake_status}</p>
+                <p className="text-[11px] text-slate-500">At intake: {leadStatusLabel(editingLead.intake_status)}</p>
               )}
             </div>
             <div className="sm:col-span-2 space-y-1"><Label htmlFor="full-edit-remarks">Remarks</Label><Textarea id="full-edit-remarks" rows={3} value={editForm.remarks} onChange={(event) => setEditForm((current) => ({ ...current, remarks: event.target.value }))} /></div>
@@ -3878,7 +3878,7 @@ export function LeadsTable({
                   </Button>
                   <span className="text-xs text-slate-400">Patient details and remarks can be edited on your assigned leads.</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">Current: {selectedLead.status}</span>{selectedLead.intake_status && <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-800 ring-1 ring-blue-200">At intake: {selectedLead.intake_status}</span>}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:col-span-2"><span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">Current: {leadStatusLabel(selectedLead.status)}</span>{selectedLead.intake_status && <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-800 ring-1 ring-blue-200">At intake: {leadStatusLabel(selectedLead.intake_status)}</span>}</div>
                 <div className="sm:col-span-2">{renderAppointmentDateInput(selectedLead)}</div>
                 <div className="sm:col-span-2"><Label htmlFor="drawer-follow-up-date">Next Follow-Up Date</Label><Input id="drawer-follow-up-date" type="date" className="w-full cursor-pointer" disabled={savingLeadIds.has(selectedLead.id)} onClick={(event) => event.currentTarget.showPicker?.()} value={toInputDateValue(selectedLead.follow_up_date)} onChange={(event) => void handleFollowUpChange(selectedLead, event.target.value)} /></div>
               </section>

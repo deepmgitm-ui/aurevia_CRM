@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { logLeadCall, type Lead } from "@/app/actions/leads";
 import { trackLeadMutations } from "./lead-mutation-tracker";
 import { CALL_OUTCOMES } from "@/lib/calls";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -93,7 +94,7 @@ export function CallingWorkspace({ leads }: { leads: Lead[] }) {
           </DialogHeader>
           <h3 className="text-lg font-semibold">{lead.name}</h3>
           <p className="text-sm text-slate-500">
-            {lead.status} · {lead.assigned_to}
+            {leadStatusLabel(lead.status)} · {lead.assigned_to}
           </p>
           {lead.phone && lead.phone !== "-" && (
             <a

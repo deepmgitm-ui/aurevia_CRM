@@ -70,6 +70,12 @@ export function canonicalLeadStatus(value: string | null | undefined): string {
   return match ?? STATUS_ALIASES[raw.toLowerCase()] ?? raw;
 }
 
+/** The retired Dropped value is kept for existing records, but shown as Lost. */
+export function leadStatusLabel(value: string | null | undefined): string {
+  const raw = String(value ?? "").trim();
+  return /^(dropped|lost)$/i.test(raw) ? "Lost" : raw;
+}
+
 export function isLeadStatusOption(value: string | null | undefined): boolean {
   const canonical = canonicalLeadStatus(value);
   return LEAD_STATUS_OPTIONS.some((option) => option === canonical);

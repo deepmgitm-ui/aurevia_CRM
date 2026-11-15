@@ -1,6 +1,7 @@
 import { AlertTriangle, Archive, Clock3, Download } from "lucide-react";
 
 import { getLeadRetentionDashboardData } from "@/app/actions/lead-retention";
+import { leadStatusLabel } from "@/lib/lead-status";
 
 const clinicDateTime = new Intl.DateTimeFormat("en-IN", {
   dateStyle: "medium",
@@ -39,7 +40,7 @@ export async function LeadRetentionWidget() {
                   <div className="min-w-0">
                     <p className="break-words font-medium text-slate-950">{lead.lead_name}</p>
                     <p className="mt-1 text-xs text-slate-600">
-                      {lead.lead_phone || "No phone"} � {lead.lead_status} � {lead.assigned_to.trim() || "Unassigned"}
+                      {lead.lead_phone || "No phone"} � {leadStatusLabel(lead.lead_status)} � {lead.assigned_to.trim() || "Unassigned"}
                     </p>
                   </div>
                   <p className="inline-flex items-center gap-1 text-xs font-medium text-amber-900">

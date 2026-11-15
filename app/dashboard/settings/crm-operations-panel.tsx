@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PhonePreview } from "../phone-preview";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { estimateCapacityYears } from "@/lib/capacity-estimate";
 interface Capacity {
   databaseBytes: number;
@@ -333,7 +334,7 @@ function DuplicateReview({
             >
               {group.leads.map((lead) => (
                 <option key={lead.id} value={lead.id}>
-                  {lead.name} · {lead.status} · {lead.assignedTo}
+                  {lead.name} · {leadStatusLabel(lead.status)} · {lead.assignedTo}
                 </option>
               ))}
             </select>

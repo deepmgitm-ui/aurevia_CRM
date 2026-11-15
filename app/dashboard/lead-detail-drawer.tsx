@@ -32,7 +32,7 @@ import { toast } from "@/components/ui/toast";
 
 import { CALL_OUTCOMES } from "@/lib/calls";
 import { relativeLeadAge } from "./lead-filters";
-import { LEAD_STATUS_OPTIONS, canonicalLeadStatus } from "@/lib/lead-status";
+import { LEAD_STATUS_OPTIONS, canonicalLeadStatus, leadStatusLabel } from "@/lib/lead-status";
 import { appointmentForStatus, normaliseAppointmentDate } from "@/lib/appointments";
 import { AppointmentDatePicker } from "./calendar/appointment-date-picker";
 
@@ -555,7 +555,7 @@ export function LeadDetailDrawer({
                       <SelectContent className="max-h-72 overflow-y-auto">
                         {LEAD_STATUS_OPTIONS.map((option) => (
                           <SelectItem key={option} value={option}>
-                            {option}
+                            {leadStatusLabel(option)}
                           </SelectItem>
                         ))}
                       </SelectContent>

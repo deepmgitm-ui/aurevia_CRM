@@ -101,7 +101,7 @@ export function detectTreatmentName(text: string): string {
   return "";
 }
 
-/** The five pipeline stages (Lost/Dropped is tracked but never part of the funnel). */
+/** The five pipeline stages (Lost is tracked but never part of the funnel). */
 const PIPELINE_STAGE_KEYS = new Set<StageKey>(
   PIPELINE_STAGES.map((stage) => stage.key),
 );
@@ -459,7 +459,7 @@ export const STAGE_TARGET_STATUS: Record<StageKey, string> = {
 
 // Maps any free-text status the CRM stores ("New", "Contacted", "OPD Booked",
 // "OPD Done", "IPD Done", "Won", "Lost", "Dropped", custom text, ...) onto the
-// five reporting stages plus the Lost/Dropped bucket.
+// five reporting stages plus the Lost bucket.
 export function stageForStatus(status: string): StageKey {
   const value = (status ?? "").trim().toLowerCase();
   if (!value) return "new";
@@ -927,7 +927,7 @@ export function buildDashboardMetrics(
     },
     {
       key: "lostLeads",
-      label: "Lost/Dropped Leads",
+      label: "Lost Leads",
       value: formatNumber(lostLeads),
       delta: percentDelta(currentPoint?.lost ?? 0, previousPoint?.lost ?? 0),
     },
@@ -1013,7 +1013,7 @@ export function createSampleMetrics(range: DateRange): DashboardMetrics {
       { key: "totalLeads", label: "Total Leads", value: "1,248", delta: "+28.4%" },
       { key: "consultationsBooked", label: "Consultations Booked", value: "842", delta: "+22.1%" },
       { key: "surgeriesCompleted", label: "Surgeries Completed", value: "312", delta: "+18.7%" },
-      { key: "lostLeads", label: "Lost/Dropped Leads", value: "112", delta: "+4.8%" },
+      { key: "lostLeads", label: "Lost Leads", value: "112", delta: "+4.8%" },
       { key: "conversionRate", label: "Conversion Rate", value: "25.0%", delta: "+6.2%" },
       { key: "activeAgents", label: "Active Agents", value: "48", delta: "+20.0%" },
     ],

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AlertCircle, ArrowRight, Clock3 } from "lucide-react";
 
 import { getLostLeadReminderItems } from "@/app/actions/deletion-reviews";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { DeletionReviewDeleteButton } from "./deletion-review-delete-button";
 
 const clinicDateTime = new Intl.DateTimeFormat("en-IN", {
@@ -42,7 +43,7 @@ export async function LostLeadReminderWidget() {
               <div className="min-w-0">
                 <p className="break-words font-medium text-slate-950">{item.leadName}</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  {item.phone || "No phone"} · {item.status} · Assigned to {item.assignedTo}
+                  {item.phone || "No phone"} · {leadStatusLabel(item.status)} · Assigned to {item.assignedTo}
                 </p>
                 <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-500">
                   <Clock3 className="size-3.5" aria-hidden="true" /> Closed {clinicDateTime.format(new Date(item.closedSince))}

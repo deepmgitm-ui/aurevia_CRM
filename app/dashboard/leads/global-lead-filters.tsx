@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { LEAD_STATUS_OPTIONS } from "@/lib/lead-status";
+import { LEAD_STATUS_OPTIONS, leadStatusLabel } from "@/lib/lead-status";
 import type { LeadListFilters } from "../lead-filters";
 
 const BUCKET_OPTIONS = [
@@ -74,7 +74,7 @@ export function GlobalLeadFilters({
           Disposition
           <select className={fieldClassName()} name="status" defaultValue={filters.status}>
             <option value="">All dispositions</option>
-            {dispositionOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            {dispositionOptions.map((status) => <option key={status} value={status}>{leadStatusLabel(status)}</option>)}
           </select>
         </label>
         <label className="text-xs font-medium text-slate-700">

@@ -12,6 +12,7 @@ import Link from "next/link";
 import { ArrowUpRight, Loader2, Users } from "lucide-react";
 
 import { getLeadsPage, type Lead } from "@/app/actions/leads";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { LeadDetailDrawer } from "../lead-detail-drawer";
@@ -118,7 +119,7 @@ export function PipelineDetail({
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-slate-900">{patient.name}</span>
                       <span className="block text-xs text-slate-500">
-                        {patient.city} · {patient.status}
+                        {patient.city} · {leadStatusLabel(patient.status)}
                       </span>
                     </span>
                   </button>

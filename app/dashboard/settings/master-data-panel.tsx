@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { leadStatusLabel } from "@/lib/lead-status";
 import {
   MASTER_DATA_LISTS,
   type MasterDataListKey,
@@ -45,7 +46,7 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
   const [snapshot, setSnapshot] = useState<MasterDataSnapshot>(initial);
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      MASTER_DATA_LISTS.map((key) => [key, (initial.lists[key] ?? []).join("\n")]),
+      MASTER_DATA_LISTS.map((key) => [key, (key === "statuses" ? [...new Set((initial.lists[key] ?? []).map(leadStatusLabel))] : initial.lists[key] ?? []).join("\n")]),
     ),
   );
   const [savingKey, setSavingKey] = useState<MasterDataListKey | null>(null);
@@ -107,7 +108,7 @@ export function MasterDataPanel({ initial }: { initial: MasterDataSnapshot }) {
         <div className="grid gap-5 md:grid-cols-2">
           {MASTER_DATA_LISTS.map((key) => {
             const meta = LIST_META[key];
-            const values = snapshot.lists[key] ?? [];
+            const values = key === "statuses" ? [...new Set((snapshot.lists[key] ?? []).map(leadStatusLabel))] : snapshot.lists[key] ?? [];
             return (
               <div key={key} className="space-y-2">
                 <div className="flex items-baseline justify-between gap-2">

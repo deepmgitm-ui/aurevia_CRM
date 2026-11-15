@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CALENDAR_ENTRY_TYPES, shouldSyncLeadStatus, type CalendarEntryKind } from "@/lib/calendar-entry";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { getCalendarEditorLead, saveCalendarEntry, searchCalendarLeads, type CalendarEditorLead } from "./entry-actions";
 import { PhonePreview } from "../phone-preview";
 
@@ -102,12 +103,12 @@ function EditorForm({ defaultDate, defaultKind = "opdBooked", leadId, agents, ap
           <Button type="submit" variant="outline" disabled={loading}>Search</Button>
         </form>
         {searched && results.length === 0 && <p className="text-sm text-slate-500">No patients found. Search another name or add a new patient.</p>}
-        <ul className="max-h-48 space-y-2 overflow-y-auto">{results.map((patient) => <li key={patient.id}><div className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50"><button type="button" onClick={() => { setSelected(patient); setError(""); }} className="block w-full text-left"><span className="block text-sm font-semibold">{patient.name}</span><span className="text-xs text-slate-500">{patient.status} · {patient.assigned_to || "Unassigned"}</span></button><PhonePreview value={displayValue(patient.phone)} className="mt-1 text-xs text-slate-600" /></div></li>)}</ul>
+        <ul className="max-h-48 space-y-2 overflow-y-auto">{results.map((patient) => <li key={patient.id}><div className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50"><button type="button" onClick={() => { setSelected(patient); setError(""); }} className="block w-full text-left"><span className="block text-sm font-semibold">{patient.name}</span><span className="text-xs text-slate-500">{leadStatusLabel(patient.status)} · {patient.assigned_to || "Unassigned"}</span></button><PhonePreview value={displayValue(patient.phone)} className="mt-1 text-xs text-slate-600" /></div></li>)}</ul>
         {results.length === 20 && <p className="text-xs text-slate-500">Showing the first 20 matches. Search a more specific name or phone.</p>}
       </>}
       {(mode === "new" || selected) && !loading && <form key={mode === "new" ? "new" : selected?.id} onSubmit={save} className="space-y-4">
         <fieldset disabled={saving} className="space-y-4">
-          {mode === "existing" && selected && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p>Current status: <strong>{selected.status}</strong> · Agent: {selected.assigned_to || "Unassigned"}</p><p className="mt-1">Current {CALENDAR_ENTRY_TYPES[kind].label} date: {selected[CALENDAR_ENTRY_TYPES[kind].column] || "Not set"}</p><button type="button" disabled={Boolean(appointmentId)} className="mt-2 font-semibold text-blue-700 disabled:hidden" onClick={() => { setSelected(null); setResults([]); setSearched(false); setError(""); }}>Choose / reload patient</button></div>}
+          {mode === "existing" && selected && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p>Current status: <strong>{leadStatusLabel(selected.status)}</strong> · Agent: {selected.assigned_to || "Unassigned"}</p><p className="mt-1">Current {CALENDAR_ENTRY_TYPES[kind].label} date: {selected[CALENDAR_ENTRY_TYPES[kind].column] || "Not set"}</p><button type="button" disabled={Boolean(appointmentId)} className="mt-2 font-semibold text-blue-700 disabled:hidden" onClick={() => { setSelected(null); setResults([]); setSearched(false); setError(""); }}>Choose / reload patient</button></div>}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-slate-600">Patient name<input name="name" required maxLength={200} defaultValue={mode === "existing" ? selected?.name : ""} className={inputClass} /></label>
             <label className="text-xs font-medium text-slate-600">Phone<input name="phone" type="tel" maxLength={30} defaultValue={mode === "existing" ? displayValue(selected?.phone) : ""} className={inputClass} /></label>

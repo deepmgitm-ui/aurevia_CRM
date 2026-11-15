@@ -6,6 +6,7 @@ import { ArrowRight, LoaderCircle, Search, UserRound } from "lucide-react";
 
 import { searchLeadsForGlobalSearch, type GlobalLeadSearchResult } from "@/app/actions/leads";
 import { getDashboardDestinations, type DashboardRole } from "@/lib/dashboard-navigation";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -124,7 +125,7 @@ export function GlobalSearch({ role }: { role: DashboardRole }) {
                         <span className="block truncate text-sm font-semibold text-slate-800">{lead.name}</span>
                         <span className="block truncate text-xs text-slate-500">{[lead.city, lead.disease].filter((value) => value && value !== "-").join(" · ")}</span>
                       </span>
-                      <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{lead.status}</span>
+                      <span className="hidden rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:inline-flex">{leadStatusLabel(lead.status)}</span>
                       <ArrowRight className="size-4 text-slate-300 group-hover:text-blue-700" aria-hidden="true" />
                     </Link>
                     <PhonePreview value={lead.phone} className="text-xs text-slate-500" />

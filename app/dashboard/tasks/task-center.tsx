@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { PhonePreview } from "../phone-preview";
 
 export type TaskLead = {
@@ -338,7 +339,7 @@ export function TaskCenter({ leads: initialLeads, initialPage }: { leads: TaskLe
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <div className="font-medium text-slate-700">{lead.status}</div>
+                      <div className="font-medium text-slate-700">{leadStatusLabel(lead.status)}</div>
                     </td>
                     <td className="px-4 py-3 align-top text-slate-600">{lead.assigned_to || "-"}</td>
                     <td className="px-4 py-3 align-top">

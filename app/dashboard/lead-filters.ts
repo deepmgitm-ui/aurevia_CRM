@@ -6,6 +6,7 @@ import {
   type StageKey,
 } from "./overview/analytics.ts";
 import { DAILY_WORK_LABELS, isDailyWorkKind, isWorkDate, type DailyWorkKind } from "../../lib/daily-work.ts";
+import { leadStatusLabel } from "../../lib/lead-status.ts";
 
 // ---------------------------------------------------------------------------
 // Aurevia CRM — Lead list filters + age buckets.
@@ -397,12 +398,12 @@ export function leadsHref(filters: Partial<LeadListFilters>): string {
 // Stage + treatment labels (so a chip reads "Surgery Completed", not "surgery")
 // ---------------------------------------------------------------------------
 
-/** Every stage a drill-down can target — the five funnel stages plus Lost/Dropped. */
+/** Every stage a drill-down can target — the five funnel stages plus Lost. */
 export const STAGE_KEYS: readonly StageKey[] = [...PIPELINE_STAGES.map((stage) => stage.key), "lost"];
 
 const STAGE_LABELS: Record<string, string> = {
   ...Object.fromEntries(PIPELINE_STAGES.map((stage) => [stage.key, stage.label])),
-  lost: "Lost / Dropped",
+  lost: "Lost",
 };
 
 /** Splits `?stage=booked,attended,surgery` into the valid keys only. */
@@ -443,7 +444,7 @@ export function describeActiveFilters(filters: LeadListFilters): string[] {
     chips.push(filters.assignmentStatus === "unassigned" ? "Unassigned leads" : "Assigned leads");
   }
   if (filters.assignmentBatchId) chips.push(`Assignment batch · ${filters.assignmentBatchId.slice(0, 8)}`);
-  if (filters.status) chips.push(filters.status);
+  if (filters.status) chips.push(leadStatusLabel(filters.status));
   if (filters.appointment && filters.appointmentMonth) {
     const label = filters.appointment === "opdBooked" ? "OPD Booked"
       : filters.appointment === "opdDone" ? "OPD Done"

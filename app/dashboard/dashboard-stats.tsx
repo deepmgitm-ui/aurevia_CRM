@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
 import { leadsHref } from "./lead-filters";
-import { LEAD_STATUS_OPTIONS } from "@/lib/lead-status";
+import { LEAD_STATUS_OPTIONS, leadStatusLabel } from "@/lib/lead-status";
 
 export interface LeadPipelineCardsSummary {
   total: number;
@@ -76,7 +76,7 @@ export function DashboardStats({
   // New and Fresh share the stored untouched bucket; their displayed counts
   // split at India midnight, so Fresh resets every clinic day.
   const statusCards = LEAD_STATUS_OPTIONS.filter((status) => status !== "New" && !MONTHLY_APPOINTMENT_STATUSES.has(status)).map((status) => ({
-    label: status === "Dropped" ? "Lost" : status === "IPD Done" ? "Converted / Won" : status,
+    label: status === "IPD Done" ? "Converted / Won" : leadStatusLabel(status),
     detail: status === "Follow-Up" ? "Contacted leads scheduled for a specific callback date."
       : status === "DNP" || status.startsWith("DNP") ? "Attempted calls with no response. Needs retry."
       : status === "Dropped" ? "Uninterested or disqualified leads. Pending review/deletion."

@@ -6,7 +6,7 @@
 //
 // KEEP THESE IN SYNC: STAGE_TARGET_STATUS in
 // app/dashboard/overview/analytics.ts uses the canonical stage statuses below.
-import { LEAD_STATUS_OPTIONS } from "./lead-status.ts";
+import { LEAD_STATUS_OPTIONS, leadStatusLabel } from "./lead-status.ts";
 
 export const MASTER_DATA_LISTS = ["statuses", "treatments", "sources", "cities"] as const;
 
@@ -14,7 +14,7 @@ export type MasterDataListKey = (typeof MASTER_DATA_LISTS)[number];
 
 /** Seeded values for a brand-new project (or when the table cannot be read). */
 export const MASTER_DATA_SEED: Record<MasterDataListKey, string[]> = {
-  statuses: [...LEAD_STATUS_OPTIONS],
+  statuses: LEAD_STATUS_OPTIONS.map(leadStatusLabel),
   treatments: ["LASIK", "Cataract", "ICL", "Retina", "Spectacles", "Other"],
   sources: ["Meta Ads", "Online Enquiry", "Agent Referral", "Doctor Referral", "Walk-in", "Corporate Tie-up", "Social Media", "Manual", "Excel/CSV"],
   cities: ["Mumbai", "Pune", "Delhi", "Nagpur", "Thane", "Nashik"],

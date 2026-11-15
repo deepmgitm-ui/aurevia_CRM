@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getViewer } from "@/app/actions/leads";
 import { createClient } from "@/lib/supabase/server";
 import { isWorkDate } from "@/lib/daily-work";
+import { leadStatusLabel } from "@/lib/lead-status";
 import { buildMonthCells } from "../calendar/month-grid";
 
 type FollowUp = { id: string; name: string; status: string; follow_up_day: string };
@@ -51,7 +52,7 @@ export default async function FollowUpCalendar({ searchParams }: {
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-500">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <span key={day} className="py-2">{day}</span>)}</div>
           <div className="grid grid-cols-7 gap-1">{cells.map((cell) => <Link key={cell.iso} href={`?month=${cell.iso.slice(0, 7)}&date=${cell.iso}`} aria-label={`${cell.iso}: ${counts.get(cell.iso) ?? 0} follow-ups`} aria-current={cell.iso === selected ? "date" : undefined} className={`min-h-16 rounded-lg border p-2 text-sm ${cell.iso === selected ? "border-blue-600 bg-blue-50" : "border-slate-100"} ${cell.isCurrentMonth ? "text-slate-800" : "text-slate-400"}`}><span>{cell.day}</span>{Boolean(counts.get(cell.iso)) && <span className="mt-1 block text-xs font-semibold text-blue-700">{counts.get(cell.iso)}</span>}</Link>)}</div>
         </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-4"><h2 className="font-semibold">{selected}</h2>{dayLeads.length === 0 ? <p className="mt-3 text-sm text-slate-500">No follow-ups scheduled for this day.</p> : <ul className="mt-3 space-y-2">{dayLeads.map((lead) => <li key={lead.id} className="rounded-lg bg-slate-50 p-3"><p className="font-medium text-slate-900">{lead.name}</p><p className="text-xs text-slate-500">{lead.status}</p></li>)}</ul>}</section>
+        <section className="rounded-xl border border-slate-200 bg-white p-4"><h2 className="font-semibold">{selected}</h2>{dayLeads.length === 0 ? <p className="mt-3 text-sm text-slate-500">No follow-ups scheduled for this day.</p> : <ul className="mt-3 space-y-2">{dayLeads.map((lead) => <li key={lead.id} className="rounded-lg bg-slate-50 p-3"><p className="font-medium text-slate-900">{lead.name}</p><p className="text-xs text-slate-500">{leadStatusLabel(lead.status)}</p></li>)}</ul>}</section>
       </div>}
     </div>
   );
