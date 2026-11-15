@@ -77,6 +77,13 @@ interface StatusChangeRow {
   created_at: string;
   description: string;
 }
+
+function statusChangeMatchesAppointment(description: string, column: string | undefined): boolean {
+  if (!column) return false;
+  const destination = description.slice(description.lastIndexOf("→") + 1).replace(/[.;\s]+$/g, "").trim();
+  return appointmentForStatus(destination)?.column === column;
+}
+
 export async function getMonthDays(
   month?: string,
   includeUpcoming = false,
@@ -148,6 +155,7 @@ export async function getMonthDays(
       return !normaliseAppointmentDate(lead[field.column]);
     });
     const statusChanges = new Map<string, StatusChangeRow>();
+    const needsDateById = new Map(needsDate.map((lead) => [lead.id, lead]));
     for (let offset = 0; offset < needsDate.length; offset += 100) {
       const leadIds = needsDate.slice(offset, offset + 100).map((lead) => lead.id);
       for (let rowOffset = 0; ; rowOffset += 500) {
@@ -155,12 +163,15 @@ export async function getMonthDays(
           .select("lead_id,user_id,created_at,description")
           .in("lead_id", leadIds)
           .eq("action_type", "Status changed")
-          .or("description.like.% → OPD Booked,description.like.% → Consultation Booked,description.like.% → OPD Done,description.like.% → Consultation Attended,description.like.% → IPD Booked,description.like.% → Surgery Scheduled,description.like.% → IPD Done,description.like.% → Surgery Completed")
+          .or("description.like.% → OPD Booked%,description.like.% → Consultation Booked%,description.like.% → OPD Done%,description.like.% → Consultation Attended%,description.like.% → IPD Booked%,description.like.% → Surgery Scheduled%,description.like.% → IPD Done%,description.like.% → Surgery Completed%")
           .order("created_at", { ascending: false })
           .range(rowOffset, rowOffset + 499);
-        if (error) return { success: false, error: "OPD/IPD booking history could not be loaded. Please retry." };
+        if (error) return { success: false, error: "OPD/IPD status history could not be loaded. Please retry." };
         for (const row of (data ?? []) as StatusChangeRow[]) {
-          if (!statusChanges.has(row.lead_id)) statusChanges.set(row.lead_id, row);
+          const field = appointmentForStatus(needsDateById.get(row.lead_id)?.status ?? "");
+          if (!statusChanges.has(row.lead_id) && statusChangeMatchesAppointment(row.description, field?.column)) {
+            statusChanges.set(row.lead_id, row);
+          }
         }
         if (!data || data.length < 500) break;
       }
