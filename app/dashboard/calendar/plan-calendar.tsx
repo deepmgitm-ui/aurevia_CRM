@@ -89,6 +89,8 @@ export function PlanCalendar({
   selectedDate?: string;
 }) {
   const [monthCursor, setMonthCursor] = useState(() => month || todayIso.slice(0, 7));
+  const [dateFilter, setDateFilter] = useState<"month" | "today" | "week" | "date">("month");
+  const [filterDate, setFilterDate] = useState(todayIso);
   const [selectedIso, setSelectedIso] = useState(selectedDate || (month === todayIso.slice(0, 7) ? todayIso : `${month}-01`));
   // Month-key cache: `days` always belongs to `monthKey`, so "fetching another
   // month" is a DERIVED flag â€” no setState needed inside the fetch effect.
@@ -152,6 +154,18 @@ export function PlanCalendar({
     .filter((item) => !["cancelled", "no_show"].includes(item.appointmentStatus))
     .map((item) => ({ item, category: appointmentCategory(item.kind, item.appointmentStatus) }))
     .sort((a, b) => a.item.date.localeCompare(b.item.date) || a.item.leadName.localeCompare(b.item.leadName));
+  const weekStart = new Date(`${todayIso}T00:00:00Z`);
+  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+  const weekEnd = new Date(weekStart);
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+  const weekStartIso = weekStart.toISOString().slice(0, 10);
+  const weekEndIso = weekEnd.toISOString().slice(0, 10);
+  const filteredMonthAppointments = monthAppointments.filter(({ item }) =>
+    dateFilter === "month" ||
+    (dateFilter === "today" && item.date === todayIso) ||
+    (dateFilter === "week" && item.date >= weekStartIso && item.date <= weekEndIso) ||
+    (dateFilter === "date" && item.date === filterDate),
+  );
 
   function shiftMonth(delta: number) {
     const next = new Date(cursorYear, cursorMonth - 1 + delta, 1);
@@ -329,10 +343,19 @@ export function PlanCalendar({
 
       </div>
       <section aria-label="Appointments by type" className="space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-semibold text-slate-950">Appointment lanes</h2><p className="text-sm text-slate-500">{monthLabel} · {monthAppointments.length} total</p></div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-lg font-semibold text-slate-950">Appointment lanes</h2><p className="text-sm text-slate-500">{monthLabel} · <strong className="text-slate-700">{filteredMonthAppointments.length} total</strong></p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="appointment-lanes-date-filter" className="text-sm font-medium text-slate-600">Filter dates</label>
+            <select id="appointment-lanes-date-filter" value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <option value="month">All dates this month</option><option value="today">Today</option><option value="week">This week</option><option value="date">Choose a date</option>
+            </select>
+            {dateFilter === "date" && <input aria-label="Choose appointment date" type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" />}
+          </div>
+        </div>
         {loadingMonth ? <p role="status" className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading this month’s appointments…</p> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {(Object.keys(CATEGORY_LABELS) as (keyof typeof CATEGORY_LABELS)[]).map((category) => {
-            const rows = monthAppointments.filter((row) => row.category === category);
+            const rows = filteredMonthAppointments.filter((row) => row.category === category);
             const colors = CATEGORY_COLORS[category];
             return <section key={category} aria-label={CATEGORY_LABELS[category]} className={`min-w-0 overflow-hidden rounded-2xl border ${colors.panel}`}>
               <header className={`flex items-center justify-between gap-2 px-4 py-3 ${colors.heading}`}><h3 className="font-semibold">{CATEGORY_LABELS[category]}</h3><span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${colors.count}`}>{rows.length}</span></header>
