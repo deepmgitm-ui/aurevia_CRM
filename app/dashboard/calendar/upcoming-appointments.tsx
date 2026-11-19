@@ -105,9 +105,9 @@ function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents, com
   }).format(new Date(item.updatedAt));
   const category = appointmentCategory(item.kind, item.appointmentStatus);
   const categoryStyles = {
-    opdBooked: "border-sky-200 bg-sky-50/60 text-sky-800",
-    opdDone: "border-blue-200 bg-blue-50/60 text-blue-800",
-    ipdBooked: "border-amber-200 bg-amber-50/60 text-amber-800",
+    opdBooked: "border-cyan-200 bg-cyan-50/70 text-cyan-900",
+    opdDone: "border-emerald-200 bg-emerald-50/70 text-emerald-900",
+    ipdBooked: "border-orange-200 bg-orange-50/70 text-orange-900",
     ipdDone: "border-violet-200 bg-violet-50/60 text-violet-800",
   }[category];
   const categoryLabels = { opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" };

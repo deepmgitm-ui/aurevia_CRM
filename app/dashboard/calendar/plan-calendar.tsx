@@ -25,10 +25,17 @@ import { PhonePreview } from "../phone-preview";
 import { appointmentCategory } from "@/lib/appointments";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CATEGORY_LABELS = { opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" } as const;
+const CATEGORY_COLORS = {
+  opdBooked: { dot: "bg-cyan-600", pastDot: "bg-cyan-300", panel: "border-cyan-200 bg-cyan-50/70", heading: "bg-cyan-700 text-white", count: "bg-white/20 text-white" },
+  opdDone: { dot: "bg-emerald-600", pastDot: "bg-emerald-300", panel: "border-emerald-200 bg-emerald-50/70", heading: "bg-emerald-700 text-white", count: "bg-white/20 text-white" },
+  ipdBooked: { dot: "bg-orange-500", pastDot: "bg-orange-300", panel: "border-orange-200 bg-orange-50/70", heading: "bg-orange-600 text-white", count: "bg-white/20 text-white" },
+  ipdDone: { dot: "bg-violet-700", pastDot: "bg-violet-300", panel: "border-violet-200 bg-violet-50/70", heading: "bg-violet-800 text-white", count: "bg-white/20 text-white" },
+} as const;
 
 function ReminderIcon({ reminder }: { reminder: CalendarAppointment }) {
   const category = appointmentCategory(reminder.kind, reminder.appointmentStatus);
-  const color = { opdBooked: "text-sky-700", opdDone: "text-blue-700", ipdBooked: "text-amber-700", ipdDone: "text-violet-700" }[category];
+  const color = { opdBooked: "text-cyan-700", opdDone: "text-emerald-700", ipdBooked: "text-orange-700", ipdDone: "text-violet-700" }[category];
   const className = `size-4 ${color}`;
   if (category.startsWith("ipd")) return <Stethoscope className={className} aria-hidden="true" />;
   if (category === "opdDone") return <CircleCheck className={className} aria-hidden="true" />;
@@ -45,12 +52,7 @@ function ReminderIcon({ reminder }: { reminder: CalendarAppointment }) {
 function ReminderDot({ reminder }: { reminder: CalendarAppointment }) {
   const className = "size-2.5";
   const category = appointmentCategory(reminder.kind, reminder.appointmentStatus);
-  const color = {
-    opdBooked: reminder.past ? "bg-sky-300" : "bg-sky-600",
-    opdDone: reminder.past ? "bg-blue-300" : "bg-blue-600",
-    ipdBooked: reminder.past ? "bg-amber-300" : "bg-amber-600",
-    ipdDone: reminder.past ? "bg-violet-300" : "bg-violet-600",
-  }[category];
+  const color = reminder.past ? CATEGORY_COLORS[category].pastDot : CATEGORY_COLORS[category].dot;
   const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${color} ${reminder.dateSource !== "appointment" ? "ring-2 ring-amber-400 ring-offset-1" : ""}`;
   return (
     <span className={dotClass}>
@@ -267,7 +269,7 @@ export function PlanCalendar({
             })}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
-            <span className="text-sky-700">● OPD Booked</span><span className="text-blue-700">● OPD Done</span><span className="text-amber-700">● IPD Booked</span><span className="text-violet-700">● IPD Done</span><span className="text-slate-600">◉ Ring = date needed</span>
+            <span className="text-cyan-700">● OPD Booked</span><span className="text-emerald-700">● OPD Done</span><span className="text-orange-700">● IPD Booked</span><span className="text-violet-700">● IPD Done</span><span className="text-slate-600">◉ Ring = date needed</span>
           </div>
           </CardContent>
         </Card>
@@ -326,26 +328,23 @@ export function PlanCalendar({
         </div>
 
       </div>
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3"><CardTitle className="text-base">OPD / IPD booked and done · {monthLabel}</CardTitle></CardHeader>
-        <CardContent>
-          {loadingMonth ? <p role="status" className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">Loading this month’s appointments…</p> : monthAppointments.length === 0 ? <p className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">No booked or done appointments this month.</p> : <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Date</th><th className="px-3 py-2 font-semibold">Type</th><th className="px-3 py-2 font-semibold">Patient</th><th className="px-3 py-2 font-semibold">Agent</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">{monthAppointments.map(({ item, category }) => {
-                const style = {
-                  opdBooked: "bg-sky-50 text-sky-800 ring-sky-200",
-                  opdDone: "bg-blue-50 text-blue-800 ring-blue-200",
-                  ipdBooked: "bg-amber-50 text-amber-800 ring-amber-200",
-                  ipdDone: "bg-violet-50 text-violet-800 ring-violet-200",
-                }[category];
-                const label = { opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" }[category];
-                return <tr key={`${item.leadId}-${category}`}><td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{new Date(`${item.date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}{item.dateSource !== "appointment" && <span className="ml-1 text-xs text-amber-700">(status date)</span>}</td><td className="px-3 py-2.5"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${style}`}>{label}</span></td><td className="px-3 py-2.5"><a href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="font-medium text-slate-900 hover:text-blue-700">{item.leadName}</a></td><td className="px-3 py-2.5 text-slate-600">{item.agent === "-" ? "Unassigned" : item.agent}</td></tr>;
-              })}</tbody>
-            </table>
-          </div>}
-        </CardContent>
-      </Card>
+      <section aria-label="Appointments by type" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-semibold text-slate-950">Appointment lanes</h2><p className="text-sm text-slate-500">{monthLabel} · {monthAppointments.length} total</p></div>
+        {loadingMonth ? <p role="status" className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading this month’s appointments…</p> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {(Object.keys(CATEGORY_LABELS) as (keyof typeof CATEGORY_LABELS)[]).map((category) => {
+            const rows = monthAppointments.filter((row) => row.category === category);
+            const colors = CATEGORY_COLORS[category];
+            return <section key={category} aria-label={CATEGORY_LABELS[category]} className={`min-w-0 overflow-hidden rounded-2xl border ${colors.panel}`}>
+              <header className={`flex items-center justify-between gap-2 px-4 py-3 ${colors.heading}`}><h3 className="font-semibold">{CATEGORY_LABELS[category]}</h3><span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${colors.count}`}>{rows.length}</span></header>
+              {rows.length === 0 ? <p className="px-4 py-5 text-sm text-slate-500">No entries this month</p> : <ul className="max-h-80 space-y-2 overflow-y-auto p-3">{rows.map(({ item }) => <li key={`${item.leadId}-${category}`} className="rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-2"><a href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="min-w-0 truncate font-semibold text-slate-900 hover:underline">{item.leadName}</a><span className={`mt-1 size-2.5 shrink-0 rounded-full ${colors.dot}`} aria-hidden="true" /></div>
+                <p className="mt-1 text-xs text-slate-600">{new Date(`${item.date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}{item.dateSource !== "appointment" ? " · status date" : ""}</p>
+                <p className="mt-1 truncate text-xs text-slate-500">{item.agent === "-" ? "Unassigned" : item.agent}</p>
+              </li>)}</ul>}
+            </section>;
+          })}
+        </div>}
+      </section>
     </div>
   );
 }
@@ -368,7 +367,7 @@ function ReminderCard({
     timeZone: "Asia/Kolkata",
   }).format(new Date(reminder.updatedAt));
   return (
-    <article className={`rounded-xl border p-3 ${{ opdBooked: "border-sky-200 bg-sky-50/60", opdDone: "border-blue-200 bg-blue-50/60", ipdBooked: "border-amber-200 bg-amber-50/60", ipdDone: "border-violet-200 bg-violet-50/60" }[appointmentCategory(reminder.kind, reminder.appointmentStatus)]}`}>
+    <article className={`rounded-xl border p-3 ${CATEGORY_COLORS[appointmentCategory(reminder.kind, reminder.appointmentStatus)].panel}`}>
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
           <ReminderIcon reminder={reminder} />
