@@ -13,6 +13,13 @@
 // reaching OPD Done or IPD Done IS the win, so storing "Won" as a separate
 // status would only create a second thing to keep in sync.
 export type AppointmentKind = "opdBooked" | "opdDone" | "ipdDone";
+export type AppointmentCategory = "opdBooked" | "opdDone" | "ipdBooked" | "ipdDone";
+
+export function appointmentCategory(kind: AppointmentKind, status: string): AppointmentCategory {
+  const done = status === "completed" || kind === "opdDone";
+  if (kind === "ipdDone") return done ? "ipdDone" : "ipdBooked";
+  return done ? "opdDone" : "opdBooked";
+}
 
 export interface AppointmentField {
   kind: AppointmentKind;

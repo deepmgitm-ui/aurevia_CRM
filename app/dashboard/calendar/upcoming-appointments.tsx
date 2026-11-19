@@ -8,6 +8,7 @@ import { AppointmentStatusActions } from "./appointment-status-actions";
 import { AppointmentEditor } from "./appointment-editor";
 import { PhonePreview } from "../phone-preview";
 import type { CalendarAppointment } from "./actions";
+import { appointmentCategory } from "@/lib/appointments";
 
 export function UpcomingAppointments({ items, pastItems, undatedItems, todayIso, canEdit, showAttribution, agents, initialView = "upcoming" }: { items: CalendarAppointment[]; pastItems: CalendarAppointment[]; undatedItems: CalendarAppointment[]; todayIso: string; canEdit: boolean; showAttribution: boolean; agents: string[]; initialView?: "upcoming" | "past" }) {
   const [view, setView] = useState(initialView);
@@ -102,11 +103,19 @@ function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents, com
   const statusUpdatedLabel = new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata",
   }).format(new Date(item.updatedAt));
+  const category = appointmentCategory(item.kind, item.appointmentStatus);
+  const categoryStyles = {
+    opdBooked: "border-sky-200 bg-sky-50/60 text-sky-800",
+    opdDone: "border-blue-200 bg-blue-50/60 text-blue-800",
+    ipdBooked: "border-amber-200 bg-amber-50/60 text-amber-800",
+    ipdDone: "border-violet-200 bg-violet-50/60 text-violet-800",
+  }[category];
+  const categoryLabels = { opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" };
   if (compact) return <li className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Link prefetch={false} href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="truncate text-sm font-semibold text-slate-900 hover:text-blue-700">{item.leadName}</Link>
-        <span className="text-xs font-medium text-amber-800">{item.kindLabel}</span>
+        <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${categoryStyles}`}>{categoryLabels[category]}</span>
       </div>
       <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-600">
         <span>{item.dateSource === "status-change" ? "Status updated" : "Status recorded"}: <time dateTime={item.updatedAt}>{statusUpdatedLabel}</time></span>
@@ -117,12 +126,12 @@ function AppointmentCard({ item, todayIso, canEdit, showAttribution, agents, com
     </div>
     {canEdit && <div className="shrink-0"><AppointmentEditor agents={agents} defaultDate={todayIso} leadId={item.leadId} defaultKind={item.kind} status={item.appointmentStatus} label="Set date" /></div>}
   </li>;
-  return <li className="rounded-xl border border-slate-200 p-4">
+  return <li className={`rounded-xl border p-4 ${categoryStyles}`}>
     <div className="flex items-start justify-between gap-3">
       <Link prefetch={false} href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="min-w-0 truncate font-semibold text-slate-900 hover:text-blue-700">{item.leadName}</Link>
       <span className={`shrink-0 rounded-lg px-2 py-1 text-xs font-semibold ${undated ? "bg-amber-100 text-amber-900" : item.date === todayIso ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>{undated ? "Date needed" : item.date === todayIso ? "Today" : dateLabel}</span>
     </div>
-    <p className={`mt-2 text-xs font-semibold ${item.kind === "ipdDone" ? "text-violet-700" : undated ? "text-amber-800" : "text-blue-700"}`}>{item.kindLabel}{!undated && item.time ? ` · ${item.time} IST` : ""}</p>
+    <p className="mt-2 text-xs font-semibold">{categoryLabels[category]}{!undated && item.time ? ` · ${item.time} IST` : ""}{undated ? " · date needed" : ""}</p>
     {undated && <p className="mt-1 text-xs text-slate-600">{item.dateSource === "status-change" ? "Status changed" : "Status first recorded"}: {dateLabel}</p>}
     <p className="mt-1 truncate text-xs text-slate-500">Agent: {item.agent === "-" ? "Unassigned" : item.agent}</p>
     {showAttribution && item.bookedBy && <p className="mt-1 truncate text-xs text-slate-500">Booked by: {item.bookedBy}</p>}

@@ -17,18 +17,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getMonthDays, type CalendarDay, type CalendarAppointment, type AppointmentKind } from "./actions";
+import { getMonthDays, type CalendarDay, type CalendarAppointment } from "./actions";
 import { buildMonthCells, ensureArray } from "./month-grid";
 import { AppointmentStatusActions } from "./appointment-status-actions";
 import { AppointmentEditor } from "./appointment-editor";
 import { PhonePreview } from "../phone-preview";
+import { appointmentCategory } from "@/lib/appointments";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function ReminderIcon({ kind }: { kind: AppointmentKind }) {
-  const className = "size-4 text-blue-600";
-  if (kind === "ipdDone") return <Stethoscope className={className} aria-hidden="true" />;
-  if (kind === "opdDone") return <CircleCheck className={className} aria-hidden="true" />;
+function ReminderIcon({ reminder }: { reminder: CalendarAppointment }) {
+  const category = appointmentCategory(reminder.kind, reminder.appointmentStatus);
+  const color = { opdBooked: "text-sky-700", opdDone: "text-blue-700", ipdBooked: "text-amber-700", ipdDone: "text-violet-700" }[category];
+  const className = `size-4 ${color}`;
+  if (category.startsWith("ipd")) return <Stethoscope className={className} aria-hidden="true" />;
+  if (category === "opdDone") return <CircleCheck className={className} aria-hidden="true" />;
   return <CalendarDays className={className} aria-hidden="true" />;
 }
 
@@ -39,27 +42,21 @@ function ReminderIcon({ kind }: { kind: AppointmentKind }) {
  * history, not a missed call â€” colouring it red would train the team to
  * ignore the colour that a genuine problem actually uses.
  */
-function ReminderDot({ kind, past, dateNeeded }: { kind: AppointmentKind; past: boolean; dateNeeded: boolean }) {
+function ReminderDot({ reminder }: { reminder: CalendarAppointment }) {
   const className = "size-2.5";
-  const color = dateNeeded
-    ? past ? "bg-amber-300" : "bg-amber-600"
-    : kind === "ipdDone"
-      ? past
-        ? "bg-violet-300"
-        : "bg-violet-600"
-      : kind === "opdDone"
-        ? past
-          ? "bg-blue-300"
-          : "bg-blue-600"
-        : past
-          ? "bg-blue-300"
-          : "bg-blue-600"
-  const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${color}`;
+  const category = appointmentCategory(reminder.kind, reminder.appointmentStatus);
+  const color = {
+    opdBooked: reminder.past ? "bg-sky-300" : "bg-sky-600",
+    opdDone: reminder.past ? "bg-blue-300" : "bg-blue-600",
+    ipdBooked: reminder.past ? "bg-amber-300" : "bg-amber-600",
+    ipdDone: reminder.past ? "bg-violet-300" : "bg-violet-600",
+  }[category];
+  const dotClass = `flex size-4 items-center justify-center rounded-full text-white ${color} ${reminder.dateSource !== "appointment" ? "ring-2 ring-amber-400 ring-offset-1" : ""}`;
   return (
     <span className={dotClass}>
-      {kind === "ipdDone" ? (
+      {category.startsWith("ipd") ? (
         <Stethoscope className={className} />
-      ) : kind === "opdDone" ? (
+      ) : category === "opdDone" ? (
         <CircleCheck className={className} />
       ) : (
         <BadgeCheck className={className} />
@@ -147,6 +144,12 @@ export function PlanCalendar({
     month: "long",
     year: "numeric",
   });
+  const monthAppointments = visibleDays
+    .filter((day) => day.iso.startsWith(`${monthCursor}-`))
+    .flatMap((day) => day.reminders)
+    .filter((item) => !["cancelled", "no_show"].includes(item.appointmentStatus))
+    .map((item) => ({ item, category: appointmentCategory(item.kind, item.appointmentStatus) }))
+    .sort((a, b) => a.item.date.localeCompare(b.item.date) || a.item.leadName.localeCompare(b.item.leadName));
 
   function shiftMonth(delta: number) {
     const next = new Date(cursorYear, cursorMonth - 1 + delta, 1);
@@ -251,9 +254,7 @@ export function PlanCalendar({
                     {dayReminders.slice(0, 3).map((reminder) => (
                       <ReminderDot
                         key={`${reminder.leadId}-${reminder.kind}`}
-                        kind={reminder.kind}
-                        past={reminder.past}
-                        dateNeeded={reminder.dateSource !== "appointment"}
+                        reminder={reminder}
                       />
                     ))}
                     {dayReminders.length > 3 && (
@@ -265,9 +266,9 @@ export function PlanCalendar({
               );
             })}
           </div>
-          <p className="mt-3 text-xs text-slate-500">
-            <span className="font-semibold text-amber-700">Amber</span> = booking status update with no appointment date; <span className="font-semibold text-sky-700">sky</span> = OPD booked with a date, <span className="font-semibold text-blue-700">blue</span> = OPD done, <span className="font-semibold text-violet-700">violet</span> = IPD / surgery.
-          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
+            <span className="text-sky-700">● OPD Booked</span><span className="text-blue-700">● OPD Done</span><span className="text-amber-700">● IPD Booked</span><span className="text-violet-700">● IPD Done</span><span className="text-slate-600">◉ Ring = date needed</span>
+          </div>
           </CardContent>
         </Card>
 
@@ -325,6 +326,26 @@ export function PlanCalendar({
         </div>
 
       </div>
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3"><CardTitle className="text-base">OPD / IPD booked and done · {monthLabel}</CardTitle></CardHeader>
+        <CardContent>
+          {loadingMonth ? <p role="status" className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">Loading this month’s appointments…</p> : monthAppointments.length === 0 ? <p className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">No booked or done appointments this month.</p> : <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-sm">
+              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Date</th><th className="px-3 py-2 font-semibold">Type</th><th className="px-3 py-2 font-semibold">Patient</th><th className="px-3 py-2 font-semibold">Agent</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">{monthAppointments.map(({ item, category }) => {
+                const style = {
+                  opdBooked: "bg-sky-50 text-sky-800 ring-sky-200",
+                  opdDone: "bg-blue-50 text-blue-800 ring-blue-200",
+                  ipdBooked: "bg-amber-50 text-amber-800 ring-amber-200",
+                  ipdDone: "bg-violet-50 text-violet-800 ring-violet-200",
+                }[category];
+                const label = { opdBooked: "OPD Booked", opdDone: "OPD Done", ipdBooked: "IPD Booked", ipdDone: "IPD Done" }[category];
+                return <tr key={`${item.leadId}-${category}`}><td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{new Date(`${item.date}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}{item.dateSource !== "appointment" && <span className="ml-1 text-xs text-amber-700">(status date)</span>}</td><td className="px-3 py-2.5"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${style}`}>{label}</span></td><td className="px-3 py-2.5"><a href={`/dashboard/leads?q=${encodeURIComponent(item.phone === "-" ? item.leadName : item.phone)}#lead-list`} className="font-medium text-slate-900 hover:text-blue-700">{item.leadName}</a></td><td className="px-3 py-2.5 text-slate-600">{item.agent === "-" ? "Unassigned" : item.agent}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -347,10 +368,10 @@ function ReminderCard({
     timeZone: "Asia/Kolkata",
   }).format(new Date(reminder.updatedAt));
   return (
-    <article className="rounded-xl border border-slate-200 p-3">
+    <article className={`rounded-xl border p-3 ${{ opdBooked: "border-sky-200 bg-sky-50/60", opdDone: "border-blue-200 bg-blue-50/60", ipdBooked: "border-amber-200 bg-amber-50/60", ipdDone: "border-violet-200 bg-violet-50/60" }[appointmentCategory(reminder.kind, reminder.appointmentStatus)]}`}>
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-          <ReminderIcon kind={reminder.kind} />
+          <ReminderIcon reminder={reminder} />
           {reminder.leadName}
         </p>
         {reminder.past && <Badge variant="secondary">Past</Badge>}
