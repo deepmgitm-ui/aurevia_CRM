@@ -78,6 +78,7 @@ export function selectCurrentStatusAppointments<
   T extends {
     lead: { id: string; status: string };
     kind: AppointmentKind;
+    status: string;
     legacy_column: string | null;
     updated_at: string;
     starts_on: string;
@@ -100,6 +101,13 @@ export function selectCurrentStatusAppointments<
     if (!kind || !column) continue;
 
     const candidates = group.filter((row) => row.kind === kind && row.legacy_column === column);
+    // Completing an OPD can leave its original booked row marked completed without
+    // creating a separate opdDone row. Treat that completed booking as today's OPD Done.
+    if (!candidates.length && kind === "opdDone") {
+      candidates.push(...group.filter((row) =>
+        row.kind === "opdBooked" && row.legacy_column === "opd_booked_date" && row.status === "completed",
+      ));
+    }
     candidates.sort((a, b) => {
       return b.updated_at.localeCompare(a.updated_at) || b.starts_on.localeCompare(a.starts_on) || a.id.localeCompare(b.id);
     });
