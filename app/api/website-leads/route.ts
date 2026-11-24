@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 const ALLOWED_ORIGINS = new Set([
   "https://aureviahealthcare.com",
   "https://www.aureviahealthcare.com",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
 ]);
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 30;
