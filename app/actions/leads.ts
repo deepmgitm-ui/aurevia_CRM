@@ -323,7 +323,9 @@ export const getDashboardWindow = cache(async () => {
 export const getAnalyticsLeads=cache(async(from?:string,to?:string):Promise<ActionResult<Lead[]>>=>{
  try{const supabase=await createClient();const viewer=await getViewer();if(!viewer.success||!viewer.data)return {success:false,error:"Sign in to view analytics."};
  const window=await getDashboardWindow();const range=isWorkDate(from??"")&&isWorkDate(to??"")&&from!<=to!?{from:from!,to:to!}:window.range;
- const rows:Lead[]=[];for(let offset=0;;offset+=500){const {data,error}=await supabase.rpc("crm_analytics_groups",{p_from:range.from,p_to:range.to}).range(offset,offset+499);if(error)return {success:false,error:"Analytics could not be loaded. Please retry."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<500)break;}
+ // Supabase’s default PostgREST row cap is 1,000; use the full page to reduce
+ // sequential round trips while keeping the same complete analytics dataset.
+ const pageSize=1000;const rows:Lead[]=[];for(let offset=0;;offset+=pageSize){const {data,error}=await supabase.rpc("crm_analytics_groups",{p_from:range.from,p_to:range.to}).range(offset,offset+pageSize-1);if(error)return {success:false,error:"Analytics could not be loaded. Please retry."};rows.push(...(data??[]) as Lead[]);if(!data||data.length<pageSize)break;}
  return {success:true,data:rows};}catch(error){return {success:false,error:getErrorMessage(error,"Analytics unavailable.")};}
 });
 
